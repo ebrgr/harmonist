@@ -103,7 +103,9 @@
            Back onto it all produce the same page with no client-side state to
            drift — and the first paint costs one request instead of two. Later
            pages swap in here; each carries its own refresh wiring (#139). #}
-        <div id="library-rows">
+        {# User navigation replaces any in-flight request on this stable target.
+           The refresh element opts into abort instead, so it yields to navigation. #}
+        <div id="library-rows" hx-sync="#library-rows:replace">
             {% include 'partials/library_page.html' %}
         </div>
     </div>

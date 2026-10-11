@@ -6,7 +6,7 @@
    trip to an album page and back dumped you on the newest 30 (#139). Each page
    is now a complete, self-describing render that replaces #library-rows.
 
-   The root element below carries the refresh wiring, so each render re-requests
+   The refresh element below carries its own URL, so each render re-requests
    the page it is actually showing. Putting that on the #library-rows container
    instead needs the page in an `hx-vals`, and hx-vals is INHERITED: every pager
    link inside would then send its own `?page=2` plus the container's `?page=1`,
@@ -14,7 +14,7 @@
    is no inherited value to collide with, and a refresh mid-browse (every
    `tasks-changed`) keeps you on your page.
 
-   It also carries the dataset that says what this render *is*: which slice is on
+   The root carries the dataset that says what this render *is*: which slice is on
    screen (`data-page`, `data-limit`) and how big the whole Library is
    (`data-total-done` — unfiltered and unsearched, #140's constraint, since a
    paginated grid cannot be counted by its rendered rows). The browser tests read
@@ -35,10 +35,14 @@
    else, so there was nothing left for a press to fetch. #}
 {% from 'macros.html' import library_query %}
 <div id="library-page" data-total-done="{{ total_done }}" data-page="{{ page }}"
-     data-limit="{{ limit }}"
+     data-limit="{{ limit }}">
+{# A separate leaf keeps the background request's abort strategy from being
+   inherited by the navigation controls. All requests share the stable target:
+   refreshes yield to pending navigation and navigation cancels older refreshes. #}
+<div hidden hx-sync="#library-rows:abort"
      hx-get="/library?{{ library_query(page, limit, filter, q) }}"
      hx-trigger="library-refresh from:body, tasks-changed from:body"
-     hx-target="#library-rows" hx-swap="innerHTML">
+     hx-target="#library-rows" hx-swap="innerHTML"></div>
 {# Search (#180). The filters below find albums that are *wrong*, or that have an
    update waiting (#287); this finds the album you have in mind, which at library
    scale is the more common errand and the one paging cannot help with.

@@ -87,3 +87,76 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
         pw.expect(trigger).to_contain_text("Update available")
         pw.expect(page).not_to_have_url(re.compile(r"filter="))
         browser.close()
+
+
+@pytest.mark.parametrize(
+    "navigation_first", [False, True], ids=["refresh-first", "navigation-first"]
+)
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_navigation_takes_priority_over_refresh(demo_server, htmx_ready, navigation_first, engine):
+    """Hold real responses to force both overlap orders; timing sleeps cannot prove this race."""
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_page()
+        page.goto(f"{demo_server}/album/demo-rel-rural-juror")
+        pw.expect(
+            page.locator("#album-update-demo-rel-rural-juror .sev--structure")
+        ).to_be_visible()
+        page.get_by_role("link", name="← Back to library", exact=True).click()
+        trigger = htmx_ready(page.locator("#library-update-button"))
+        trigger.wait_for(state="visible")
+        page.evaluate("""() => {
+            window.libraryRequests = [];
+            document.body.addEventListener('htmx:beforeRequest', e => {
+                if (e.detail.target.id !== 'library-rows') return;
+                const request = {done: false};
+                window.libraryRequests.push(request);
+                e.detail.xhr.addEventListener('loadend', () => { request.done = true; });
+            });
+        }""")
+        held = []
+
+        def hold_first(route):
+            # Fetch the actual server response, then control its delivery. The
+            # other request remains real too, including its history headers.
+            if ("filter=update-structure" in route.request.url) == navigation_first:
+                held.append((route, route.fetch()))
+                page.evaluate("window.libraryResponseHeld = true")
+            else:
+                route.continue_()
+
+        page.route("**/library?**", hold_first)
+
+        def refresh():
+            page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
+
+        def navigate():
+            trigger.click()
+            menu = page.get_by_role("navigation", name="Update filters", exact=True)
+            htmx_ready(menu.get_by_role("link", name=re.compile("Structure"))).click()
+
+        (navigate if navigation_first else refresh)()
+        page.wait_for_function("window.libraryResponseHeld === true")
+        (refresh if navigation_first else navigate)()
+        if navigation_first:
+            # HTMX handles the refresh event synchronously. No second request
+            # may start with the old view while navigation is pending.
+            assert page.evaluate("window.libraryRequests.length") == 1
+        else:
+            pw.expect(trigger).to_contain_text("Updates: Structure")
+
+        route, response = held.pop()
+        route.fulfill(response=response)
+        page.wait_for_function("window.libraryRequests.every(request => request.done)")
+        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(page).to_have_url(re.compile("filter=update-structure"))
+        pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
+
+        # The replacement fragment must still refresh, using the selected view.
+        page.unroute("**/library?**", hold_first)
+        with page.expect_response(lambda r: "/library?" in r.url and "update-structure" in r.url):
+            refresh()
+        page.wait_for_function("window.libraryRequests.every(request => request.done)")
+        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(page).to_have_url(re.compile("filter=update-structure"))
+        browser.close()
