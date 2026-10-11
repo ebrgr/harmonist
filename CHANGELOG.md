@@ -17,6 +17,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- Choosing a possible mismatch keeps the review in view without unnecessarily scrolling the page (#725).
 - Background Library refreshes no longer undo a filter, search or page change (#724).
 - **A Bandcamp download whose page is linked from both a digital and a physical
   release is tagged as the digital one**, instead of waiting for you to choose
