@@ -97,7 +97,8 @@ suggestion to confirm.
 ## The Library
 
 Albums with nothing to decide are in the **Library**. Its filters narrow the
-collection by origin or find albums that could be better:
+collection by origin or find albums that could be better. Artist and album
+search works within any filter:
 
 ![The Library: a search box, then filter chips with counts (All 9, Incomplete
 1, Partially tagged 0, No artwork 0, Mixed formats 0, Update available 1,
@@ -108,16 +109,23 @@ marked "New".](images/library.png)
 | Filter | Shows albums that… |
 |---|---|
 | **Origin** | came from Bandcamp, Qobuz, Amazon, Beatport or CD, or have an Unknown origin, using the same detection or explicit choice as the album page. |
-| **Incomplete** | have fewer tracks than their release. |
-| **Partially tagged** | have some files matched and some not. |
+| **Incomplete** | are missing tracks or discs, based on the totals in their tags. Albums accepted with **Don't warn me about this** are left out. |
+| **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
 | **No artwork** | have no cover at all. |
 | **Mixed formats** | mix codecs, such as one MP3 among FLACs. |
-| **Update available** | have newer information on MusicBrainz than in their tags. See [keeping tags up to date](#keeping-tags-up-to-date). |
+| **Update available** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
 | **Possible mismatch** | may be matched to the wrong release. See [when the match might be wrong](#when-the-match-might-be-wrong). |
 | **MB contributions** | have a release that's missing something you could add. See [giving back to MusicBrainz](#giving-back-to-musicbrainz). |
 
 Each album has its own page with everything Harmonist knows about it: your tags
 beside MusicBrainz's, the tracklist, the artwork, and its history.
+
+Files that belong to the release but aren't paired with a MusicBrainz track are
+marked **Tracks unassigned**, separately from partial tagging. The tracklist
+shows the gaps; [track assignments](troubleshooting.md#files-are-paired-with-the-wrong-tracks)
+can be reviewed. Missing or inconsistent tag values appear in the comparison
+with MusicBrainz. Files that disagree about which album they belong to go to
+**Inconsistent** in the [Inbox](#the-inbox).
 
 ## Bandcamp sync
 

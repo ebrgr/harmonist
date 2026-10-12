@@ -13,6 +13,8 @@ reversible.**
   MusicBrainz for you to review and apply.
 - **Fill missing covers and upgrade your artwork.** Compare images from your
   files and the Cover Art Archive, then apply the covers you choose.
+- **Satisfy your inner perfectionist.** Find the gaps and inconsistencies hiding
+  in your collection with [focused library filters](docs/how-it-works.md#the-library).
 - **Undo tag and artwork changes.** See exactly what changed, restore previous
   tags, and recover saved covers.
 - **Give back to MusicBrainz.** Find opportunities in your collection to improve

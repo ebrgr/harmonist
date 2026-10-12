@@ -116,6 +116,6 @@ per sync by default, adjustable in Settings.
 - **Library updates** (**Find updates for review**) in Settings has Harmonist check the
   whole library against MusicBrainz in the background. See
   [keeping tags up to date](how-it-works.md#keeping-tags-up-to-date).
-- The Library's filters list albums that are incomplete, missing artwork, or
-  have updates waiting.
+- The [Library's filters](how-it-works.md#the-library) find gaps and
+  inconsistencies in your collection, from missing tracks to mixed formats.
 - [Troubleshooting](troubleshooting.md) covers the problems people run into.
