@@ -96,8 +96,8 @@ suggestion to confirm.
 
 ## The Library
 
-Albums with nothing to decide are in the **Library**. Its filters find the ones
-that are finished but could be better:
+Albums with nothing to decide are in the **Library**. Its filters narrow the
+collection by origin or find albums that could be better:
 
 ![The Library: a search box, then filter chips with counts (All 9, Incomplete
 1, Partially tagged 0, No artwork 0, Mixed formats 0, Update available 1,
@@ -107,6 +107,7 @@ marked "New".](images/library.png)
 
 | Filter | Shows albums that… |
 |---|---|
+| **Origin** | came from Bandcamp, Qobuz, Amazon, Beatport or CD, or have an Unknown origin, using the same detection or explicit choice as the album page. |
 | **Incomplete** | have fewer tracks than their release. |
 | **Partially tagged** | have some files matched and some not. |
 | **No artwork** | have no cover at all. |

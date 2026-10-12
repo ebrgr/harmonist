@@ -157,6 +157,7 @@
         <span class="font-normal tabular-nums">{{ total_matched }}</span></span>
     {% endif %}
 
+    {% include 'partials/_library_origin_menu.html' %}
     {% for f in filters %}
     {% if f.slug == 'update-available' %}
     {% include 'partials/_library_update_menu.html' %}

@@ -1,0 +1,41 @@
+{# Share the Updates popover's presentation and navigation behavior. Origin has
+   no roll-up subset: the Library's All choice already includes every origin. #}
+{% macro option_contents(option, current) -%}
+    <span class="library-update-label">{{ option.label }}</span>
+    <span class="library-update-count">{{ option.count }}</span>
+    <span class="library-update-check" aria-hidden="true">{% if current %}✓{% endif %}</span>
+{%- endmacro %}
+{% set selected = origin_filters | selectattr('slug', 'equalto', filter) | first %}
+<button type="button" id="library-origin-button" popovertarget="library-origin-menu"
+        class="library-update-button {{ chip_on if selected else chip_off }}">
+    <span>{% if selected %}Origin: {{ selected.label }}{% else %}Origin{% endif %}</span>
+    {% if selected %}<span class="font-normal tabular-nums">{{ selected.count }}</span>{% endif %}
+    <svg class="library-update-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+</button>
+<nav id="library-origin-menu" popover aria-label="Origin filters" class="library-update-menu"
+     onbeforetoggle="if (event.newState === 'open') {
+         const box = document.getElementById('library-origin-button').getBoundingClientRect();
+         this.style.left = Math.max(8, Math.min(box.left, innerWidth - 232)) + 'px';
+         this.style.top = (box.bottom + 4) + 'px';
+         this.style.maxHeight = Math.max(80, innerHeight - box.bottom - 12) + 'px';
+     }">
+    {% for option in origin_filters %}
+    {% if option.slug == filter %}
+    <span class="library-update-option library-origin-option" aria-current="true">
+        {{ option_contents(option, true) }}
+    </span>
+    {% elif option.count %}
+    <a href="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
+       hx-get="/library?{{ library_query(none, limit, option.slug, q) }}"
+       hx-target="#library-rows" hx-swap="innerHTML"
+       hx-push-url="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
+       class="library-update-option library-origin-option">
+        {{ option_contents(option, false) }}
+    </a>
+    {% else %}
+    <span class="library-update-option library-origin-option" aria-disabled="true">
+        {{ option_contents(option, false) }}
+    </span>
+    {% endif %}
+    {% endfor %}
+</nav>

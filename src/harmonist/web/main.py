@@ -185,7 +185,7 @@ _INDEX_TABS = ("inbox", "library", "activity")
 # (#140's no-MB-on-the-request-path constraint) and persists nothing — the grid
 # asks a question about state it can already see, it does not record an answer.
 #
-# The control asks TWO questions, not one.
+# The control includes maintenance filters and browsing by Origin.
 #
 # *What is broken?* — the first four, which pick out albums that are terminal but
 # wrong. That is the Library's original problem: it is where a defect goes to be
@@ -196,9 +196,9 @@ _INDEX_TABS = ("inbox", "library", "activity")
 # its one MP3 among the M4As is named on the album's own page and nowhere else.
 #
 # The mixed-format filter asks about the *codec disagreement*, not about the codec.
-# Which formats a library holds is a separate question — a facet of what is there
-# rather than a defect in it — and answering it here would put an open-ended set of
-# codec values in a control that exists to list work.
+# Which formats a library holds is a separate question from this defect filter.
+# Origin (#728) is a browsing facet with the same finite choices as the album
+# page; it replaces the active filter just as the maintenance choices do.
 #
 # *What has moved that I could take?* — `update-available` (#287), which is not the
 # same question and must not be read as one. An album whose release has grown an
@@ -238,6 +238,17 @@ _LIBRARY_UPDATE_LEVELS = {
 }
 
 
+# Stable URL slugs, independent of the labels shown on the album page.
+_LIBRARY_ORIGINS = {
+    "origin-bandcamp": provenance.Origin.BANDCAMP,
+    "origin-qobuz": provenance.Origin.QOBUZ,
+    "origin-amazon": provenance.Origin.AMAZON,
+    "origin-beatport": provenance.Origin.BEATPORT,
+    "origin-cd": provenance.Origin.CD,
+    "origin-unknown": provenance.Origin.UNKNOWN,
+}
+
+
 def _library_filters(
     ignored: Mapping[str, activity_store.IgnoredUpdate],
 ) -> dict[str, tuple[str, Callable[[Album], bool]]]:
@@ -258,7 +269,11 @@ def _library_filters(
     def at_level(level: owned.Significance) -> Callable[[Album], bool]:
         return lambda album: actionable_update(album) and album.update_significance == level
 
+    def from_origin(origin: provenance.Origin) -> Callable[[Album], bool]:
+        return lambda album: provenance.origin(album) == origin
+
     return {
+        **{slug: (origin.value, from_origin(origin)) for slug, origin in _LIBRARY_ORIGINS.items()},
         "incomplete": ("Incomplete", _is_actionable_incomplete),
         "partial": ("Partially tagged", lambda a: a.partial_tag_count is not None),
         "no-artwork": ("No artwork", lambda a: not a.has_cover),
@@ -1726,7 +1741,12 @@ def _library_page_vars(
         # searching over. Resolved here so the template doesn't have to hunt through
         # `filters` for the active one (#180).
         "filter_label": _LIBRARY_FILTER_LABELS[filter_] if filter_ else None,
-        "filters": [f for f in filters if f["slug"] not in _LIBRARY_UPDATE_LEVELS],
+        "filters": [
+            f
+            for f in filters
+            if f["slug"] not in _LIBRARY_UPDATE_LEVELS and f["slug"] not in _LIBRARY_ORIGINS
+        ],
+        "origin_filters": [f for f in filters if f["slug"] in _LIBRARY_ORIGINS],
         "update_filters": [
             {**f, "significance": _LIBRARY_UPDATE_LEVELS[f["slug"]]}
             for f in filters
