@@ -1,143 +1,294 @@
 # Demonstrating Harmonist
 
-The sample collection represents a library cared for over several years: older
-MP3 downloads, FLAC rips, M4A purchases, a two-disc album, and a few incomplete
-or outdated tags. MusicBrainz remains the canonical source of release metadata.
-Bandcamp sync works alongside that existing collection.
+Record three independent clips: **Keep your library current**, **Choose your
+artwork**, and **Sync your Bandcamp purchases**. Lead the README with the first;
+it demonstrates the ongoing care of an existing collection that now leads the
+product's description. Adoption, release matching and tagging preferences make
+useful follow-up clips rather than a long introduction to the main video.
 
-## Start and reset
+The sample collection mixes FLAC rips, MP3 downloads, M4A purchases, a two-disc
+album, and incomplete or outdated tags. The files, tag writes, reviews and Undo
+are real application paths; the store, MusicBrainz and Cover Art Archive answers
+are local fixtures. Audio is short test tones, not songs. External links still
+open real websites, but these fictional releases aren't real MusicBrainz entries.
 
-In the development container, run `make demo` and open
-<http://localhost:8000/?tab=library>. No music or store account is needed.
-The store, MusicBrainz, and Cover Art Archive responses are local fixtures.
-External links still lead to real websites; the fictional release IDs are not
-real MusicBrainz entries. Audio files contain short test tones, not songs.
+## Assessment since the original refresh
 
-**Reset Demo** restores the selected starting library, its prior activity,
-purchase decisions, archived downloads, cached metadata, and kept artwork.
-Settings and browser preferences are retained. For these recipes, select FLAC
-as the download format and turn background checks off until you demonstrate
-them. Keep the download cap above zero for ordinary new downloads (explicitly
-approved purchases and re-downloads bypass that cap). Leave **Create missing
-folder covers** off for these recipes: updating an existing cover still works.
-Wait for running operations to finish before resetting.
+Assessed against `898561d` through `0a9cbce` (1.26.0 plus the README update).
+The collection still supports the core recordings well. The largest change
+needed is the story and the choreography, rather than a replacement dataset.
 
-The established library's history survives server restarts inside the demo
-sandbox. Its two earlier updates were performed through the real tagger, so
-their change records and Undo controls work. Changing the dataset or adoption
-recipe automatically reseeds the sandbox on startup.
+| Delivered since the refresh | What the current demo can show |
+| --- | --- |
+| Update-significance filters and matching cover badges | Rawhide for Enrichment, Sex Bob-omb for Cosmetic, Stillwater for Structure, Soggy Bottom Boys for Identity; open each album first to discover its update. |
+| Origin detection, manual corrections and Library origin filters | Rawhide is Qobuz, Stillwater is Beatport, Electric Mayhem is CD, and linked Bandcamp albums carry store evidence. Mouse Rat starts Unknown. Additional tags show the evidence. |
+| Barcode discovery and more precise release review | Electric Mayhem has a UPC pointing to the UK pressing in its release group. **Barcode matches**, inline review and confirmation are demonstrable. General barcode search is not simulated. |
+| Separate Possible mismatch and MB contributions findings | Electric Mayhem supplies a useful mismatch. The ordinary seed has no positive contribution example. |
+| Row-by-row artwork choices, full-size inspection and browsing other releases | Mouse Rat offers a larger front; Barry Jive offers a smaller alternative; Rural Juror preserves a distinct track image; Electric Mayhem has another pressing's image in the picker. |
+| Reviewed changes apply directly; clearer History and Activity | Apply an update once, inspect its field-level record, then Undo. Artwork has its own Undo. Release confirmations record the chosen match. |
+| Artist-name standardization and settings applied to existing albums | Wyld Stallyns → Wyld Stallion is a Settings update under the default. Its release disambiguation demonstrates the unconditional album-title setting. |
+| Conditional title disambiguation | The Settings page has a live example, but the library has no two owned releases in the same group to demonstrate the actual transition. |
+| Smaller-screen layout, stable review/refresh behaviour, clearer audio formats and Re-download progress | These improve every recording. Re-download now visibly says **Archiving…** before the replacement. |
 
-Tag writes pause briefly so in-progress controls remain visible. Set
-`HARMONIST_DEMO_DELAY=0 make demo` for fast exploration, or use a value such as
-`0.5` for slower recordings. This is seconds per tag write or archive check,
-capped at two seconds. Sync also pauses between albums; setting zero disables
-all demo pacing. This exposes existing progress reporting without inventing
-track counters or progress percentages.
+There are still worthwhile fixture gaps, none required for the three main clips:
 
-Mock downloads support FLAC, ALAC, MP3, AAC, and Opus. Other store formats are
-not simulated and report an error instead of silently choosing a different one.
+- **Barcode discovery:** the demo's barcode-search stub returns no results.
+  A Qobuz download with an original UPC and competing search results would show
+  discovery and the Qobuz-specific narrowing. Electric Mayhem's existing-release
+  mismatch uses a group comparison, so it does not fill this gap.
+- **Giving back:** add a proven download with a missing store link or original
+  UPC, after its release match is settled. Current Bandcamp fixture URLs already
+  link to their releases, and the UPC-bearing CD rip cannot supply a contribution.
+- **Multiple owned releases:** a second release in an existing group would
+  demonstrate **Title + release disambiguation if needed** changing real tags.
+  A release available in search or the artwork picker is not an owned copy.
+- **Artwork breadth and library hygiene:** archive listings currently offer one
+  front per source, not a front/back/booklet set. No artwork, Mixed formats and
+  Partially tagged have no positive examples in the public starting library.
+  Dingoes has one missing embedded cover, not an album with no artwork at all.
+- **Presentation realism:** one-second tracks and repeated Demo Records metadata
+  make the sandbox obvious. Avoid dwelling on durations in a promotional clip.
+  Barry Jive's description as an old rip isn't backed by rip-provenance tags;
+  use Electric Mayhem when demonstrating detected CD origin.
 
-## 1. Adopt an existing library
+These would be focused future demo changes. The recordings below use the current
+fixtures and don't depend on them.
 
-Stop the server and run:
+The multi-folder mismatch clip requires the fix for
+[#730](https://github.com/randomphrase/harmonist/issues/730), included in this
+checkout. In 1.26.0, confirmation leaves the second disc's sidecar on the old
+release and splits the album. With the fix, the rehearsed flow keeps both disc
+folders and all four tracks together under the UK pressing, including after a
+reload. Use this checkout rather than the 1.26.0 image for that recording.
+
+## Start, reset and prepare a take
+
+In the development container, run:
+
+```sh
+make demo
+```
+
+Open <http://localhost:8000/?tab=library>. Development setup is in
+[development.md](development.md). Use the checkout being recorded, so the video
+shows the current UI rather than an older installed image.
+
+**Reset Demo** restores the starting files, prior activity, purchase decisions,
+archived downloads, cached metadata and kept artwork. It retains Settings and
+browser preferences. Wait for running operations to finish before resetting.
+The sandbox also survives server restarts; restarting alone isn't a new take.
+Changing the dataset or adoption recipe reseeds it on startup.
+
+Before each clip:
+
+1. Reset, wait for scanning to settle, then check **Settings** against this table
+   and press **Save settings** if anything changed.
+2. Clear the Library search and return its filter to **All**. Keep browser zoom,
+   window size and theme consistent between takes. Turn History's **Show details**
+   off to hide raw audit records; field-level change records remain visible.
+3. Open the albums listed in the clip's preparation, wait for Album, Tracks and
+   Artwork to finish loading, and return to the starting view. Do not apply any
+   changes during preparation. Resetting again would discard these checks.
+
+| Setting | Recording baseline |
+| --- | --- |
+| Library updates | Off |
+| Create cover.jpg in album folders | Never (existing folder covers can still be upgraded) |
+| Album title | Title only |
+| Standardize artist names | Standardize artist name variations only |
+| Always standardize multi-valued artist tags | Unticked |
+| Download format | flac |
+| Max downloads per sync | 5 |
+
+An untouched established demo starts with **Inbox 3**, **Library 9** and
+**Incomplete 1**. Update and mismatch filters fill as albums are checked;
+zero immediately after a reset does not mean the demo has no examples. Don't
+script fixed update counts after rehearsal. Wyld Stallion remains in Needs
+Linking until sync, so it isn't a Library Settings-filter example before then.
+
+For recording, the default pacing is usually enough. A slower take can use:
+
+```sh
+HARMONIST_DEMO_DELAY=0.5 make demo
+```
+
+The delay is seconds per tag write or archive check, capped at two seconds.
+Sync also pauses between albums. `HARMONIST_DEMO_DELAY=0 make demo` disables
+all pacing for rehearsal. Mock downloads support FLAC, ALAC, MP3 and AAC from
+the current Settings choices; **vorbis is offered by the product but has no demo
+audio fixture**, so use FLAC for this recording.
+
+## Clip 1 — Keep your library current (about 90 seconds)
+
+**Prepare:** reset and use the baseline above. Open **Rawhide**, **We Are Here
+To Make You Sad**, **Fever Dog** and **Man of Constant Sorrow**, letting each
+comparison settle. Return to Library → All. Leave their updates unapplied.
+
+| Beat | On screen | Suggested narration or caption |
+| --- | --- | --- |
+| 0–15 s | Show the library covers. Open **Origin**, choose **Qobuz**, then return to All. | “Harmonist looks after the music you already own, from downloads to CD rips.” |
+| 15–30 s | Open **Update available**, briefly show the significance choices, then choose **Enrichment** and open **Rawhide**. | “Find the albums that could be better, and see exactly what would change.” |
+| 30–50 s | Hold on the Enrichment summary and the date, label and catalogue-number differences. Press **Apply updates** once; wait for the differences to clear. | “MusicBrainz adds a more precise date and missing release details. I review them before they reach my files.” |
+| 50–70 s | Scroll to **History**. Hold on the date, label and catalogue-number changes. Choose the update's tag Undo and accept its confirmation. | “Every change has a record. Undo restores the previous values.” |
+| 70–90 s | Show the proposed update returning, then briefly show **Activity** from the main page. | “The history includes the undo, too. My folders stay where they are.” |
+
+**End check:** Rawhide again has its short date and missing label/catalogue tags,
+and the Enrichment update is available. The undo has its own history entry.
+
+For a background-maintenance ending, cut to Settings → **Background updates** →
+**Library updates: Find updates for review**, save, and show the update-check
+status. Say “Checks the library in the background and finds updates for review.”
+There is no **Check now** button; don't wait on camera for the ten-minute batch
+timer or claim that it applies changes automatically. Restore Off before the
+next clip.
+
+## Clip 2 — Choose your artwork (about 75–90 seconds)
+
+**Prepare:** reset, restore the baseline, and open **Mouse Rat — The Awesome
+Album**. Let Artwork settle. Start with the **Now**, **After Apply** and
+**Available** columns in view.
+
+| Beat | On screen | Suggested narration or caption |
+| --- | --- | --- |
+| 0–20 s | Show the 320×320 current images and the 960×960 archive front. Open the candidate full size, then close the viewer. | “Compare the cover in my files with the Cover Art Archive.” |
+| 20–40 s | Point to the proposed folder-cover upgrade. Select **All 3 tracks**, then press **Use** for that row. Hold on both rows' **After Apply** images. | “The folder cover has a larger image available. Replacing the embedded covers is my choice.” |
+| 40–60 s | Press **Apply artwork** in Artwork. Wait for both current rows to show 960×960. | “Apply exactly the artwork I've reviewed.” |
+| 60–90 s | Scroll to History and choose that artwork change's **Undo**; accept the confirmation. Show both rows back at 320×320. | “Artwork changes can be undone independently of tags.” |
+
+**End check:** both embedded images and `cover.png` are back at 320×320. Applying
+only the initial automatic proposal would upgrade the folder cover and leave
+embedded images alone; the explicit **Use** step is what makes this clip change
+both. **Apply artwork** is the section's action; **Apply updates** at the top
+can also apply included artwork when reviewing an album update.
+
+Optional inserts, recorded as separate takes:
+
+- **A deliberate smaller choice:** on **Barry Jive — After Hours**, select
+  **All 3 tracks**, choose the smaller **This release** image with **Use**, then
+  select the `cover.png` row and press **Use** again. Apply artwork and undo it.
+  Each row needs its own choice; a single Use no longer means replace everything.
+- **Keep a compilation's artwork:** on **The Rural Juror (OST)**, show the
+  separate track image. Select only the folder-cover row or the shared-image
+  track row before choosing an alternative; leave the unique image alone.
+- **Browse another release:** on **Electric Mayhem**, step through Available
+  with **Next image** to the other pressing's cover. Inspect it without applying
+  it. This is artwork browsing, not a change to the matched release.
+- **Fill a gap:** on **Dingoes Ate My Baby**, show the one track with no embedded
+  image and the proposed fill. Apply artwork and show the existing images kept.
+
+## Clip 3 — Sync your Bandcamp purchases (about 2 minutes)
+
+**Prepare:** reset and restore the baseline. Don't sync during preparation.
+Open Mouse Rat to establish its MP3 format, then return to Inbox. Leave Wyld
+Stallion in Needs Linking. This first sync must happen on camera.
+
+| Beat | On screen | Suggested narration or caption |
+| --- | --- | --- |
+| 0–20 s | Show Wyld Stallion under **Needs Linking**, then press **Sync Bandcamp** and wait for completion. | “The first sync links purchases to albums I already have.” |
+| 20–45 s | In potential downloads, choose Mouse Rat's **Already in your library?** and link **The Awesome Album**. | “This purchase is already here as MP3s. I can link it without downloading another copy.” |
+| 45–65 s | Choose **Don't download** for Autobahn, then **Download** for **CB4**. Run **Sync Bandcamp** again. | “Choose which purchases to download. A new download with an exact match is tagged automatically.” |
+| 65–85 s | Open **CB4 — Straight Outta Lowcash**. Show FLAC, its matched release and History. | “The new album arrives as FLAC, with MusicBrainz metadata.” |
+| 85–120 s | Open Mouse Rat, choose **Re-download**, accept the prompt, and let the replacement finish. Show **Archiving…**, then the FLAC result and its History/Activity. | “To upgrade an old copy, Harmonist saves the original in a ZIP and downloads a fresh lossless copy.” |
+
+**End check:** Mouse Rat is FLAC with the same confirmed release; a ZIP in the
+demo music root contains its original MP3 files. CB4 is matched and tagged.
+Autobahn is under **Won't download** in Settings. Saying “Don't download” before
+the second sync makes this take deterministic: a full sync can otherwise fetch
+the other new purchase too. Explicitly approved downloads and re-downloads
+bypass the ordinary download cap.
+
+The ZIP is useful optional footage, not necessary terminal work in the main
+clip. Find the sandbox's **Music library** path under Settings → Server; don't
+show a real library. This is a new download, not MP3-to-FLAC conversion. Reset
+restores the old MP3s and removes the demonstration archive and skip decision.
+
+## Follow-up clips
+
+### Review a possible mismatch (about 60 seconds)
+
+Reset, open **Electric Mayhem — Can You Picture That?**, wait for the comparison,
+then return to Library. Choose **Possible mismatch** and reopen it. Show Origin
+**CD**, both disc-folder paths, and the original UPC under **Additional tags**.
+The UK pressing has **Barcode matches** beside **Use**. Choose Use, inspect the
+four retained track pairings and expand **Tag changes**, then **Confirm
+suggestion**. Show the UK pressing as the matched release, both disc-folder
+paths and all four tracks, then its History entry.
+
+Caption: “The files contain evidence of another release. I check the tracks
+before changing the match.” This is a mismatch review, not an MB contribution
+or a global barcode search. The existing cover can remain; don't promise a new
+cover from this confirmation. Reset before using the original pressing again.
+
+### Resolve a structural change (about 45 seconds)
+
+Reset and choose **Incomplete → Fever Dog**. Show “3 of 4 tracks on disk”, then
+the **Structure** finding. The track-assignment editor opens automatically once
+the comparison loads; **Review assignments** returns to it if needed. Keep the
+three known pairings, expand **Tag changes**, then press **Accept changes** to
+apply them directly. The old total of four becomes three and the Incomplete
+badge clears. No audio track has been downloaded or invented.
+
+### Bring tags into line with your preferences (about 60 seconds)
+
+Reset and open **Wyld Stallion — A Most Excellent Journey** from Needs Linking.
+Show the **Settings** update from the credited *Wyld Stallyns* to *Wyld Stallion*.
+In Settings, change **Album title** to **Title + release disambiguation**, save,
+and return: *(San Dimas edition)* is now proposed too. Apply the reviewed update.
+
+Caption: “Tagging preferences apply to music already in my library, with a
+preview before anything changes.” Settings-only updates have no Ignore control;
+the setting itself determines the spelling. For an optional shot, select
+**Title + release disambiguation if needed** and show the live Example library
+table in Settings. Present that as an example, not a transition in this seeded
+library. Restore the baseline explicitly after the take; Reset doesn't do it.
+
+### Adopt an existing collection (about 60–90 seconds)
+
+Stop the demo server and run:
 
 ```sh
 HARMONIST_DEMO_ADOPTION=1 make demo
 ```
 
-This starts the same files without Harmonist sidecars or prior activity.
-The normal startup scan and reconciliation adopt them. Start recording before
-opening the page if you want to capture that initial progress.
+This starts the same files without Harmonist sidecars or prior activity. The
+normal startup scan and reconciliation adopt them. Start the screen recorder
+before launching the server if capturing startup; opening the page later
+cannot replay a scan that has finished.
 
-1. Show that recognisable albums arrive in the Library without a download.
-   Open **Electric Mayhem — Can You Picture That?**: both existing disc folders
-   belong to one release after reconciliation.
-2. Open **Barry Jive — After Hours** to show an older FLAC rip. Its personal
-   genre and comment remain in the files when Harmonist updates metadata.
-3. Find **Sonic Death Monkey** in the Inbox. Its files have readable titles but
-   no MusicBrainz identity. Search by artist/title and confirm the release.
-4. Show that some adopted albums have updates waiting, while already-current
-   albums require no work. Adoption and bringing all metadata current are
-   separate steps.
+1. Show albums arriving without a download. Open **Electric Mayhem**: the two
+   existing disc folders belong to one album, with their paths intact.
+2. In the Inbox, search **Sonic Death Monkey** by name, select the release,
+   review the tracks and confirm. For a pre-seeded suggestion instead, use
+   **The Thamesmen** in the established demo, outside adoption mode.
+3. Open Rawhide to show its pending metadata enrichment. Recognition and
+   bringing tags up to date are separate decisions.
 
-Finish with the original organisation intact and the remaining decisions
-visible. Stop the server and run `make demo` again for the established-library
-recipes below.
+Caption: “Start with the collection you already have. Existing MusicBrainz tags
+are recognised; albums without an identity can be matched for review.” Don't
+use Barry Jive's genre as on-screen proof of preservation: Harmonist preserves
+it in the files but no longer displays Genre in the album comparison.
 
-## 2. Link purchases, download new music, upgrade an old copy
+Stop the server, unset `HARMONIST_DEMO_ADOPTION` if it was exported, and run
+`make demo` again for the established-library clips.
 
-Reset the established demo. Select **FLAC** as the download format.
+## Publishing the recordings
 
-1. Show **Wyld Stallion** under Needs Linking and **Mouse Rat** already in the
-   Library as MP3s. Their different store evidence is deliberate.
-2. Press **Sync**. The first pass runs link-only: Wyld Stallion links
-   automatically, and existing audio files remain unchanged.
-3. In potential downloads, choose **Already in your library?** for Mouse Rat
-   and link **The Awesome Album**. No second copy is downloaded.
-4. Approve **CB4** for download and sync again. It arrives as FLAC, matches
-   MusicBrainz, and is tagged automatically. Autobahn can remain pending or
-   be downloaded as a second example.
-5. Open Mouse Rat and choose **Re-download**. Harmonist archives the MP3 album,
-   fetches a fresh FLAC copy, and carries the confirmed release through the
-   replacement. Show the format change and its Activity/History entries.
-6. Show the ZIP in the demo music root: it contains the original MP3 files.
-   This is a fresh lossless download, not conversion of the lossy files.
+Record the three main clips separately so a change to one feature doesn't age
+the whole walkthrough. Use captions or the suggested narration, pause on the
+before/after evidence, and trim waiting rather than racing through controls.
+Keep the demo banner visible and external MusicBrainz/Harmony edits out of the
+take: the fixtures cannot demonstrate a successful real contribution.
 
-These can be three short chapters: linking, new purchases, and re-download.
-Reset restores the MP3 copy and removes the demonstration archive.
-
-## 3. Review, update, and undo tags and artwork
-
-Reset the established demo, then open the featured album: its comparison
-discovers the update. To show the background check instead, enable **Look and
-report** under Settings' **Background checks**; its status line says when the next
-batch runs.
-
-| Album | What to show |
-| --- | --- |
-| Sex Bob-omb | Cosmetic casing/whitespace changes to two titles |
-| Blues Brothers — Rawhide | A more precise date and missing label/catalogue details |
-| Stillwater — Fever Dog | An older four-track total against the current three-track release: **Review assignments** retains known track identities |
-| The Rural Juror soundtrack | One artist credit written with a different separator; one track has its own artwork |
-| Soggy Bottom Boys | A MusicBrainz release merged into its surviving entry |
-| Dingoes Ate My Baby | One missing embedded cover; the other tracks already have the right image |
-| Mouse Rat | A 320-pixel local cover and a 960-pixel copy available from the archive |
-| Barry Jive — After Hours | A smaller, visibly different archive alternative; harmless duration differences are informational |
-| Wyld Stallion | A **Settings** update from the release's credit *Wyld Stallyns* to the artist's own name, with no Ignore offered; setting **Album title** to **Title + release disambiguation** in Settings adds *(San Dimas edition)* to it, and **Standardize artist names** set to **Do not standardize** withdraws the artist change |
-
-1. Open **Rawhide**. Review the few proposed tag changes, apply them, and show
-   the settled comparison. Expand History to inspect precisely what changed.
-2. Choose **Undo tag changes** on that update. Show the earlier values return
-   and the update becomes available again. Undo itself is recorded.
-3. On **Mouse Rat**, use the Cover Art Archive check in the Artwork section.
-   Compare the current and larger candidate images, then **Apply updates**.
-   The resolution upgrade changes the folder cover; it preserves the embedded
-   images. Inspect and undo that artwork change independently of tags.
-4. Optionally show the merged-release case to explain why significant changes
-   deserve review, or Dingoes to demonstrate filling a gap without replacing
-   artwork that is already present.
-
-For an explicit artwork choice, open Barry Jive: the archive's images are under
-**Available**. Merely looking at them changes nothing. Press **Use** beside a
-row, then apply the proposal: the smaller alternative is allowed because you
-chose it. Undo
-restores the previous images. To demonstrate a combined action, first undo
-Barry's seeded date update, then choose the candidate. **Include artwork** on
-**Apply updates** starts ticked; you can exclude it. Tag and artwork changes
-have separate Undo controls in History.
-
-Stillwater's **Review assignments** is a separate flow: inspect the retained
-pairings, then accept the release. The confirmation's **Use artwork from the
-selected release** starts unticked. Do not confuse this with the default
-inclusion on ordinary updates.
-
-Background checking currently looks and reports. Automatic application of
-low-impact changes is a future direction, not something this recording claims.
+Once the recordings are uploaded, replace the old README video and its
+out-of-date notice with the maintenance clip, followed by artwork and Bandcamp
+clips under their own short captions. Until then, the existing notice remains
+accurate; a script is not a replacement recording.
 
 ## The visual assets
 
-The sleeves are original geometric drawings with a limited palette and initials,
-generated reproducibly by `python scripts/demo_artwork.py`. Mouse Rat's two sizes
-use the same drawing. The assets contain no movie stills or reproduced sleeves.
-The old recovery catalogue and colour placeholders remain test fixtures; they
-are not the default public collection.
+The public collection's sleeves are original geometric drawings with a limited
+palette and initials, generated reproducibly by `python scripts/demo_artwork.py`.
+Mouse Rat's two sizes use the same drawing. The assets contain no movie stills
+or reproduced sleeves. Electric Mayhem's alternate pressing uses a legacy
+placeholder image. The larger recovery catalogue remains a test fixture, not
+the default public collection.
