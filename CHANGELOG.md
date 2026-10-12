@@ -6,6 +6,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Rematching an album spanning several folders keeps every folder on the new release, instead of splitting it into incomplete albums (#730).
+
 ## [1.26.0] - 2026-10-12
 
 ### Added

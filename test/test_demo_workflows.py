@@ -276,6 +276,88 @@ def test_seeded_suggestion_is_reviewable_after_seed_reset_and_restart(client, mo
         assert panel.select_one('button[hx-post^="/confirm/"]') is not None
 
 
+def test_multifolder_rematch_keeps_every_sidecar_and_the_scanned_album_together(
+    client, monkeypatch
+):
+    from dataclasses import replace
+    from datetime import UTC, datetime
+    from unittest.mock import Mock
+
+    from harmonist import album_files, mb_lookup, sidecar
+    from test.test_web import _confirmation_fields
+
+    root = client.app.state.cfg.paths.music_dir
+    old_id = "demo-rel-electric-mayhem"
+    new_id = f"{old_id}-gb"
+    album = albums(root)["Can You Picture That?"]
+    assert len(album.folders) == 2
+    before = {}
+    for index, folder in enumerate(album.folders):
+        sc = sidecar.read(folder)
+        assert sc is not None
+        before[folder] = replace(
+            sc,
+            notes=f"Disc {index + 1}: keep this note",
+            added_at=datetime(2020 + index, 1, 1, tzinfo=UTC),
+            purchase_unavailable=bool(index),
+            tracks_unavailable=bool(index),
+            video_media=(3,),
+        )
+        sidecar.write(folder, before[folder])
+    query = f"replacement={old_id}:{new_id}"
+    candidates = client.get(f"/library/{old_id}/contributions/editions")
+    assert "Barcode matches" in candidates.text
+    review = client.get(f"/assignments/{old_id}?{query}&cancel=true&on_album_page=true")
+    assert review.status_code == 200
+    fields = _confirmation_fields(review.text)
+    assert fields["candidate_mbid"] == new_id
+    fetch = Mock(side_effect=AssertionError("confirmation must use the reviewed snapshot"))
+    monkeypatch.setattr(mb_lookup, "fetch_release", fetch)
+    monkeypatch.setattr(mb_lookup, "fetch_release_urls", fetch)
+
+    response = client.post(f"/confirm/{old_id}/accept?{query}", data=fields)
+
+    assert "confirmation-applied" in response.headers.get("HX-Trigger", "")
+    for folder, original in before.items():
+        updated = sidecar.read(folder)
+        assert updated is not None
+        assert updated.mb_release_id == new_id, folder
+        assert updated.accepted_release_id == new_id
+        assert updated.video_media == ()
+        assert updated.tagged_at is not None
+        assert (
+            replace(
+                updated,
+                mb_release_id=original.mb_release_id,
+                accepted_release_id=original.accepted_release_id,
+                video_media=original.video_media,
+                tagged_at=original.tagged_at,
+            )
+            == original
+        )
+    current = [a for a in scanner.scan(root) if a.title == album.title]
+    assert len(current) == 1
+    assert current[0].state == AlbumState.COMPLETE
+    assert set(current[0].folders) == set(album.folders)
+    files = album_files.for_paths(current[0].folders)
+    assert len(files) == 4
+    assert all(formats.read_album_id(path) == new_id for path in files)
+    events = activity_store.album_history(new_id)
+    assert len([event for event in events if event.message.startswith("Matched —")]) == 1
+    updates = [
+        event for event in events if "sidecar.update" in event.message and new_id in event.message
+    ]
+    assert len(updates) == 2
+    assert len({event.action_id for event in updates}) == 1
+    assert updates[0].action_id is not None
+    after = {path: path.read_bytes() for folder in album.folders for path in folder.iterdir()}
+    repeated = client.post(f"/confirm/{old_id}/accept?{query}", data=fields)
+    assert "confirmation-applied" not in repeated.headers.get("HX-Trigger", "")
+    assert {path: path.read_bytes() for path in after} == after
+    assert activity_store.album_history(new_id) == events
+    assert fetch.call_count == 0
+
+
 def test_link_existing_download_new_and_upgrade_mp3_to_flac(client):
     root = client.app.state.cfg.paths.music_dir
     original = {p.relative_to(root): p.read_bytes() for p in audio_files(root)}

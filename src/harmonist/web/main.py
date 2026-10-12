@@ -4422,31 +4422,38 @@ def _tag_with_release(
     # `purchase_unavailable` / `tracks_unavailable` surrenders, whose whole
     # purpose is to be permanent. A field added to the model later would have
     # joined them, silently, with no test to notice.
-    base = sc or Sidecar()
-    new = replace(
-        base,
-        store_url=store_url,
-        added_at=base.added_at or datetime.now(UTC),
-        mb_release_id=mbid,
-        mb_match_candidate=None,  # cleared on tag — a suggestion, now acted on
-        tagged_at=datetime.now(UTC),
-        # Read off the release this tagging used, so the one fact the files
-        # cannot carry (#206) is recorded at the moment it is known rather than
-        # left for a reconcile pass to fetch again. Pure — no request (#237).
-        video_media=mb_lookup.video_media_of(release),
-        accepted_release_id=_accepted_after_tagging(
-            base.accepted_release_id, requested_mbid, mbid, accept=accept_release
-        ),
-        # Folded into the same write rather than a second one after it (#663).
-        borrowed_artwork=_stand_ins_after(
-            album_path,
-            album_files.for_paths(paths) if paths else album_files.audio_files(album_path),
-            mbid,
-            base.borrowed_artwork,
-            outcome.artwork.written,
-        ),
-    )
-    sidecar_mod.write(album_path, new)
+    tagged_at = datetime.now(UTC)
+    tagged_files = album_files.for_paths(paths or [album_path])
+    video_media = mb_lookup.video_media_of(release)
+    for folder in paths or [album_path]:
+        # All tagged folders must follow the release, not just the primary
+        # one (#730). Preserve each sidecar's own provenance and decisions;
+        # copying the primary sidecar would silently replace the other parts'.
+        base = (sc if folder == album_path else sidecar_mod.read(folder)) or Sidecar()
+        new = replace(
+            base,
+            store_url=store_url if folder == album_path else store_url_override or base.store_url,
+            added_at=base.added_at or tagged_at,
+            mb_release_id=mbid,
+            mb_match_candidate=None,  # cleared on tag — a suggestion, now acted on
+            tagged_at=tagged_at,
+            # Read off the release this tagging used, so the one fact the files
+            # cannot carry (#206) is recorded at the moment it is known rather than
+            # left for a reconcile pass to fetch again. Pure — no request (#237).
+            video_media=video_media,
+            accepted_release_id=_accepted_after_tagging(
+                base.accepted_release_id, requested_mbid, mbid, accept=accept_release
+            ),
+            # Folded into the same write rather than a second one after it (#663).
+            borrowed_artwork=_stand_ins_after(
+                album_path,
+                tagged_files,
+                mbid,
+                base.borrowed_artwork,
+                outcome.artwork.written,
+            ),
+        )
+        sidecar_mod.write(folder, new)
     # The files now carry what MusicBrainz says, so there is nothing left to be
     # waiting for and an Ignore has nothing to mute (#271). Left behind, it would
     # mute the NEXT divergence on this album if MusicBrainz happened not to have
