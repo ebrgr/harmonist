@@ -342,8 +342,8 @@ and can be corrected there.
 ### An album is listed under Mixed formats
 
 The album mixes codecs, such as one MP3 among FLAC files. On the album's page,
-**Format** reads *Mixed*; click the note beside it to see which tracks differ.
-Replace those files yourself, or Re-download the album from Bandcamp.
+the track list has a **Format** column showing which tracks differ. Replace
+those files yourself, or Re-download the album from Bandcamp.
 
 ## Undoing things
 

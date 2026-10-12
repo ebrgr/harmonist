@@ -6,23 +6,30 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-10-12
+
 ### Added
 
-- The Library can be filtered by Origin: Bandcamp, Qobuz, Amazon, Beatport, CD or Unknown (#728).
-- Album titles can include release disambiguation only when the library contains multiple releases in the same release group (#722).
-- **Library updates can be filtered by significance**, with matching Identity, Structure, Enrichment, Cosmetic and Settings badges on album covers (#368).
+- **Album titles can carry the release disambiguation only when it's needed**,
+  when the library holds another release of the same album: **Title + release
+  disambiguation if needed** under Album title (#722).
+- **Library updates can be filtered by significance**, and album covers carry
+  the same Identity, Structure, Enrichment, Cosmetic and Settings badges (#368).
+- **The Library can be filtered by Origin** (#728).
 
 ### Changed
 
-- **Audio format differences appear beside their tracks**, and album warnings sit below the header facts; muted completeness badges disappear from the Library (#720).
+- **Audio formats are shown with their tracks**, and album warnings sit below
+  the header facts; a muted completeness warning no longer badges the Library
+  cover (#720).
 
 ### Fixed
 
-- Choosing a possible mismatch keeps the review in view without unnecessarily scrolling the page (#725).
-- Background Library refreshes no longer undo a filter, search or page change (#724).
-- **A Bandcamp download whose page is linked from both a digital and a physical
-  release is tagged as the digital one**, instead of waiting for you to choose
-  (#715).
+- **A Bandcamp download linked from both a digital and a physical release is
+  tagged as the digital one**, instead of waiting for you to choose (#715).
+- **Background Library refreshes no longer undo a filter, search or page
+  change** (#724).
+- **Choosing a possible mismatch no longer jumps the page** (#725).
 
 ## [1.25.0] - 2026-10-08
 
