@@ -2,7 +2,7 @@
 
 import shutil
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -49,6 +49,36 @@ def test_selection_normalization_and_exclusive_facets():
     assert _library_filter("update-available,update-structure") == "update-structure"
     assert _library_filter("codec-flac,codec-mp3,mixed-format") == "mixed-format,codec-mp3"
     assert _library_filter("<bad>") is None
+
+
+def test_new_combines_with_search_and_origin_with_contextual_counts(tmp_path):
+    now = datetime.now(UTC)
+    recent_cd = Sidecar(origin_override=provenance.Origin.CD, added_at=now - timedelta(days=1))
+    base = Album("new-cd", tmp_path, "Find me", "Artist", 1, AlbumState.COMPLETE, sidecar=recent_cd)
+    albums = [
+        base,
+        replace(base, id="old-cd", sidecar=replace(recent_cd, added_at=now - timedelta(days=8))),
+        replace(
+            base,
+            id="new-qobuz",
+            sidecar=replace(recent_cd, origin_override=provenance.Origin.QOBUZ),
+        ),
+        replace(base, id="other-title", title="Other"),
+    ]
+    view = _library_page_vars(albums, 1, 1, filter_="origin-cd,new", q="Find")
+    assert [a.id for a in view["rows"]] == ["new-cd"]
+    assert view["filter"] == "origin-cd,new"
+    new = next(f for f in view["filters"] if f["slug"] == "new")
+    assert new["count"] == 1
+    assert new["active"] is True
+    assert new["next_filter"] == "origin-cd"
+    origins = {f["slug"]: f for f in view["origin_filters"]}
+    assert origins["origin-qobuz"]["count"] == 1
+    assert origins["origin-qobuz"]["next_filter"] == "origin-qobuz,new"
+    assert [
+        a.id
+        for a in _library_page_vars(albums, 1, 20, filter_=new["next_filter"], q="Find")["rows"]
+    ] == ["new-cd", "old-cd"]
 
 
 def test_codec_matches_mixed_files_and_query_survives_routes(client, cfg):  # noqa: F811

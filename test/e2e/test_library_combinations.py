@@ -11,6 +11,50 @@ pw = pytest.importorskip("playwright.sync_api")
 
 
 @pytest.mark.parametrize(("engine", "width"), [("chromium", 1280), ("webkit", 390)])
+def test_new_filter(library_filters_server, htmx_ready, engine, width):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_page(viewport={"width": width, "height": 900})
+        page.goto(f"{library_filters_server}/?tab=library&limit=1")
+        new = page.get_by_role("button", name="New", exact=True)
+        pw.expect(new).to_contain_text("2")
+        htmx_ready(page.get_by_role("link", name="Next →", exact=True)).click()
+        htmx_ready(new).press("Space")
+        pw.expect(new).to_have_attribute("aria-pressed", "true")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "1")
+        pw.expect(page.locator("#library-result-count")).to_have_text("2 albums")
+        htmx_ready(page.get_by_role("link", name="Next →", exact=True)).click()
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "2")
+        htmx_ready(page.locator("#library-grid > a")).click()
+        page.get_by_role("link", name="← Back to library", exact=True).click()
+        pw.expect(new).to_have_attribute("aria-pressed", "true")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "2")
+        page.reload()
+        pw.expect(new).to_have_attribute("aria-pressed", "true")
+        htmx_ready(page.get_by_role("button", name="No artwork", exact=True)).click()
+        pw.expect(page.locator("#library-result-count")).to_have_text("1 album")
+        pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
+        assert parse_qs(urlsplit(page.url).query)["filter"] == ["new,no-artwork"]
+        htmx_ready(new).wait_for(state="visible")
+        with page.expect_response(lambda r: "/library?" in r.url):
+            page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
+        pw.expect(new).to_have_attribute("aria-pressed", "true")
+        page.get_by_role("searchbox").fill("no-such-album")
+        htmx_ready(page.get_by_role("button", name="Search", exact=True)).click()
+        pw.expect(page.locator("#library-result-count")).to_have_text("0 albums")
+        pw.expect(new).to_be_enabled()
+        htmx_ready(new).click()
+        pw.expect(page).to_have_url(re.compile(r"filter=no-artwork(?:&|$)"))
+        assert parse_qs(urlsplit(page.url).query)["filter"] == ["no-artwork"]
+        assert parse_qs(urlsplit(page.url).query)["q"] == ["no-such-album"]
+        page.get_by_role("button", name="Clear", exact=True).click()
+        pw.expect(new).to_have_attribute("aria-pressed", "false")
+        pw.expect(page.locator("#library-result-count")).to_have_text("9 albums")
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
+
+
+@pytest.mark.parametrize(("engine", "width"), [("chromium", 1280), ("webkit", 390)])
 def test_combined_filters(library_filters_server, htmx_ready, engine, width):
     with pw.sync_playwright() as playwright:
         browser = getattr(playwright, engine).launch()

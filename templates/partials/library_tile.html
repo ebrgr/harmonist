@@ -14,7 +14,7 @@
    `&` in an album name would otherwise end this href early. #}
 {% from 'macros.html' import severity_chip %}
 {% set sc = album.sidecar %}
-{% set is_new = sc and sc.added_at and 0 <= (now - sc.added_at).days < 7 %}
+{% set is_new = album.id in new_album_ids %}
 {% set from_params = [] %}
 {% if page > 1 %}{% set _ = from_params.append('from_page=' ~ page) %}{% endif %}
 {% if filter %}{% set _ = from_params.append('from_filter=' ~ filter) %}{% endif %}

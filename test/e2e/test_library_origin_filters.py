@@ -10,11 +10,13 @@ pw = pytest.importorskip("playwright.sync_api")
 
 
 @pytest.mark.parametrize(("engine", "width"), [("chromium", 1280), ("webkit", 390)])
-def test_origin_menu_navigation(reset_demo_server, htmx_ready, engine, width):
+def test_origin_menu_navigation(library_filters_server, htmx_ready, engine, width):
     with pw.sync_playwright() as playwright:
         browser = getattr(playwright, engine).launch()
         page = browser.new_page(viewport={"width": width, "height": 900})
-        page.goto(f"{reset_demo_server}/?tab=library&limit=1")
+        # Navigation needs a settled catalogue; recovery-demo reconciliation
+        # can replace the Library fragment while its menu is open.
+        page.goto(f"{library_filters_server}/?tab=library&limit=1")
         trigger = htmx_ready(page.locator("#library-origin-button"))
         menu = page.get_by_role("navigation", name="Origin filters", exact=True)
         trigger.wait_for(state="visible")
@@ -23,7 +25,7 @@ def test_origin_menu_navigation(reset_demo_server, htmx_ready, engine, width):
         pw.expect(menu).to_be_visible()
         box = menu.bounding_box()
         assert 0 <= box["x"] and box["x"] + box["width"] <= width
-        pw.expect(menu.locator('[aria-disabled="true"]', has_text="Qobuz")).to_be_visible()
+        pw.expect(menu.locator('[aria-disabled="true"]', has_text="Amazon")).to_be_visible()
         trigger.press("Escape")
         pw.expect(menu).to_be_hidden()
         pw.expect(trigger).to_be_focused()

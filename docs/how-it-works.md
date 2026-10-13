@@ -111,6 +111,7 @@ marked "New".](images/library.png)
 | Filter | Shows albums that… |
 |---|---|
 | **Origin** | came from Bandcamp, Qobuz, Amazon, Beatport or CD, or have an Unknown origin, using the same detection or explicit choice as the album page. |
+| **New** | were added to Harmonist within the last seven days, regardless of source, matching the New badge. |
 | **Incomplete** | are missing tracks or discs, based on the totals in their tags. Albums accepted with **Don't warn me about this** are left out. |
 | **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
 | **No artwork** | have no cover at all. |

@@ -2,6 +2,8 @@
 
 import os
 import shutil
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -14,6 +16,13 @@ assert os.environ.get("HARMONIST_DEMO_MODE") == "1"
 patch = MonkeyPatch()
 ALBUM_ID = "demo-rel-rural-juror"
 materialise = demo._materialise
+build_sidecar = demo._build_sidecar
+
+
+def dated_sidecar(sc_spec, album_spec):
+    sc = build_sidecar(sc_spec, album_spec)
+    recent = album_spec["mbid"] in {ALBUM_ID, "demo-rel-blues-brothers"}
+    return replace(sc, added_at=datetime.now(UTC) - timedelta(days=1 if recent else 30))
 
 
 def mixed_formats(music_dir, spec):
@@ -31,6 +40,7 @@ def mixed_formats(music_dir, spec):
 
 
 patch.setattr(demo, "_materialise", mixed_formats)
+patch.setattr(demo, "_build_sidecar", dated_sidecar)
 from harmonist.web import main
 
 app = main.app

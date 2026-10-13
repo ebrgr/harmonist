@@ -6,6 +6,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- A New Library filter finds albums added within seven days and combines with search and other filters (#736).
 - The Library's New badge marks albums added within seven days, including CD rips and downloads from any store (#733).
 - Library filters can be combined, including a codec choice and mixed-format albums, with counts that reflect the current query (#732).
 - Rematching an album spanning several folders keeps every folder on the new release, instead of splitting it into incomplete albums (#730).

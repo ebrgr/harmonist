@@ -3087,6 +3087,16 @@ def test_library_new_badge_uses_added_date_for_every_source(
         assert tile is not None
         assert (tile.find("span", string="New") is not None) is expected
 
+        separator = "&" if "?" in route else "?"
+        filtered = client.get(f"{route}{separator}filter=new")
+        assert filtered.status_code == 200
+        soup = BeautifulSoup(filtered.text, "html.parser")
+        assert (soup.find("a", id="lib-rel-recent") is not None) is expected
+        toggle = soup.select_one("#library-filter-new")
+        assert toggle is not None and toggle["aria-pressed"] == "true"
+        assert toggle.get_text(" ", strip=True) == f"✓ New {int(expected)}"
+        assert not toggle.has_attr("disabled")
+
 
 def test_library_detail_links_to_musicbrainz(client, cfg):
     from datetime import datetime

@@ -295,8 +295,15 @@ def _library_filters(
     def contains_codec(codec: str) -> Callable[[Album], bool]:
         return lambda album: codec in album.audio_codecs
 
+    now = datetime.now(UTC)
+
+    def is_new(album: Album) -> bool:
+        added_at = album.sidecar.added_at if album.sidecar else None
+        return added_at is not None and timedelta(0) <= now - added_at < timedelta(days=7)
+
     return {
         **{slug: (origin.value, from_origin(origin)) for slug, origin in _LIBRARY_ORIGINS.items()},
+        "new": ("New", is_new),
         "incomplete": ("Incomplete", _is_actionable_incomplete),
         "partial": ("Partially tagged", lambda a: a.partial_tag_count is not None),
         "no-artwork": ("No artwork", lambda a: not a.has_cover),
@@ -1713,6 +1720,9 @@ def _library_page_vars(
         slug: {i for i, album in enumerate(done) if pred(album)}
         for slug, (_, pred) in library_filters.items()
     }
+    # Tiles reuse the filter's decision, including the same clock reading at
+    # the seven-day boundary. No separate age rule lives in the template.
+    new_album_ids = {done[i].id for i in matches["new"]}
 
     def matching(slugs: set[str]) -> set[int]:
         return set(range(len(done))).intersection(*(matches[slug] for slug in slugs))
@@ -1762,6 +1772,7 @@ def _library_page_vars(
     rows = done[start : start + limit]
     return {
         "rows": rows,
+        "new_album_ids": new_album_ids,
         "page": page,
         "total_pages": total_pages,
         "prev_page": page - 1 if page > 1 else None,
