@@ -80,7 +80,7 @@ release's own comment; missing or identical comments can leave titles identical.
 
 | Key | Env | Default | |
 |---|---|---|---|
-| `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks your library against MusicBrainz in the background and reports updates. It never writes to files. On the Settings page as **Library updates**. |
+| `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks tags against MusicBrainz and artwork against the Cover Art Archive in the background and reports updates. It never writes to music files. On the Settings page as **Library updates**. |
 
 ## `[library]`
 

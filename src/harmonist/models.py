@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:  # type-only: `compare` pulls the whole field table in at runtime
+    from .artwork_updates import LocalArtwork
     from .compare import Consensus
     from .contributions import Observation
     from .formats.types import ProvenanceTags
@@ -417,6 +418,8 @@ class Album:
     # tracks. Drives whether the UI requests /cover (avoids 404 floods) and
     # lets /cover serve the embedded art without writing it to disk.
     has_cover: bool = False
+    # Derived compact observations; filtering never reopens the audio files.
+    artwork_local: LocalArtwork | None = None
     # True if the tracks carry a MusicBrainz Album Id atom. For a NEW album
     # (no sidecar) this is what makes it *reconcilable* — reconcile derives a
     # sidecar from the tag MBID. Barcode evidence below is the other automatic

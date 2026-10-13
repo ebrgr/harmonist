@@ -8,20 +8,29 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from harmonist import formats, provenance, scanner, sidecar
+from harmonist import artwork_updates, formats, provenance, scanner, sidecar
 from harmonist.models import Album, AlbumState, Sidecar
 from harmonist.web.main import _library_filter, _library_page_vars
 from test.test_web import _make_mixed_format_album, cfg, client  # noqa: F401
 
 
 def test_combinations_and_contextual_counts(tmp_path):
-    base = Album("a", tmp_path, "Find me", "Artist", 1, AlbumState.COMPLETE)
+    base = Album(
+        "a",
+        tmp_path,
+        "Find me",
+        "Artist",
+        1,
+        AlbumState.COMPLETE,
+        artwork_local=artwork_updates.LocalArtwork(((tmp_path / "track.m4a", None),), None),
+    )
     albums = [
         replace(base, id="cd-bare", sidecar=Sidecar(origin_override=provenance.Origin.CD)),
         replace(
             base,
             id="cd-cover",
             has_cover=True,
+            artwork_local=None,
             sidecar=Sidecar(origin_override=provenance.Origin.CD),
         ),
         replace(base, id="qobuz-bare", sidecar=Sidecar(origin_override=provenance.Origin.QOBUZ)),
@@ -37,7 +46,8 @@ def test_combinations_and_contextual_counts(tmp_path):
     assert origins["origin-qobuz"]["next_filter"] == "origin-qobuz,no-artwork"
     no_art = next(f for f in view["filters"] if f["slug"] == "no-artwork")
     assert no_art["active"] is True
-    assert no_art["next_filter"] == "origin-cd"
+    assert no_art["next_filter"] == "origin-cd,no-artwork"
+    assert view["clear_facets"]["artwork"] == "origin-cd"
     assert view["total_done"] == 4
     assert view["total_matched"] == 3
 

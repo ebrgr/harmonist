@@ -232,6 +232,7 @@ def read_scan_fields(path: Path) -> ScanFields:
         artist=_text(tags, "TPE1"),
         codec="MP3",
         has_cover=bool(tags and tags.getall("APIC")),
+        art=EmbeddedArt.of(*cover) if (cover := _cover_of(tags)) else None,
         album_artist=_text(tags, "TPE2"),
         # TRCK / TPOS are "n" or "n/total" — both halves are wanted here.
         disc_num=_first_int(_text(tags, "TPOS")),

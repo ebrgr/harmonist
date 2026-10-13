@@ -117,6 +117,9 @@ class ScanFields(NamedTuple):
     # Group membership for conditional album-title disambiguation (#722).
     release_group_id: str | None = None
 
+    # Compact facts, measured from the image already parsed in this file open.
+    art: EmbeddedArt | None = None
+
 
 @dataclass
 class TagSet:

@@ -310,10 +310,10 @@ MusicBrainz. An alias marked as ended without a date looks current, so the
 credit is standardized; Picard, which reads the flag directly, keeps it. Adding
 the end date to the alias on MusicBrainz corrects both.
 
-### Almost every album shows Update available
+### Almost every album shows an artwork Addition
 
 The **Create cover.jpg in album folders** setting is probably on. It makes every album
-without a `cover.jpg` count as having an update. Set it back to **Never** in
+without a `cover.jpg` and with artwork available count as having an artwork update. Set it back to **Never** in
 **Settings → Tagging**. Plex and Navidrome use the artwork embedded in your
 files, so most albums don't need the file.
 
@@ -323,7 +323,7 @@ Open the album's **Artwork** section. It shows every image the album carries,
 embedded in each track and as `cover.jpg` (see [artwork](how-it-works.md#artwork)).
 The usual causes:
 
-- **No image anywhere.** The Library's **No artwork** filter lists these. The
+- **No image anywhere.** The Library's **Artwork → No artwork** filter lists these. The
   album's page offers the Cover Art Archive's image, if there is one.
 - **Embedded and `cover.jpg` disagree.** Your player is reading the one you
   don't want. Select the row, choose the image you want for it, then

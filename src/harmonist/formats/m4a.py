@@ -291,6 +291,7 @@ def read_scan_fields(path: Path) -> ScanFields:
         artist=_text_atom(audio, ATOM_ARTIST),
         codec=codec,
         has_cover=bool(audio.get(ATOM_COVER)),
+        art=EmbeddedArt.of(*cover) if (cover := _cover_of(audio)) else None,
         album_artist=_text_atom(audio, ATOM_ALBUM_ARTIST),
         disc_num=disk[0][0] if disk and disk[0] else None,
         track_total=trkn[0][1] if trkn and trkn[0] and len(trkn[0]) > 1 else None,

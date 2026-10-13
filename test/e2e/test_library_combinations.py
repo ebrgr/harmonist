@@ -31,7 +31,8 @@ def test_new_filter(library_filters_server, htmx_ready, engine, width):
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "2")
         page.reload()
         pw.expect(new).to_have_attribute("aria-pressed", "true")
-        htmx_ready(page.get_by_role("button", name="No artwork", exact=True)).click()
+        htmx_ready(page.locator("#library-artwork-button")).click()
+        htmx_ready(page.locator("#library-filter-no-artwork")).click()
         pw.expect(page.locator("#library-result-count")).to_have_text("1 album")
         pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
         assert parse_qs(urlsplit(page.url).query)["filter"] == ["new,no-artwork"]
@@ -77,10 +78,11 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         # Paging has the codec, and a new restriction restarts on page one.
         htmx_ready(page.get_by_role("link", name="Next →", exact=True)).click()
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "2")
-        htmx_ready(page.get_by_role("button", name="No artwork", exact=True)).press("Space")
+        htmx_ready(page.locator("#library-artwork-button")).press("Space")
+        htmx_ready(page.locator("#library-filter-no-artwork")).press("Enter")
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "1")
-        no_art = page.get_by_role("button", name="No artwork", exact=True)
-        pw.expect(no_art).to_have_attribute("aria-pressed", "true")
+        no_art = page.locator("#library-artwork-button")
+        pw.expect(no_art).to_contain_text("Artwork: No artwork")
         pw.expect(page.locator("#library-grid > a")).to_have_count(1)
         pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
 
@@ -103,14 +105,15 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
             page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
         pw.expect(trigger).to_contain_text("Format: MP3 · Mixed")
         htmx_ready(no_art).click()
-        pw.expect(no_art).to_have_attribute("aria-pressed", "false")
+        htmx_ready(page.get_by_role("link", name="Any artwork status", exact=True)).click()
+        pw.expect(no_art).to_have_text("Artwork")
         page.go_back()
-        pw.expect(no_art).to_have_attribute("aria-pressed", "true")
+        pw.expect(no_art).to_contain_text("Artwork: No artwork")
         page.reload()
         pw.expect(trigger).to_contain_text("Format: MP3 · Mixed")
         htmx_ready(page.locator("#lib-demo-rel-rural-juror")).click()
         page.get_by_role("link", name="← Back to library", exact=True).click()
-        pw.expect(no_art).to_have_attribute("aria-pressed", "true")
+        pw.expect(no_art).to_contain_text("Artwork: No artwork")
         assert parse_qs(urlsplit(page.url).query)["filter"] == [selection]
 
         # Removing a category preserves all the independent constraints.
@@ -120,13 +123,14 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         htmx_ready(trigger).click()
         htmx_ready(formats.get_by_role("link", name="Any codec", exact=True)).click()
         pw.expect(trigger).to_contain_text("Format: Mixed")
-        pw.expect(no_art).to_have_attribute("aria-pressed", "true")
+        pw.expect(no_art).to_contain_text("Artwork: No artwork")
 
         # Active controls can always be removed, even with an empty search.
         page.get_by_role("searchbox").fill("no-such-album")
         htmx_ready(page.get_by_role("button", name="Search", exact=True)).click()
         pw.expect(page.locator("#library-result-count")).to_have_text("0 albums")
         htmx_ready(no_art).click()
+        htmx_ready(page.get_by_role("link", name="Any artwork status", exact=True)).click()
         pw.expect(page).to_have_url(re.compile("filter=mixed-format"))
         htmx_ready(trigger).click()
         htmx_ready(formats.get_by_role("button", name="Mixed formats only", exact=True)).click()

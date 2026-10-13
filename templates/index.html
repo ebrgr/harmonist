@@ -198,6 +198,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastReconcileState = 'idle';
     let lastScanState = 'idle';
     let lastScanSeq;  // last completed-scan counter we've seen (undefined until first poll)
+    let lastArtworkRevision;
     let syncDisplay = null;       // current running-sync HTML, or null
     let reconcileDisplay = null;  // current running-reconcile HTML, or null
     let scanDisplay = null;       // current library-scan HTML, or null
@@ -431,6 +432,10 @@ document.addEventListener('DOMContentLoaded', function () {
             document.body.dispatchEvent(new Event('tasks-changed'));
         }
         lastScanSeq = scan.seq;
+        if (lastArtworkRevision !== undefined && data.artwork_revision !== lastArtworkRevision) {
+            refreshLibrary();
+        }
+        lastArtworkRevision = data.artwork_revision;
         lastScanState = scan.state;
         if (scan.state === 'scanning') {
             const prog = `${scan.dirs_scanned} dirs · ${scan.albums_found} albums`;

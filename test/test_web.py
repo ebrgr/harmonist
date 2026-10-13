@@ -275,7 +275,7 @@ def test_consolidated_status_endpoint(client):
     r = client.get("/status")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"sync", "reconcile", "scan", "counts", "pending"}
+    assert set(body) == {"sync", "reconcile", "scan", "counts", "pending", "artwork_revision"}
     assert body["sync"]["state"] == "idle"
     assert body["reconcile"]["state"] == "idle"
     assert "state" in body["scan"]
@@ -2818,8 +2818,12 @@ def test_library_filter_counts_are_taken_within_the_search(client, cfg):
     # Two coverless albums, only one of them an Aphex one.
     _make_searchable_album(cfg, "Aphex Twin", "Drukqs", mbid="rel-drukqs", tagged_at=base)
     _make_searchable_album(cfg, "Björk", "Post", mbid="rel-post", tagged_at=base)
-    assert re.search(r"No artwork\s*<span[^>]*>2</span>", client.get("/library").text)
-    assert re.search(r"No artwork\s*<span[^>]*>1</span>", client.get("/library?q=aphex").text)
+    from bs4 import BeautifulSoup
+
+    for url, count in (("/library", "2"), ("/library?q=aphex", "1")):
+        soup = BeautifulSoup(client.get(url).text, "html.parser")
+        option = soup.select_one("#library-filter-no-artwork .library-update-count")
+        assert option.get_text(strip=True) == count
 
 
 def test_library_search_composes_with_a_filter(client, cfg):
@@ -6295,7 +6299,7 @@ def test_update_check_status_shows_progress_and_the_next_batch(client, cfg, monk
         text = " ".join(line.text.split())
         assert (
             text
-            == "971 of 983 albums checked in the last week, 12 waiting. Next batch in 6 minutes."
+            == "971 of 983 albums checked for tag updates in the last week, 12 waiting. Next batch in 6 minutes."
         )
         assert line["hx-get"] == "/settings/update-check"
         assert line["hx-trigger"] == "every 60s"
@@ -6333,7 +6337,10 @@ def test_update_check_status_says_what_holds_the_next_batch(
         if condition == "running":
             web_main._update_check_lock.release()
     assert line is not None
-    assert " ".join(line.text.split()) == f"10 of 10 albums checked in the last week. {said}"
+    assert (
+        " ".join(line.text.split())
+        == f"10 of 10 albums checked for tag updates in the last week. {said}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -11637,7 +11644,7 @@ def test_the_archive_check_downloads_any_cover_for_an_album_with_no_art(client, 
 
     client.get(f"/album/{_id_for(cfg, d)}/artwork?check=1")
 
-    assert seen == [0]
+    assert seen == [-1]
 
 
 def test_the_artwork_action_writes_artwork_and_not_tags(client, cfg):

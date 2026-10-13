@@ -37,7 +37,9 @@ def test_turning_the_check_on_shows_its_status_and_keeps_it_current(demo_server:
         page.select_option('select[name="gardener_level"]', "review")
         page.locator('button[type="submit"]:has-text("Save settings")').click()
         page.wait_for_selector("text=Settings saved")
-        playwright_sync.expect(line).to_contain_text("albums checked in the last week")
+        playwright_sync.expect(line).to_contain_text(
+            "albums checked for tag updates in the last week"
+        )
 
         requests: list[tuple[str, str]] = []
         page.on("request", lambda r: requests.append((r.method, r.url)))
@@ -49,7 +51,9 @@ def test_turning_the_check_on_shows_its_status_and_keeps_it_current(demo_server:
             # only be scheduled for another minute later.
             page.clock.run_for("01:05")
         playwright_sync.expect(line).not_to_have_attribute("data-stale", "true")
-        playwright_sync.expect(line).to_contain_text("albums checked in the last week")
+        playwright_sync.expect(line).to_contain_text(
+            "albums checked for tag updates in the last week"
+        )
         assert requests == [("GET", f"{demo_server}/settings/update-check")]
 
         browser.close()

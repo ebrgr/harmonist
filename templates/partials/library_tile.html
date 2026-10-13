@@ -12,7 +12,7 @@
    without this Back would drop the reader into the whole library one album into a
    list they were working through. `from_q` is urlencoded; it is free text, and an
    `&` in an album name would otherwise end this href early. #}
-{% from 'macros.html' import severity_chip %}
+{% from 'macros.html' import severity_chip, artwork_chip %}
 {% set sc = album.sidecar %}
 {% set is_new = album.id in new_album_ids %}
 {% set from_params = [] %}
@@ -26,7 +26,8 @@
         <img loading="lazy" src="/cover/{{ album.id }}"
              onerror="this.style.visibility='hidden'" alt=""
              class="w-full aspect-square object-cover rounded-md border border-line bg-surface group-hover:opacity-90 transition">
-        {% if is_new or album.update_available %}
+        {% set artwork_operation = artwork_operations.get(album.id) %}
+        {% if is_new or album.update_available or artwork_operation %}
         {# Share a wrapping row: long severity labels must not overlap New on
            narrow covers. Both badge palettes are opaque over the artwork. #}
         <div class="absolute top-1.5 left-1.5 right-1.5 flex flex-wrap items-start justify-between gap-1">
@@ -49,6 +50,7 @@
         </span>
         {% endif %}
         {% endif %}
+        {% if artwork_operation %}{{ artwork_chip(artwork_operation) }}{% endif %}
         {% if is_new %}
         {# Newly added to Harmonist, regardless of where the files came from. #}
         <span class="ml-auto px-1.5 py-0.5 text-2xs font-bold uppercase tracking-widest rounded bg-bc-teal text-white shadow-sm">New</span>

@@ -99,7 +99,7 @@ suggestion to confirm.
 Albums with nothing to decide are in the **Library**. Its filters narrow the
 collection by origin or audio format, or find albums that could be better.
 Filters combine: an album must match every selected filter, as well as any
-artist or album search. Origin, codec and update type each have one choice at a
+artist or album search. Origin, codec, artwork and tag-update type each have one choice at a
 time, so changing origin keeps the other restrictions.
 
 ![The Library: a search box, then filter chips with counts (All 9, Incomplete
@@ -114,7 +114,7 @@ marked "New".](images/library.png)
 | **New** | were added to Harmonist within the last seven days, regardless of source, matching the New badge. |
 | **Incomplete** | are missing tracks or discs, based on the totals in their tags. Albums accepted with **Don't warn me about this** are left out. |
 | **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
-| **No artwork** | have no cover at all. |
+| **Artwork** | have no local artwork, or have an **Addition** or **Replacement** waiting for review. An addition fills empty places; a replacement overwrites at least one existing image and may also fill gaps. |
 | **Format** | contain a file of the selected codec, including mixed albums. **Mixed formats only** independently narrows to albums mixing codecs, such as one MP3 among FLACs; differing bitrates or sample rates alone do not make an album mixed. |
 | **Update available** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
 | **Possible mismatch** | may be matched to the wrong release. See [when the match might be wrong](#when-the-match-might-be-wrong). |
@@ -190,6 +190,19 @@ the album's page takes it off the list. It comes back the next time the release
 changes on MusicBrainz, which is usually when the edit lands.
 
 ## Artwork
+
+**Library updates → Find updates for review** also checks the Cover Art Archive
+in the background, independently of tag changes. The checks are paced in small
+batches, using the archive cache's freshness interval (a week by default).
+They propose changes without writing to the music files. With background checks
+off, opening an album still checks the archive when its cached answer is stale;
+the CAA refresh control asks again immediately.
+
+The Library's artwork findings use the same proposal as the album page. A missing
+cover can have no image available to add, while an album that already has a cover
+can still have tracks without embedded artwork. **No artwork** and **Addition**
+can therefore overlap. Unchecked or unreadable artwork is not a claim that the
+album needs no changes. Ignoring a tag update does not hide an artwork proposal.
 
 Album art lives in two places: **embedded** in each track, and as a
 **`cover.jpg`** (or `cover.png`) in the folder. Players differ in which they

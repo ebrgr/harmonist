@@ -264,13 +264,14 @@ class VorbisTagger:
             # an untagged one (#112).
             return ScanFields(None, None, None, codec, unreadable=True)
         has_cover = _has_embedded_cover(audio)
+        art = EmbeddedArt.of(*cover) if (cover := self._cover_of(audio)) else None
         # Read before the untagged early-return below: a file with no comment
         # block still has a perfectly readable stream, and what it IS doesn't
         # depend on whether anyone has tagged it.
         stream = quality.read(audio.info, lossless=lossless)
         tags = audio.tags
         if tags is None:
-            return ScanFields(None, None, None, codec, has_cover, quality=stream)
+            return ScanFields(None, None, None, codec, has_cover, art=art, quality=stream)
 
         def first(key: str) -> str | None:
             values = tags.get(key)
@@ -278,6 +279,7 @@ class VorbisTagger:
 
         return ScanFields(
             album_title=first(KEY_ALBUM),
+            art=art,
             # Vorbis field names are case-insensitive, and so is `tags.get`.
             provenance=ProvenanceTags(
                 upcs=tuple(str(v) for v in tags.get("UPC", [])),

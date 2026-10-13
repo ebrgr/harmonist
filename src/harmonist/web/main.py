@@ -48,6 +48,7 @@ from harmonist import (
     archive,
     artwork,
     artwork_store,
+    artwork_updates,
     audit,
     caa_cache,
     compare,
@@ -237,6 +238,13 @@ _LIBRARY_UPDATE_LEVELS = {
     "update-settings": owned.Significance.SETTINGS,
 }
 
+_LIBRARY_ARTWORK = {
+    "artwork-available": "All artwork updates",
+    "artwork-addition": "Addition",
+    "artwork-replacement": "Replacement",
+    "no-artwork": "No artwork",
+}
+
 
 # Stable URL slugs, independent of the labels shown on the album page.
 _LIBRARY_ORIGINS = {
@@ -266,6 +274,8 @@ def _library_facet(slug: str) -> str:
         return "codec"
     if slug == "update-available" or slug in _LIBRARY_UPDATE_LEVELS:
         return "updates"
+    if slug in _LIBRARY_ARTWORK:
+        return "artwork"
     return slug
 
 
@@ -295,6 +305,13 @@ def _library_filters(
     def contains_codec(codec: str) -> Callable[[Album], bool]:
         return lambda album: codec in album.audio_codecs
 
+    operations: dict[int, artwork.Operation | None] = {}
+
+    def artwork_operation(album: Album) -> artwork.Operation | None:
+        if id(album) not in operations:
+            operations[id(album)] = artwork_updates.operation(album)
+        return operations[id(album)]
+
     now = datetime.now(UTC)
 
     def is_new(album: Album) -> bool:
@@ -306,7 +323,19 @@ def _library_filters(
         "new": ("New", is_new),
         "incomplete": ("Incomplete", _is_actionable_incomplete),
         "partial": ("Partially tagged", lambda a: a.partial_tag_count is not None),
-        "no-artwork": ("No artwork", lambda a: not a.has_cover),
+        "no-artwork": (
+            "No artwork",
+            lambda a: a.artwork_local is not None and a.artwork_local.missing,
+        ),
+        "artwork-available": ("All artwork updates", lambda a: artwork_operation(a) is not None),
+        "artwork-addition": (
+            "Addition",
+            lambda a: artwork_operation(a) is artwork.Operation.ADDITION,
+        ),
+        "artwork-replacement": (
+            "Replacement",
+            lambda a: artwork_operation(a) is artwork.Operation.REPLACEMENT,
+        ),
         "mixed-format": (
             "Mixed formats",
             lambda a: a.audio_format == scanner.MIXED_FORMAT,
@@ -767,6 +796,7 @@ def create_app(
     def _on_first_scan() -> None:
         reconcile_runner.start()
         _start_flag_warm_up(scan_runner)
+        _artwork_check_if_idle(app, sync_runner, reconcile_runner, scan_runner, check=False)
 
     scan_runner.set_on_first_complete(_on_first_scan)
 
@@ -886,6 +916,14 @@ def create_app(
                 on_schedule=gardener.note_next_pass,
             )
         )
+        artwork_task = asyncio.create_task(
+            periodic.run_periodically(
+                artwork_updates.TICK,
+                lambda: _artwork_check_if_idle(_app, sync_runner, reconcile_runner, scan_runner),
+                name="artwork check",
+                stop_event=watch_stop,
+            )
+        )
         try:
             yield
         finally:
@@ -893,12 +931,15 @@ def create_app(
             watch_task.cancel()
             rescan_task.cancel()
             check_task.cancel()
+            artwork_task.cancel()
             with suppress(asyncio.CancelledError):
                 await watch_task
             with suppress(asyncio.CancelledError):
                 await rescan_task
             with suppress(asyncio.CancelledError):
                 await check_task
+            with suppress(asyncio.CancelledError):
+                await artwork_task
 
     app = FastAPI(title="Harmonist", lifespan=lifespan)
     app.state.cfg = cfg
@@ -908,6 +949,7 @@ def create_app(
     # live config at the moment it looks, since Settings applies without a
     # restart.
     gardener.configure(lambda: library_titles.choices(app.state.cfg.tagging.choices()))
+    artwork_updates.configure(lambda: app.state.cfg.tagging.folder_cover)
 
     def titles_changed(before: library_titles.Membership, after: library_titles.Membership) -> None:
         settings = app.state.cfg.tagging.choices()
@@ -1723,6 +1765,14 @@ def _library_page_vars(
     # Tiles reuse the filter's decision, including the same clock reading at
     # the seven-day boundary. No separate age rule lives in the template.
     new_album_ids = {done[i].id for i in matches["new"]}
+    artwork_operations = {
+        done[i].id: operation
+        for slug, operation in (
+            ("artwork-addition", artwork.Operation.ADDITION),
+            ("artwork-replacement", artwork.Operation.REPLACEMENT),
+        )
+        for i in matches[slug]
+    }
 
     def matching(slugs: set[str]) -> set[int]:
         return set(range(len(done))).intersection(*(matches[slug] for slug in slugs))
@@ -1750,7 +1800,9 @@ def _library_page_vars(
                 ),
             }
         )
-    clear_facets = {facet: encode(without(facet)) for facet in ("origin", "codec", "updates")}
+    clear_facets = {
+        facet: encode(without(facet)) for facet in ("origin", "codec", "updates", "artwork")
+    }
     shown = matching(selected)
     done = [album for i, album in enumerate(done) if i in shown]
     limit = max(1, min(limit, _LIBRARY_LIMIT_MAX))  # clamp; defensive
@@ -1773,6 +1825,7 @@ def _library_page_vars(
     return {
         "rows": rows,
         "new_album_ids": new_album_ids,
+        "artwork_operations": artwork_operations,
         "page": page,
         "total_pages": total_pages,
         "prev_page": page - 1 if page > 1 else None,
@@ -1810,6 +1863,7 @@ def _library_page_vars(
             if f["slug"] not in _LIBRARY_UPDATE_LEVELS
             and f["slug"] not in _LIBRARY_ORIGINS
             and f["slug"] not in _LIBRARY_CODECS
+            and f["slug"] not in {"artwork-available", "artwork-addition", "artwork-replacement"}
         ],
         "origin_filters": [f for f in filters if f["slug"] in _LIBRARY_ORIGINS],
         "codec_filters": [f for f in filters if f["slug"] in _LIBRARY_CODECS],
@@ -1819,6 +1873,8 @@ def _library_page_vars(
             if f["slug"] in _LIBRARY_UPDATE_LEVELS
         ],
         "update_filter_active": (any(_library_facet(slug) == "updates" for slug in selected)),
+        "artwork_filters": [f for f in filters if f["slug"] in _LIBRARY_ARTWORK],
+        "artwork_filter_active": any(_library_facet(slug) == "artwork" for slug in selected),
         # The search query, normalised — None means no search. Rides in every URL
         # this page builds, and is echoed back into the box (#180).
         "q": q,
@@ -2725,25 +2781,18 @@ def _archive_image(mbid: str | None, *, release_only: bool = False) -> formats.E
     return formats.EmbeddedArt.of(front.data, front.mime) if front else None
 
 
-def _widest(view: artwork.ArtworkView) -> int:
-    """What the archive's image has to beat to be worth downloading: the widest
-    image the album already has. A candidate that loses is measured and
-    forgotten; only a winner costs the full 200 KB–5 MB.
+def _widest(view: artwork.ArtworkView) -> int | None:
+    """The same download threshold as the background assessment (#269).
 
-    Zero when the album has no image at all, so ANY cover the archive has is
-    downloaded: it would be written into that album, and a preview of an
-    addition has to show the picture it adds (#469).
-
-    One answer for the check and for `caa_cache.due`, which must agree about
-    what a winner is — or a page would be sent to fetch a picture the check then
-    declines to download, on every open (#439).
-
-    Zero, too, for an album carrying a stand-in cover (#663): the release's
-    own front takes its place whatever it measures, and has to be in hand to.
+    Compare against the folder cover, not a larger embedded image that could
+    conceal an improvement to it. Missing art and stand-ins accept any size.
     """
-    if view.borrowed:
-        return 0
-    return max((r.image.size.width for r in view.images if r.image and r.image.size), default=0)
+    local = artwork_updates.LocalArtwork(
+        tuple((Path(t.name), r.image) for r in view.rows for t in r.tracks),
+        view.cover,
+        bool(view.unreadable or view.cover_unreadable),
+    )
+    return artwork_updates.download_threshold(local, frozenset(view.borrowed))
 
 
 def _release_of(album: Album) -> str | None:
@@ -3326,6 +3375,47 @@ def _periodic_rescan_if_idle(
 # it past the hour — and two passes at once would ask about the same albums
 # twice and spend twice the budget doing it.
 _update_check_lock = threading.Lock()
+_artwork_check_lock = threading.Lock()
+
+
+def _artwork_check_if_idle(
+    app: FastAPI,
+    sync_runner: SyncRunner,
+    reconcile_runner: ReconcileRunner,
+    scan_runner: ScanRunner,
+    *,
+    check: bool = True,
+) -> None:
+    """CAA has its own worker and due dates, under the same opt-in as tags.
+
+    A slow archive must not hold the tag worker's lock. Startup only warms
+    durable observations, including when background network checks are off.
+    """
+    if not scan_runner.has_completed():
+        return
+    if check and (
+        app.state.cfg.gardener.level == "off"
+        or sync_runner.is_running
+        or reconcile_runner.is_running
+    ):
+        return
+    if not _artwork_check_lock.acquire(blocking=False):
+        return
+
+    def run() -> None:
+        try:
+            albums = scan_runner.albums()
+            artwork_updates.warm(albums)
+            if check:
+                artwork_updates.sweep(albums)
+        except Exception:
+            # Worker boundary: a defect or failed cache must be visible, not
+            # silently terminate future discovery or clear existing findings.
+            log.exception("artwork update check failed")
+        finally:
+            _artwork_check_lock.release()
+
+    threading.Thread(target=run, name="harmonist-artwork-check", daemon=True).start()
 
 
 UpdateCheckWait = Literal["off", "busy", "unscanned", "running"]
@@ -5186,6 +5276,7 @@ def _register_routes(app: FastAPI) -> None:
                 # Potential downloads awaiting a decision (in-memory, from the last
                 # link-only sync). They need attention, so they count toward inbox.
                 "pending": pending_downloads.count(),
+                "artwork_revision": artwork_updates.revision(),
             }
         )
 
@@ -7021,6 +7112,7 @@ def _register_routes(app: FastAPI) -> None:
                 exc_info=True,
                 extra=_LOG_ONLY,
             )
+        artwork_updates.observe(mbid)
 
     @app.post("/album/{album_id}/artwork/update", response_class=HTMLResponse)
     def album_artwork_update(

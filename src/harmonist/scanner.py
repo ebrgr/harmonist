@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 from . import (
     album_files,
+    artwork_updates,
     barcodes,
     compare,
     contributions,
@@ -444,6 +445,20 @@ def _combine(mbid: str, group: list[ScannedDir]) -> Album:
         fields=[f for e in ordered for f in e.io.fields],
         cover_path=next((e.io.cover_path for e in ordered if e.io.cover_path), None),
         video_fields=tuple(f for e in ordered for f in e.io.video_fields),
+        artwork_local=artwork_updates.LocalArtwork(
+            tuple(
+                pair for e in ordered if e.io.artwork_local for pair in e.io.artwork_local.tracks
+            ),
+            next(
+                (
+                    e.io.artwork_local.cover
+                    for e in ordered
+                    if e.io.artwork_local and e.io.cover_path
+                ),
+                None,
+            ),
+            any(e.io.artwork_local.unreadable for e in ordered if e.io.artwork_local),
+        ),
     )
     written = [e.album.files_written_at for e in group if e.album.files_written_at]
     album = build_album(primary.album.path, files, io, max(written) if written else None)
@@ -570,6 +585,7 @@ class AlbumIO(NamedTuple):
     # A tuple, not a list: `AlbumIO` is a NamedTuple, so a mutable default
     # would be shared by every instance that omits it.
     video_fields: tuple[formats.ScanFields, ...] = ()
+    artwork_local: artwork_updates.LocalArtwork | None = None
 
 
 def read_album_io(
@@ -586,12 +602,17 @@ def read_album_io(
     caller passes the previously-read tag fields so we SKIP the per-track mutagen
     reads (the expensive part) and only re-read the cheap sidecar + cover.
     """
+    fields = (
+        reuse_fields
+        if reuse_fields is not None
+        else [formats.read_scan_fields(f) for f in audio_files]
+    )
+    cover_path = _find_cover(album_dir)
     return AlbumIO(
         sidecar=read_sidecar(album_dir),
-        fields=reuse_fields
-        if reuse_fields is not None
-        else [formats.read_scan_fields(f) for f in audio_files],
-        cover_path=_find_cover(album_dir),
+        fields=fields,
+        cover_path=cover_path,
+        artwork_local=artwork_updates.read_local(audio_files, fields, cover_path),
         video_fields=tuple(formats.read_video_scan_fields(f) for f in (video_files or [])),
     )
 
@@ -681,6 +702,7 @@ def build_album(
         # A cover exists if there's a folder cover.* OR the first track has
         # embedded art (album art is on every track; first is representative).
         has_cover=io.cover_path is not None or (bool(fields) and fields[0].has_cover),
+        artwork_local=io.artwork_local,
         # Reconcilable iff some track carries an MB Album Id atom (matches what
         # reconcile.reconcile_album reads). Lets the inbox skip kicking
         # reconcile for untagged orphans it could never resolve.

@@ -205,10 +205,10 @@ def check_front(
     whose original is 350×350 — the archive caps a thumbnail at the original
     rather than upscaling — so their presence says nothing about the size.
 
-    `keep_if_wider_than` is the album's current best width. When the archive's
-    image beats it, the whole image is fetched and cached, so the page can show
-    it and a re-tag can write it — the one case where the full 200 KB–5 MB is
-    worth spending, and only during a check the user asked for.
+    `keep_if_wider_than` is the caller's download threshold. When the archive's
+    image beats it, the whole image is fetched and cached for review. Negative
+    means any image (missing artwork or a recorded stand-in); None means only
+    measure. Both the background worker and the album page use this rule.
 
     Never raises for an ordinary "no": a 404 is an answer. A transport failure
     does propagate as `CoverArtError`, because "I could not ask" and "there is
@@ -264,10 +264,8 @@ def check_front(
             if not head.is_success:
                 raise CoverArtError(f"CAA returned {head.status_code} for {url}")
             size = images.dimensions(head.content)
-            if (
-                size is not None
-                and keep_if_wider_than is not None
-                and size.width > keep_if_wider_than
+            if keep_if_wider_than is not None and (
+                keep_if_wider_than < 0 or (size is not None and size.width > keep_if_wider_than)
             ):
                 _fetch_and_cache(http, release_mbid, url, head.headers.get("content-type"))
             return activity_store.CachedCoverArt(
@@ -313,9 +311,10 @@ def unfetched_winner(
     if (
         _caa_root is not None
         and known.image_url
-        and known.width is not None
         and keep_if_wider_than is not None
-        and known.width > keep_if_wider_than
+        and (
+            keep_if_wider_than < 0 or (known.width is not None and known.width > keep_if_wider_than)
+        )
         and cached_image(release_mbid) is None
     ):
         return known.image_url

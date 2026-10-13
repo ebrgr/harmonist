@@ -94,6 +94,15 @@ def reset_gardener_settings():
 
 
 @pytest.fixture(autouse=True)
+def reset_artwork_updates():
+    from harmonist import artwork, artwork_updates
+
+    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER)
+    yield
+    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER)
+
+
+@pytest.fixture(autouse=True)
 def reset_library_titles():
     from harmonist import library_titles
 

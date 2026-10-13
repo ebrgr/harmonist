@@ -133,6 +133,8 @@
     {% for f in filters %}
     {% if f.slug == 'update-available' %}
     {% include 'partials/_library_update_menu.html' %}
+    {% elif f.slug == 'no-artwork' %}
+    {% include 'partials/_library_artwork_menu.html' %}
     {% elif f.slug == 'mixed-format' %}
     {% include 'partials/_library_format_menu.html' %}
     {% elif f.count or f.active %}

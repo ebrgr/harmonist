@@ -129,8 +129,38 @@ own, those rows take it as though it had been chosen for them, so the row's ×
 can still keep the stand-in. The check downloads that front however it measures,
 since it wins regardless. If the front turns out to be the stand-in itself, as it
 can when the group's front was this release's all along, nothing was borrowed:
-the check clears the record, and the album's History says so. The background update check doesn't read the record
-yet: it doesn't look at artwork at all, which is #269's to change.
+the check clears the record, and the album's History says so. The background artwork
+check reads the same record and proposes the same replacement; it leaves the
+record and music untouched until the user reviews the album.
+
+## Finding changes without opening an album
+
+Artwork has its own background check under the same opt-in as tag updates.
+Its clock belongs to the CAA observation, because a new cover need not change
+MusicBrainz's tag payload and visiting a tag comparison must not postpone an
+artwork check. Its worker is separate so the archive's long responses cannot
+hold up tag discovery. Work is divided into small oldest-first slices with a
+time budget; failed attempts back off without replacing the last observation.
+
+The scan keeps compact descriptions of every audio track's image and the folder
+cover, never their bytes. The Library applies the shared plan to those facts and
+the archive observation held in memory, so filtering spends no requests and
+opens no audio or image files. Restart rebuilds archive observations from the
+durable cache; local changes replace the scan's facts, and settings are read when
+the plan is judged. There is no persisted artwork status to invalidate.
+
+One CAA check serves every local copy of a release, but each copy has its own
+plan. The download threshold considers every copy's folder cover, rather than
+the largest embedded image: a large embedded image must not hide a candidate
+that could improve a smaller folder cover. Stand-ins and empty albums can use
+any image, including one whose dimensions cannot be read.
+
+The Library separates absence from a proposed write. No artwork can overlap
+Addition, while a plan with any replacement belongs only to Replacement. A
+tag-update ignore is about a MusicBrainz version and cannot suppress artwork
+whose source changes independently. Background proposals require review; source
+preferences, watches for new alternatives and automatic writes remain separate
+decisions.
 
 ## Additions and replacements
 

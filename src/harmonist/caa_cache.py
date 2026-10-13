@@ -128,7 +128,7 @@ def stored(mbid: str, *, release_only: bool = False) -> activity_store.CachedCov
     return known
 
 
-def due(mbid: str, *, keep_if_wider_than: int) -> bool:
+def due(mbid: str, *, keep_if_wider_than: int | None) -> bool:
     """Whether this release is worth asking the archive about again.
 
     Asked by the album page to decide whether to send the out-of-band check —
@@ -136,9 +136,17 @@ def due(mbid: str, *, keep_if_wider_than: int) -> bool:
     `front`. The section must render from what is known *before* anything leaves
     the machine, so the decision has to be made without making the request.
 
-    `keep_if_wider_than` is the album's widest image, as `front` takes it, and
-    has no default: it decides whether a fresh answer is still owed a picture.
+    `keep_if_wider_than` is the caller's download threshold, as `front` takes
+    it, and has no default: a fresh answer may still be owed a useful picture.
     """
+    return (
+        front_due(mbid, keep_if_wider_than=keep_if_wider_than)
+        or stored_listing("release", mbid) is None
+    )
+
+
+def front_due(mbid: str, *, keep_if_wider_than: int | None) -> bool:
+    """The front check's own freshness, independent of the interactive picker."""
     known = stored(mbid)
     return (
         known is None
@@ -149,9 +157,6 @@ def due(mbid: str, *, keep_if_wider_than: int) -> bool:
         # A winner whose picture the image cache has since evicted (#439).
         # `front` fetches only the picture, but it has to be sent to.
         or cover_art.unfetched_winner(mbid, known, keep_if_wider_than) is not None
-        # Never listed: an answer stored before the picker offered every image
-        # (#659), which would otherwise wait out its TTL with nothing to offer.
-        or stored_listing("release", mbid) is None
     )
 
 
