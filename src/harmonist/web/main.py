@@ -238,11 +238,16 @@ _LIBRARY_UPDATE_LEVELS = {
     "update-settings": owned.Significance.SETTINGS,
 }
 
-_LIBRARY_ARTWORK = {
-    "artwork-available": "All artwork updates",
+_LIBRARY_ARTWORK_UPDATES = {
+    "artwork-available": "Artwork updates",
     "artwork-addition": "Addition",
     "artwork-replacement": "Replacement",
+}
+
+_LIBRARY_ARTWORK = {
     "no-artwork": "No artwork",
+    "artwork-missing-tracks": "Tracks missing artwork",
+    "artwork-different-tracks": "Different artwork across tracks",
 }
 
 
@@ -276,6 +281,8 @@ def _library_facet(slug: str) -> str:
         return "updates"
     if slug in _LIBRARY_ARTWORK:
         return "artwork"
+    if slug in _LIBRARY_ARTWORK_UPDATES:
+        return "artwork_updates"
     return slug
 
 
@@ -327,7 +334,15 @@ def _library_filters(
             "No artwork",
             lambda a: a.artwork_local is not None and a.artwork_local.missing,
         ),
-        "artwork-available": ("All artwork updates", lambda a: artwork_operation(a) is not None),
+        "artwork-missing-tracks": (
+            "Tracks missing artwork",
+            lambda a: a.artwork_local is not None and a.artwork_local.missing_tracks,
+        ),
+        "artwork-different-tracks": (
+            "Different artwork across tracks",
+            lambda a: a.artwork_local is not None and a.artwork_local.different_tracks,
+        ),
+        "artwork-available": ("Artwork updates", lambda a: artwork_operation(a) is not None),
         "artwork-addition": (
             "Addition",
             lambda a: artwork_operation(a) is artwork.Operation.ADDITION,
@@ -341,7 +356,7 @@ def _library_filters(
             lambda a: a.audio_format == scanner.MIXED_FORMAT,
         ),
         **{slug: (codec, contains_codec(codec)) for slug, codec in _LIBRARY_CODECS.items()},
-        "update-available": ("Update available", actionable_update),
+        "update-available": ("Tag updates", actionable_update),
         **{
             slug: (level.value.capitalize(), at_level(level))
             for slug, level in _LIBRARY_UPDATE_LEVELS.items()
@@ -1801,7 +1816,8 @@ def _library_page_vars(
             }
         )
     clear_facets = {
-        facet: encode(without(facet)) for facet in ("origin", "codec", "updates", "artwork")
+        facet: encode(without(facet))
+        for facet in ("origin", "codec", "updates", "artwork", "artwork_updates")
     }
     shown = matching(selected)
     done = [album for i, album in enumerate(done) if i in shown]
@@ -1863,7 +1879,8 @@ def _library_page_vars(
             if f["slug"] not in _LIBRARY_UPDATE_LEVELS
             and f["slug"] not in _LIBRARY_ORIGINS
             and f["slug"] not in _LIBRARY_CODECS
-            and f["slug"] not in {"artwork-available", "artwork-addition", "artwork-replacement"}
+            and f["slug"] not in _LIBRARY_ARTWORK_UPDATES
+            and f["slug"] not in {"artwork-missing-tracks", "artwork-different-tracks"}
         ],
         "origin_filters": [f for f in filters if f["slug"] in _LIBRARY_ORIGINS],
         "codec_filters": [f for f in filters if f["slug"] in _LIBRARY_CODECS],
@@ -1875,6 +1892,10 @@ def _library_page_vars(
         "update_filter_active": (any(_library_facet(slug) == "updates" for slug in selected)),
         "artwork_filters": [f for f in filters if f["slug"] in _LIBRARY_ARTWORK],
         "artwork_filter_active": any(_library_facet(slug) == "artwork" for slug in selected),
+        "artwork_update_filters": [f for f in filters if f["slug"] in _LIBRARY_ARTWORK_UPDATES],
+        "artwork_update_filter_active": any(
+            _library_facet(slug) == "artwork_updates" for slug in selected
+        ),
         # The search query, normalised — None means no search. Rides in every URL
         # this page builds, and is echoed back into the box (#180).
         "q": q,

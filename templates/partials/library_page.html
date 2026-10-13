@@ -132,7 +132,12 @@
     {% include 'partials/_library_origin_menu.html' %}
     {% for f in filters %}
     {% if f.slug == 'update-available' %}
+    {% with update_title='Tag', update_key='update', update_choices=[f] + update_filters, update_active=update_filter_active, update_clear=clear_facets.updates %}
     {% include 'partials/_library_update_menu.html' %}
+    {% endwith %}
+    {% with update_title='Artwork', update_key='artwork-update', update_choices=artwork_update_filters, update_active=artwork_update_filter_active, update_clear=clear_facets.artwork_updates %}
+    {% include 'partials/_library_update_menu.html' %}
+    {% endwith %}
     {% elif f.slug == 'no-artwork' %}
     {% include 'partials/_library_artwork_menu.html' %}
     {% elif f.slug == 'mixed-format' %}

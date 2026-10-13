@@ -99,8 +99,9 @@ suggestion to confirm.
 Albums with nothing to decide are in the **Library**. Its filters narrow the
 collection by origin or audio format, or find albums that could be better.
 Filters combine: an album must match every selected filter, as well as any
-artist or album search. Origin, codec, artwork and tag-update type each have one choice at a
-time, so changing origin keeps the other restrictions.
+artist or album search. Origin, codec, artwork observations, tag updates and
+artwork updates each have one choice at a time, so changing origin keeps the
+other restrictions. Counts describe albums, not individual images or tag fields.
 
 ![The Library: a search box, then filter chips with counts (All 9, Incomplete
 1, Partially tagged 0, No artwork 0, Mixed formats 0, Update available 1,
@@ -114,9 +115,10 @@ marked "New".](images/library.png)
 | **New** | were added to Harmonist within the last seven days, regardless of source, matching the New badge. |
 | **Incomplete** | are missing tracks or discs, based on the totals in their tags. Albums accepted with **Don't warn me about this** are left out. |
 | **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
-| **Artwork** | have no local artwork, or have an **Addition** or **Replacement** waiting for review. An addition fills empty places; a replacement overwrites at least one existing image and may also fill gaps. |
+| **Artwork** | have no local artwork, tracks without embedded artwork, or different images across tracks. These are observations; different track images may be intentional. |
 | **Format** | contain a file of the selected codec, including mixed albums. **Mixed formats only** independently narrows to albums mixing codecs, such as one MP3 among FLACs; differing bitrates or sample rates alone do not make an album mixed. |
-| **Update available** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
+| **Tag updates** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
+| **Artwork updates** | have an **Addition** or **Replacement** waiting for review. An addition fills empty places; a replacement overwrites at least one existing image and may also fill gaps. |
 | **Possible mismatch** | may be matched to the wrong release. See [when the match might be wrong](#when-the-match-might-be-wrong). |
 | **MB contributions** | have a release that's missing something you could add. See [giving back to MusicBrainz](#giving-back-to-musicbrainz). |
 
@@ -159,7 +161,7 @@ of the music folder first, and the new copy keeps the same match.
 
 MusicBrainz keeps improving: a date gets corrected, ISRCs get filled in, a
 duplicate release gets merged into another. When an album's tags fall behind, it
-appears in the Library's **Update available** filter, and its page shows exactly
+appears in the Library's **Tag updates** filter, and its page shows exactly
 what would change. Nothing is written until **Apply updates** is pressed.
 
 Harmonist checks an album whenever its page is opened. Setting **Library updates**

@@ -20,7 +20,7 @@ from harmonist import (
     scanner,
 )
 from harmonist.models import BorrowedArtwork
-from harmonist.web.main import _library_filters, _library_page_vars
+from harmonist.web.main import _library_filter, _library_filters, _library_page_vars
 from test.test_artwork import png_bytes
 from test.test_gardener import _release, _stub_app, _stub_runner, _tagged
 
@@ -67,6 +67,70 @@ def test_unreadable_is_not_confirmed_missing_artwork(tmp_path):
     (folder / "01.m4a").write_bytes(b"broken audio")
     album = scanner.scan(tmp_path)[0]
     assert not _library_filters({})["no-artwork"][1](album)
+
+
+@pytest.mark.parametrize(
+    ("images", "folder_cover", "unreadable", "expected"),
+    [
+        ((None, None), False, False, {"no-artwork", "artwork-missing-tracks"}),
+        ((None, None), True, False, {"artwork-missing-tracks"}),
+        ((64, None), False, False, {"artwork-missing-tracks"}),
+        ((64, 64), False, False, set()),
+        ((64, 65), False, False, {"artwork-different-tracks"}),
+        ((64, 65, None), True, False, {"artwork-missing-tracks", "artwork-different-tracks"}),
+        ((None, None), False, True, set()),
+        ((64, 65), False, True, set()),
+    ],
+)
+def test_local_observation_filters(tmp_path, images, folder_cover, unreadable, expected):
+    album = _tagged(tmp_path / "music", _release(mbid=MBID, tracks=len(images)), tracks=len(images))
+    for path, size in zip(sorted(album.path.glob("*.m4a")), images, strict=True):
+        if size:
+            formats.write_cover(path, png_bytes(size, size))
+    if folder_cover:
+        (album.path / "cover.png").write_bytes(png_bytes(70, 70))
+    album = scanner.scan(tmp_path / "music")[0]
+    assert album.artwork_local is not None
+    album.artwork_local = replace(album.artwork_local, unreadable=unreadable)
+    filters = _library_filters({})
+    slugs = {"no-artwork", "artwork-missing-tracks", "artwork-different-tracks"}
+    assert {slug for slug in slugs if filters[slug][1](album)} == expected
+    album.artwork_local = None
+    assert not any(filters[slug][1](album) for slug in slugs)
+
+
+def test_observations_intersect_updates_and_clear_independently(tmp_path, monkeypatch):
+    album = _tagged(tmp_path / "music", _release(mbid=MBID))
+    album.update_available = True
+    album.update_significance = "structure"
+    _archive(png_bytes(120, 120))
+    artwork_updates.warm([album])
+    other = replace(album, id="other", title="Other", update_available=False)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Filtering read disk or used the network")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    monkeypatch.setattr(cover_art, "check_front", forbidden)
+    query = "no-artwork,artwork-addition,update-structure"
+    assert _library_filter(query) == query
+    view = _library_page_vars([album, other], 1, 20, filter_=query)
+    assert view["rows"] == [album]
+    assert view["clear_facets"]["artwork"] == "artwork-addition,update-structure"
+    assert view["clear_facets"]["artwork_updates"] == "no-artwork,update-structure"
+    assert view["clear_facets"]["updates"] == "no-artwork,artwork-addition"
+    updates = {f["slug"]: f for f in view["artwork_update_filters"]}
+    assert updates["artwork-addition"]["count"] == 1
+    assert updates["artwork-replacement"]["count"] == 0
+    observations = {f["slug"]: f for f in view["artwork_filters"]}
+    assert observations["artwork-missing-tracks"]["next_filter"] == (
+        "artwork-missing-tracks,artwork-addition,update-structure"
+    )
+    view = _library_page_vars([album, other], 1, 20, filter_=view["clear_facets"]["updates"])
+    assert len(view["rows"]) == 2
+    view = _library_page_vars([album, other], 1, 20, filter_=query, q="Other")
+    assert view["rows"] == []
+    assert view["artwork_update_filter_active"]
 
 
 @pytest.mark.parametrize("suffix", ["m4a", "mp3", "flac", "opus"])

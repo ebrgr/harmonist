@@ -558,7 +558,7 @@ def test_the_filter_chip_is_dead_until_something_has_an_update(engaged):
     client, runner = engage()
 
     body = client.get("/library").text
-    assert "Update available" in body  # offered
+    assert "Tag updates" in body  # offered
     assert "filter=update-available" not in body  # but not selectable
 
     runner.albums()[0].update_available = True
@@ -641,7 +641,7 @@ def test_update_category_navigation_survives_empty_results_and_paging(engaged):
         album.update_significance = owned.Significance.IDENTITY
 
     body = client.get("/library?filter=update-identity&limit=1&page=2").text
-    assert 'aria-label="Update filters"' in body
+    assert 'aria-label="Tag update filters"' in body
     assert 'hx-get="/library?page=3&limit=1&filter=update-identity"' in body
     assert 'name="filter" value="update-identity"' in body
     assert 'from_filter=update-identity"' in body
@@ -654,7 +654,7 @@ def test_update_category_navigation_survives_empty_results_and_paging(engaged):
         album.update_significance = None
     for path in ("/library", "/?tab=library"):
         response = client.get(f"{path}{'&' if '?' in path else '?'}filter=update-identity")
-        assert 'aria-label="Update filters"' in response.text
+        assert 'aria-label="Tag update filters"' in response.text
         assert "No albums match this filter." in response.text
         assert "Show all 3 albums" in response.text
         menu = BeautifulSoup(response.text, "html.parser").select_one("#library-update-menu")
@@ -1279,7 +1279,7 @@ def test_a_pass_that_finds_more_than_it_can_name_leaves_one_summary(tmp_path, mo
 
     expected = (
         f"Update check: {count} albums now have an update available — "
-        "see the Library's Update available filter"
+        "see the Library's Tag updates filter"
     )
     assert _named_updates() == []
     assert _digest() == [expected]

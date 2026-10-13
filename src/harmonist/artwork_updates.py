@@ -34,6 +34,16 @@ class LocalArtwork:
     def missing(self) -> bool:
         return not self.unreadable and self.cover is None and not any(a for _, a in self.tracks)
 
+    @property
+    def missing_tracks(self) -> bool:
+        return not self.unreadable and any(a is None for _, a in self.tracks)
+
+    @property
+    def different_tracks(self) -> bool:
+        return not self.unreadable and artwork.has_per_track_art(
+            a.digest if a else None for _, a in self.tracks
+        )
+
 
 @dataclass(frozen=True)
 class Observation:

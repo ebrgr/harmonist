@@ -82,7 +82,7 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         htmx_ready(page.locator("#library-filter-no-artwork")).press("Enter")
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "1")
         no_art = page.locator("#library-artwork-button")
-        pw.expect(no_art).to_contain_text("Artwork: No artwork")
+        pw.expect(no_art).to_have_text(re.compile(r"^\s*No artwork\s+1\s*$"))
         pw.expect(page.locator("#library-grid > a")).to_have_count(1)
         pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
 
@@ -108,12 +108,12 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         htmx_ready(page.get_by_role("link", name="Any artwork status", exact=True)).click()
         pw.expect(no_art).to_have_text("Artwork")
         page.go_back()
-        pw.expect(no_art).to_contain_text("Artwork: No artwork")
+        pw.expect(no_art).to_have_text(re.compile(r"^\s*No artwork\s+1\s*$"))
         page.reload()
         pw.expect(trigger).to_contain_text("Format: MP3 · Mixed")
         htmx_ready(page.locator("#lib-demo-rel-rural-juror")).click()
         page.get_by_role("link", name="← Back to library", exact=True).click()
-        pw.expect(no_art).to_contain_text("Artwork: No artwork")
+        pw.expect(no_art).to_have_text(re.compile(r"^\s*No artwork\s+1\s*$"))
         assert parse_qs(urlsplit(page.url).query)["filter"] == [selection]
 
         # Removing a category preserves all the independent constraints.
@@ -123,7 +123,7 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         htmx_ready(trigger).click()
         htmx_ready(formats.get_by_role("link", name="Any codec", exact=True)).click()
         pw.expect(trigger).to_contain_text("Format: Mixed")
-        pw.expect(no_art).to_contain_text("Artwork: No artwork")
+        pw.expect(no_art).to_have_text(re.compile(r"^\s*No artwork\s+1\s*$"))
 
         # Active controls can always be removed, even with an empty search.
         page.get_by_role("searchbox").fill("no-such-album")

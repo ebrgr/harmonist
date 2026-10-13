@@ -1,9 +1,8 @@
-{% from 'macros.html' import artwork_icon %}
 {% from 'partials/_library_filter_controls.html' import unrestricted %}
 {% set selected = artwork_filters | selectattr('active') | first %}
 <button type="button" id="library-artwork-button" popovertarget="library-artwork-menu"
         class="library-update-button {{ chip_on if artwork_filter_active else chip_off }}">
-    <span>{% if selected %}Artwork: {{ selected.label }}{% else %}Artwork{% endif %}</span>
+    <span>{{ selected.label if selected else 'Artwork' }}</span>
     {% if selected %}<span class="font-normal tabular-nums">{{ selected.count }}</span>{% endif %}
     <svg class="library-update-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
 </button>
@@ -18,21 +17,19 @@
     <hr class="library-update-divider">
     {% for option in artwork_filters %}
     {% if option.active %}
-    <span class="library-update-option" aria-current="true">
+    <span class="library-update-option library-origin-option" aria-current="true">
     {% elif option.count %}
     <a id="library-filter-{{ option.slug }}" href="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
        hx-get="/library?{{ library_query(none, limit, option.next_filter, q) }}"
        hx-target="#library-rows" hx-swap="innerHTML"
        hx-push-url="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
-       class="library-update-option">
+       class="library-update-option library-origin-option">
     {% else %}
-    <span class="library-update-option" aria-disabled="true">
+    <span class="library-update-option library-origin-option" aria-disabled="true">
     {% endif %}
-        <span class="library-update-icon" aria-hidden="true">{% if option.slug in ['artwork-addition', 'artwork-replacement'] %}{{ artwork_icon() }}{% endif %}</span>
         <span class="library-update-label">{{ option.label }}</span>
         <span class="library-update-count">{{ option.count }}</span>
         <span class="library-update-check" aria-hidden="true">{% if option.active %}✓{% endif %}</span>
     {% if option.active or not option.count %}</span>{% else %}</a>{% endif %}
-    {% if option.slug in ['no-artwork', 'artwork-available'] %}<hr class="library-update-divider">{% endif %}
     {% endfor %}
 </nav>

@@ -155,8 +155,13 @@ the largest embedded image: a large embedded image must not hide a candidate
 that could improve a smaller folder cover. Stand-ins and empty albums can use
 any image, including one whose dimensions cannot be read.
 
-The Library separates absence from a proposed write. No artwork can overlap
-Addition, while a plan with any replacement belongs only to Replacement. A
+The Library separates local observations from proposed writes, so a fact about
+what the files carry can be combined with a change available to them. No artwork
+can overlap Addition, while a plan with any replacement belongs only to
+Replacement. Missing embedded images and different images across tracks are
+neutral observations: the latter may be intentional, and neither implies that
+an update is available. Unreadable images are not evidence of absence. Both tag
+and artwork update counts describe albums, not fields or images to be written. A
 tag-update ignore is about a MusicBrainz version and cannot suppress artwork
 whose source changes independently. Background proposals require review; source
 preferences, watches for new alternatives and automatic writes remain separate

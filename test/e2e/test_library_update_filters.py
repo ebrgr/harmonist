@@ -23,7 +23,7 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
             page.locator("#album-update-demo-rel-rural-juror .sev--structure")
         ).to_be_visible()
         page.get_by_role("link", name="← Back to library", exact=True).click()
-        updates = page.get_by_role("navigation", name="Update filters", exact=True)
+        updates = page.get_by_role("navigation", name="Tag update filters", exact=True)
         trigger = page.locator("#library-update-button")
         pw.expect(updates).to_be_hidden()
         page.evaluate("window.__harmonistNoReload = true")
@@ -53,7 +53,7 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
         pw.expect(page).to_have_url(re.compile(r"filter=update-structure"))
         assert page.evaluate("window.__harmonistNoReload === true")
         pw.expect(updates).to_be_hidden()
-        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(trigger).to_contain_text("Tag updates: Structure")
         trigger.click()
         pw.expect(updates.locator('[aria-current="true"]')).to_contain_text("Structure")
         pw.expect(updates.locator('[aria-disabled="true"]', has_text="Cosmetic")).to_be_visible()
@@ -67,7 +67,7 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
         htmx_ready(trigger).wait_for(state="visible")
         with page.expect_response(lambda r: "/library?" in r.url and "update-structure" in r.url):
             page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
-        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(trigger).to_contain_text("Tag updates: Structure")
         pw.expect(updates).to_be_hidden()
         assert page.evaluate("window.__harmonistNoReload === true")
 
@@ -75,7 +75,7 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
         page.get_by_role("link", name="← Back to library", exact=True).click()
         pw.expect(page).to_have_url(re.compile(r"filter=update-structure&q=Rural"))
         page.reload()
-        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(trigger).to_contain_text("Tag updates: Structure")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
         trigger.click()
@@ -84,7 +84,7 @@ def test_update_menu_survives_navigation(demo_server, htmx_ready, width, engine)
         main_filters = page.get_by_role("navigation", name="Library filters", exact=True)
         main_filters.get_by_role("button", name="Clear", exact=True).click()
         pw.expect(updates).to_be_hidden()
-        pw.expect(trigger).to_contain_text("Update available")
+        pw.expect(trigger).to_contain_text("Tag updates")
         pw.expect(page).not_to_have_url(re.compile(r"filter="))
         browser.close()
 
@@ -132,7 +132,7 @@ def test_navigation_takes_priority_over_refresh(demo_server, htmx_ready, navigat
 
         def navigate():
             trigger.click()
-            menu = page.get_by_role("navigation", name="Update filters", exact=True)
+            menu = page.get_by_role("navigation", name="Tag update filters", exact=True)
             htmx_ready(menu.get_by_role("link", name=re.compile("Structure"))).click()
 
         (navigate if navigation_first else refresh)()
@@ -143,12 +143,12 @@ def test_navigation_takes_priority_over_refresh(demo_server, htmx_ready, navigat
             # may start with the old view while navigation is pending.
             assert page.evaluate("window.libraryRequests.length") == 1
         else:
-            pw.expect(trigger).to_contain_text("Updates: Structure")
+            pw.expect(trigger).to_contain_text("Tag updates: Structure")
 
         route, response = held.pop()
         route.fulfill(response=response)
         page.wait_for_function("window.libraryRequests.every(request => request.done)")
-        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(trigger).to_contain_text("Tag updates: Structure")
         pw.expect(page).to_have_url(re.compile("filter=update-structure"))
         pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
 
@@ -157,6 +157,6 @@ def test_navigation_takes_priority_over_refresh(demo_server, htmx_ready, navigat
         with page.expect_response(lambda r: "/library?" in r.url and "update-structure" in r.url):
             refresh()
         page.wait_for_function("window.libraryRequests.every(request => request.done)")
-        pw.expect(trigger).to_contain_text("Updates: Structure")
+        pw.expect(trigger).to_contain_text("Tag updates: Structure")
         pw.expect(page).to_have_url(re.compile("filter=update-structure"))
         browser.close()

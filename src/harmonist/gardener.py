@@ -955,7 +955,7 @@ def _record_digest(result: PassResult) -> None:
     if len(albums) > NAMED_UPDATES_MAX:
         activity.record(
             f"Update check: {len(albums)} albums now have an update available — "
-            "see the Library's Update available filter"
+            "see the Library's Tag updates filter"
         )
         return
     for album in albums:

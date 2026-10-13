@@ -292,7 +292,7 @@ to [edit the release](how-it-works.md#musicbrainz-is-the-source-of-truth).
 The album's page links to it.
 
 Meanwhile, tick **Ignore until MusicBrainz changes** to take the album off the
-**Update available** list. It returns when the release next changes, usually
+**Tag updates** list. It returns when the release next changes, usually
 when your edit is accepted. Nothing is written either way.
 
 An update labelled **Settings** didn't come from MusicBrainz: it brings the album
