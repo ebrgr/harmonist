@@ -1,4 +1,4 @@
-"""Origin menu navigation stays a single filter across Library interactions."""
+"""Origin selection survives Library navigation and remains clearable."""
 
 import os
 import re
@@ -14,7 +14,7 @@ def test_origin_menu_navigation(reset_demo_server, htmx_ready, engine, width):
     with pw.sync_playwright() as playwright:
         browser = getattr(playwright, engine).launch()
         page = browser.new_page(viewport={"width": width, "height": 900})
-        page.goto(f"{reset_demo_server}/?tab=library&filter=no-artwork&limit=1")
+        page.goto(f"{reset_demo_server}/?tab=library&limit=1")
         trigger = htmx_ready(page.locator("#library-origin-button"))
         menu = page.get_by_role("navigation", name="Origin filters", exact=True)
         trigger.wait_for(state="visible")
@@ -33,7 +33,6 @@ def test_origin_menu_navigation(reset_demo_server, htmx_ready, engine, width):
         trigger.click()
         htmx_ready(menu.get_by_role("link", name=re.compile("^Unknown"))).press("Enter")
         pw.expect(page).to_have_url(re.compile("filter=origin-unknown"))
-        assert "filter=no-artwork" not in page.url
         assert page.evaluate("window.originNoReload === true")
         pw.expect(trigger).to_contain_text("Origin: Unknown")
         pw.expect(menu).to_be_hidden()
@@ -74,8 +73,9 @@ def test_origin_menu_navigation(reset_demo_server, htmx_ready, engine, width):
         pw.expect(menu.locator('[aria-current="true"]')).to_contain_text("Unknown")
         trigger.press("Escape")
         filters = page.get_by_role("navigation", name="Library filters", exact=True)
-        htmx_ready(filters.get_by_role("link", name=re.compile("^All"))).click()
+        filters.get_by_role("button", name="Clear", exact=True).click()
         pw.expect(trigger).to_have_text("Origin")
         pw.expect(page).not_to_have_url(re.compile("filter="))
-        pw.expect(page).to_have_url(re.compile("q=no-such-album"))
+        pw.expect(page).not_to_have_url(re.compile("q="))
+        pw.expect(page.get_by_role("searchbox")).to_have_value("")
         browser.close()

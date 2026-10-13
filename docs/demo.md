@@ -83,7 +83,7 @@ Before each clip:
 
 1. Reset, wait for scanning to settle, then check **Settings** against this table
    and press **Save settings** if anything changed.
-2. Clear the Library search and return its filter to **All**. Keep browser zoom,
+2. Use **Clear** to reset the Library search and filters. Keep browser zoom,
    window size and theme consistent between takes. Turn History's **Show details**
    off to hide raw audit records; field-level change records remain visible.
 3. Open the albums listed in the clip's preparation, wait for Album, Tracks and
@@ -122,11 +122,11 @@ audio fixture**, so use FLAC for this recording.
 
 **Prepare:** reset and use the baseline above. Open **Rawhide**, **We Are Here
 To Make You Sad**, **Fever Dog** and **Man of Constant Sorrow**, letting each
-comparison settle. Return to Library → All. Leave their updates unapplied.
+comparison settle. Return to Library and clear any filters. Leave their updates unapplied.
 
 | Beat | On screen | Suggested narration or caption |
 | --- | --- | --- |
-| 0–15 s | Show the library covers. Open **Origin**, choose **Qobuz**, then return to All. | “Harmonist looks after the music you already own, from downloads to CD rips.” |
+| 0–15 s | Show the library covers. Open **Origin**, choose **Qobuz**, then **Clear**. | “Harmonist looks after the music you already own, from downloads to CD rips.” |
 | 15–30 s | Open **Update available**, briefly show the significance choices, then choose **Enrichment** and open **Rawhide**. | “Find the albums that could be better, and see exactly what would change.” |
 | 30–50 s | Hold on the Enrichment summary and the date, label and catalogue-number differences. Press **Apply updates** once; wait for the differences to clear. | “MusicBrainz adds a more precise date and missing release details. I review them before they reach my files.” |
 | 50–70 s | Scroll to **History**. Hold on the date, label and catalogue-number changes. Choose the update's tag Undo and accept its confirmation. | “Every change has a record. Undo restores the previous values.” |

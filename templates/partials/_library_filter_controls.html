@@ -1,0 +1,62 @@
+{% from 'macros.html' import library_query %}
+
+{# Native GET buttons expose pressed state and retain a no-JS path. #}
+{% macro toggle(option, limit, q, classes, label=none, menu=false) -%}
+<form method="get" action="/" hx-get="/library?{{ library_query(none, limit, option.next_filter, q) }}"
+      hx-params="none"
+      hx-target="#library-rows" hx-swap="innerHTML"
+      hx-push-url="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}">
+    <input type="hidden" name="tab" value="library">
+    <input type="hidden" name="limit" value="{{ limit }}">
+    {% if option.next_filter %}<input type="hidden" name="filter" value="{{ option.next_filter }}">{% endif %}
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <button type="submit" id="library-filter-{{ option.slug }}" aria-pressed="{{ 'true' if option.active else 'false' }}"
+            aria-label="{{ label or option.label }}" class="{{ classes }}">
+        {% if menu %}
+        <span class="library-update-label">{{ label or option.label }}</span>
+        <span class="library-update-count">{{ option.count }}</span>
+        <span class="library-update-check" aria-hidden="true">{% if option.active %}✓{% endif %}</span>
+        {% else %}
+        {% if option.active %}<span aria-hidden="true">✓ </span>{% endif %}{{ label or option.label }}
+        <span class="font-normal tabular-nums">{{ option.count }}</span>
+        {% endif %}
+    </button>
+</form>
+{%- endmacro %}
+
+{% macro choice(option, limit, q, label=none) -%}
+{% if option.active %}
+<span class="library-update-option library-origin-option" aria-current="true">
+{% elif option.count %}
+<a href="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
+   hx-get="/library?{{ library_query(none, limit, option.next_filter, q) }}"
+   hx-target="#library-rows" hx-swap="innerHTML"
+   hx-push-url="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
+   class="library-update-option library-origin-option">
+{% else %}
+<span class="library-update-option library-origin-option" aria-disabled="true">
+{% endif %}
+    <span class="library-update-label">{{ label or option.label }}</span>
+    <span class="library-update-count">{{ option.count }}</span>
+    <span class="library-update-check" aria-hidden="true">{% if option.active %}✓{% endif %}</span>
+{% if option.active or not option.count %}</span>{% else %}</a>{% endif %}
+{%- endmacro %}
+
+{% macro unrestricted(label, active, filter, limit, q) -%}
+{% if active %}
+<a href="/?tab=library&{{ library_query(none, limit, filter, q) }}"
+   hx-get="/library?{{ library_query(none, limit, filter, q) }}"
+   hx-target="#library-rows" hx-swap="innerHTML"
+   hx-push-url="/?tab=library&{{ library_query(none, limit, filter, q) }}"
+   class="library-update-option library-origin-option">{{ label }}</a>
+{% else %}
+<span class="library-update-option library-origin-option" aria-current="true">
+    <span class="library-update-label">{{ label }}</span>
+    <span class="library-update-check" aria-hidden="true">✓</span>
+</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro chevron() -%}
+<svg class="library-update-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+{%- endmacro %}

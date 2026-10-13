@@ -1,11 +1,10 @@
-{# Share the Updates popover's presentation and navigation behavior. Origin has
-   no roll-up subset: the Library's All choice already includes every origin. #}
+{% from 'partials/_library_filter_controls.html' import unrestricted %}
 {% macro option_contents(option, current) -%}
     <span class="library-update-label">{{ option.label }}</span>
     <span class="library-update-count">{{ option.count }}</span>
     <span class="library-update-check" aria-hidden="true">{% if current %}✓{% endif %}</span>
 {%- endmacro %}
-{% set selected = origin_filters | selectattr('slug', 'equalto', filter) | first %}
+{% set selected = origin_filters | selectattr('active') | first %}
 <button type="button" id="library-origin-button" popovertarget="library-origin-menu"
         class="library-update-button {{ chip_on if selected else chip_off }}">
     <span>{% if selected %}Origin: {{ selected.label }}{% else %}Origin{% endif %}</span>
@@ -19,16 +18,18 @@
          this.style.top = (box.bottom + 4) + 'px';
          this.style.maxHeight = Math.max(80, innerHeight - box.bottom - 12) + 'px';
      }">
+    {{ unrestricted('Any origin', selected, clear_facets.origin, limit, q) }}
+    <hr class="library-update-divider">
     {% for option in origin_filters %}
-    {% if option.slug == filter %}
+    {% if option.active %}
     <span class="library-update-option library-origin-option" aria-current="true">
         {{ option_contents(option, true) }}
     </span>
     {% elif option.count %}
-    <a href="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
-       hx-get="/library?{{ library_query(none, limit, option.slug, q) }}"
+    <a href="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
+       hx-get="/library?{{ library_query(none, limit, option.next_filter, q) }}"
        hx-target="#library-rows" hx-swap="innerHTML"
-       hx-push-url="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
+       hx-push-url="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
        class="library-update-option library-origin-option">
         {{ option_contents(option, false) }}
     </a>

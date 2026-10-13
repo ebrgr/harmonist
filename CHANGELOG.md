@@ -6,6 +6,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Library filters can be combined, including a codec choice and mixed-format albums, with counts that reflect the current query (#732).
 - Rematching an album spanning several folders keeps every folder on the new release, instead of splitting it into incomplete albums (#730).
 
 ## [1.26.0] - 2026-10-12

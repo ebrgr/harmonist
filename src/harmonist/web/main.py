@@ -248,6 +248,26 @@ _LIBRARY_ORIGINS = {
     "origin-unknown": provenance.Origin.UNKNOWN,
 }
 
+_LIBRARY_CODECS = {
+    "codec-flac": "FLAC",
+    "codec-alac": "ALAC",
+    "codec-mp3": "MP3",
+    "codec-aac": "AAC",
+    "codec-vorbis": "Vorbis",
+    "codec-opus": "Opus",
+}
+
+
+def _library_facet(slug: str) -> str:
+    """Single-choice categories replace themselves; other findings intersect."""
+    if slug in _LIBRARY_ORIGINS:
+        return "origin"
+    if slug in _LIBRARY_CODECS:
+        return "codec"
+    if slug == "update-available" or slug in _LIBRARY_UPDATE_LEVELS:
+        return "updates"
+    return slug
+
 
 def _library_filters(
     ignored: Mapping[str, activity_store.IgnoredUpdate],
@@ -272,6 +292,9 @@ def _library_filters(
     def from_origin(origin: provenance.Origin) -> Callable[[Album], bool]:
         return lambda album: provenance.origin(album) == origin
 
+    def contains_codec(codec: str) -> Callable[[Album], bool]:
+        return lambda album: codec in album.audio_codecs
+
     return {
         **{slug: (origin.value, from_origin(origin)) for slug, origin in _LIBRARY_ORIGINS.items()},
         "incomplete": ("Incomplete", _is_actionable_incomplete),
@@ -281,6 +304,7 @@ def _library_filters(
             "Mixed formats",
             lambda a: a.audio_format == scanner.MIXED_FORMAT,
         ),
+        **{slug: (codec, contains_codec(codec)) for slug, codec in _LIBRARY_CODECS.items()},
         "update-available": ("Update available", actionable_update),
         **{
             slug: (level.value.capitalize(), at_level(level))
@@ -1553,14 +1577,17 @@ def _remember_library_limit(response: Response, limit: int | None) -> None:
 
 
 def _library_filter(value: str | None) -> str | None:
-    """The validated filter slug for this render, or None for "All" (#174).
+    """Canonical comma-separated selection; old single-slug links still work.
 
-    `?filter=` is untrusted input reflected into the page (the `<select>`'s state,
-    and every pager URL), so it is checked against the known set exactly as `?tab=`
-    is. An unrecognised value degrades to All rather than to an empty grid: a slug
-    from an older build, or a mangled link, should show the reader their library.
+    Only known slugs may reach URLs or templates. Repeated single-choice facets
+    use the last supplied choice; duplicates and unknown slugs are discarded.
     """
-    return value if value in _LIBRARY_FILTER_LABELS else None
+    choices = {
+        _library_facet(slug): slug
+        for slug in (value or "").split(",")
+        if slug in _LIBRARY_FILTER_LABELS
+    }
+    return ",".join(slug for slug in _LIBRARY_FILTER_LABELS if slug in choices.values()) or None
 
 
 def _library_search(value: str | None) -> str | None:
@@ -1675,24 +1702,47 @@ def _library_page_vars(
     # see is worse than no count.
     if q:
         done = _search_matches(done, q)
-    # After the search, before the filter: the All chip's number, and the
-    # denominator every other chip is a subset of.
+    # After search, before any filters.
     total_matched = len(done)
-    # The options the control offers, each with the count it would yield. Counted
-    # off the same `done` list the grid pages, so a count can never describe a
-    # different population than selecting it would show. Computed on every render,
-    # filtered or not — an option worth 0 albums should say so before it's picked
-    # rather than answering with an empty grid.
-    # One read for the whole render, so the chip's count and the grid it yields
-    # are drawn from the same answer — two reads either side of a press would let
-    # the count and the grid disagree by one.
+    filter_ = _library_filter(filter_)
+    selected = set(filter_.split(",")) if filter_ else set()
     library_filters = _library_filters(_ignored_updates())
-    filters = [
-        {"slug": slug, "label": label, "count": sum(1 for a in done if pred(a))}
-        for slug, (label, pred) in library_filters.items()
-    ]
-    if filter_ is not None:
-        done = [a for a in done if library_filters[filter_][1](a)]
+    # Evaluate each predicate once per album, then intersect sets for the counts.
+    # In particular, contribution assessment must not repeat for every option.
+    matches = {
+        slug: {i for i, album in enumerate(done) if pred(album)}
+        for slug, (_, pred) in library_filters.items()
+    }
+
+    def matching(slugs: set[str]) -> set[int]:
+        return set(range(len(done))).intersection(*(matches[slug] for slug in slugs))
+
+    def encode(slugs: set[str]) -> str | None:
+        return ",".join(slug for slug in library_filters if slug in slugs) or None
+
+    def without(facet: str) -> set[str]:
+        return {slug for slug in selected if _library_facet(slug) != facet}
+
+    filters = []
+    for slug, (label, _) in library_filters.items():
+        rest = without(_library_facet(slug))
+        active = slug in selected
+        filters.append(
+            {
+                "slug": slug,
+                "label": label,
+                "active": active,
+                "count": len(matching(rest | {slug})),
+                # Single-choice menu selections stay selected. Standalone controls
+                # toggle off; the category's unrestricted choice clears a menu.
+                "next_filter": encode(
+                    rest if active and _library_facet(slug) == slug else rest | {slug}
+                ),
+            }
+        )
+    clear_facets = {facet: encode(without(facet)) for facet in ("origin", "codec", "updates")}
+    shown = matching(selected)
+    done = [album for i, album in enumerate(done) if i in shown]
     limit = max(1, min(limit, _LIBRARY_LIMIT_MAX))  # clamp; defensive
     total_pages = max(1, -(-len(done) // limit))  # ceil; always at least one page
     # `anchor` is the 1-based position of the first album on screen at the moment
@@ -1726,35 +1776,38 @@ def _library_page_vars(
         # "search all N" links both read this. A filtered grid must not let it
         # start reporting the rows it happens to be rendering (#140).
         "total_done": total_done,
-        # How many albums the search left, before the filter — what the All chip
-        # says, and what the chips beside it are subsets of. Equal to `total_done`
-        # when nothing is being searched for (#180).
+        # How many albums the search left, before any filters. Equal to
+        # `total_done` when nothing is being searched for (#180).
         "total_matched": total_matched,
         # How many albums the CURRENT view holds: the same number when nothing is
-        # filtered, the matching subset when something is. Only the pager reads it.
+        # filtered, the matching subset when something is.
         "total_shown": len(done),
-        # The active filter slug, already validated — None means All. Rides in every
+        # The canonical selection — None means unrestricted. Rides in every
         # pager URL, the size form and the tile links, so the whole view stays one
         # set of parameters (#174).
         "filter": filter_,
         # Its human label, for the sentence the search box uses to say what it is
         # searching over. Resolved here so the template doesn't have to hunt through
         # `filters` for the active one (#180).
-        "filter_label": _LIBRARY_FILTER_LABELS[filter_] if filter_ else None,
+        "filter_label": " + ".join(
+            _LIBRARY_FILTER_LABELS[s] for s in library_filters if s in selected
+        ),
+        "clear_facets": clear_facets,
         "filters": [
             f
             for f in filters
-            if f["slug"] not in _LIBRARY_UPDATE_LEVELS and f["slug"] not in _LIBRARY_ORIGINS
+            if f["slug"] not in _LIBRARY_UPDATE_LEVELS
+            and f["slug"] not in _LIBRARY_ORIGINS
+            and f["slug"] not in _LIBRARY_CODECS
         ],
         "origin_filters": [f for f in filters if f["slug"] in _LIBRARY_ORIGINS],
+        "codec_filters": [f for f in filters if f["slug"] in _LIBRARY_CODECS],
         "update_filters": [
             {**f, "significance": _LIBRARY_UPDATE_LEVELS[f["slug"]]}
             for f in filters
             if f["slug"] in _LIBRARY_UPDATE_LEVELS
         ],
-        "update_filter_active": (
-            filter_ == "update-available" or filter_ in _LIBRARY_UPDATE_LEVELS
-        ),
+        "update_filter_active": (any(_library_facet(slug) == "updates" for slug in selected)),
         # The search query, normalised — None means no search. Rides in every URL
         # this page builds, and is echoed back into the box (#180).
         "q": q,

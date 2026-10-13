@@ -396,6 +396,9 @@ class Album:
     # "Mixed" when files disagree. Scanner-derived; not persisted. Confirms
     # the download format the user chose actually landed.
     audio_format: str | None = None
+    # Scanner-derived codecs present, before the display label collapses to
+    # Mixed. Library codec filters include albums with even one such file.
+    audio_codecs: frozenset[str] = frozenset()
     # What that format actually is — "44.1 kHz · 16 bit", "44.1 kHz · 320 kbps
     # CBR" (#130). Scanner-derived; not persisted, like `audio_format` beside
     # it. Says whether a download is the quality the user paid for, and whether

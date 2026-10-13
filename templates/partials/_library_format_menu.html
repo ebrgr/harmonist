@@ -1,0 +1,24 @@
+{% from 'partials/_library_filter_controls.html' import choice, unrestricted, toggle, chevron %}
+{% set selected = codec_filters | selectattr('active') | first %}
+<button type="button" id="library-format-button" popovertarget="library-format-menu"
+        class="library-update-button {{ chip_on if selected or f.active else chip_off }}">
+    <span>Format{% if selected or f.active %}: {% if selected %}{{ selected.label }}{% endif %}{% if selected and f.active %} · {% endif %}{% if f.active %}Mixed{% endif %}{% endif %}</span>
+    {% if selected or f.active %}<span class="font-normal tabular-nums">{{ total_shown }}</span>{% endif %}
+    {{ chevron() }}
+</button>
+<nav id="library-format-menu" popover aria-label="Format filters" class="library-update-menu"
+     onbeforetoggle="if (event.newState === 'open') {
+         const box = document.getElementById('library-format-button').getBoundingClientRect();
+         this.style.left = Math.max(8, Math.min(box.left, innerWidth - 232)) + 'px';
+         this.style.top = (box.bottom + 4) + 'px';
+         this.style.maxHeight = Math.max(80, innerHeight - box.bottom - 12) + 'px';
+     }">
+    {{ unrestricted('Any codec', selected, clear_facets.codec, limit, q) }}
+    {% for option in codec_filters %}{{ choice(option, limit, q) }}{% endfor %}
+    <hr class="library-update-divider">
+    {% if f.count or f.active %}
+    {{ toggle(f, limit, q, 'library-update-option library-origin-option w-full text-left', 'Mixed formats only', true) }}
+    {% else %}
+    <span class="library-update-option library-origin-option" aria-disabled="true"><span class="library-update-label">Mixed formats only</span><span class="library-update-count">0</span></span>
+    {% endif %}
+</nav>

@@ -339,7 +339,7 @@ Nothing to fix in Harmonist; tags don't store lengths. Either your files are a
 different master from the one on MusicBrainz, or MusicBrainz's lengths are wrong
 and can be corrected there.
 
-### An album is listed under Mixed formats
+### An album is listed under Mixed formats only
 
 The album mixes codecs, such as one MP3 among FLAC files. On the album's page,
 the track list has a **Format** column showing which tracks differ. Replace

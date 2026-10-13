@@ -211,6 +211,14 @@ document.addEventListener('DOMContentLoaded', function () {
         document.body.dispatchEvent(new Event('library-refresh'));
     }
 
+    // hx-preserve protects drafts during refreshes, but history snapshots store
+    // the input's HTML value, which may predate the submitted search. On Back /
+    // Forward the restored URL names the query whose results are on screen.
+    document.body.addEventListener('htmx:historyRestore', function () {
+        const search = document.getElementById('library-search');
+        if (search) search.value = new URL(window.location.href).searchParams.get('q') || '';
+    });
+
     // Last string actually written, so an unchanged status isn't re-rendered.
     // This runs from the 1.5s /status poll, and assigning innerHTML destroys and
     // rebuilds the children even when the markup is byte-identical — which flickers

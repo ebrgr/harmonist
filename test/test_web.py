@@ -2623,8 +2623,7 @@ def test_library_ignores_an_unknown_filter(client, cfg):
     body = client.get("/library?filter=<script>alert(1)</script>").text
     assert "Whole" in body
     assert "alert(1)" not in body
-    # Fell through to All, which is what the control reports.
-    assert 'aria-current="true">All' in body
+    assert 'id="library-result-count">1 album</span>' in body
 
 
 def test_library_does_not_remember_a_filter(client, cfg):
@@ -2806,9 +2805,8 @@ def test_library_total_done_ignores_the_search(client, cfg):
     _make_two_albums(cfg)
     body = client.get("/library?q=aphex").text
     assert 'data-total-done="2"' in body
-    # The All chip, though, reports what the search left — it is the number the
-    # other chips are subsets of, and it is not the library's size any more.
-    assert re.search(r'aria-current="true">All\s*<span[^>]*>1</span>', body)
+    # The result count describes the search, separately from library size.
+    assert 'id="library-result-count">1 album</span>' in body
 
 
 def test_library_filter_counts_are_taken_within_the_search(client, cfg):

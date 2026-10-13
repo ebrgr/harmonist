@@ -34,6 +34,7 @@
    `library-refresh`. The grid is derived from the scanner's snapshot and nothing
    else, so there was nothing left for a press to fetch. #}
 {% from 'macros.html' import library_query %}
+{% from 'partials/_library_filter_controls.html' import toggle %}
 <div id="library-page" data-total-done="{{ total_done }}" data-page="{{ page }}"
      data-limit="{{ limit }}">
 {# A separate leaf keeps the background request's abort strategy from being
@@ -61,8 +62,8 @@
    screen. A rare lost focus beats a silently wrong search.
 
    The cost of preserving is that the server can no longer change what is in the
-   box, which is why the two controls that clear a search are plain links with no
-   `hx-get` — a full navigation, which rebuilds the DOM and so genuinely empties it.
+   box, which is why controls that clear a search use a full navigation, which
+   rebuilds the DOM and so genuinely empties it.
    (A clamped over-length query is the one case the box can disagree with what was
    searched; 100 characters in, it is not a disagreement anyone will notice.)
 
@@ -118,69 +119,40 @@
 {% endif %}
 {% endif %}
 
-{# Filters (#174). Everything in this grid is terminal, but terminal is not the
-   same as right: an INCOMPLETE album, one where only some files carry the MBID
-   atom, and one with no artwork at all are each finished as far as the state
-   machine is concerned, and each invisible in a wall of tiles.
-
-   Links, not a <select>, and deliberately: an href + hx-get + hx-push-url agree
-   by construction (the pager below is the precedent), so the address bar always
-   names what is on screen, the browser's own history does the navigating, JS-off
-   and middle-click both work, and there is no form whose default `submit` trigger
-   can be dropped by naming another one (#144's bug). The update menu only uses
-   a handler to position its native popover; navigation still belongs to HTMX.
-
-   Gated on `total_done`, NOT on `rows`: a filter matching nothing still has to
-   render its own row, or the only way back to All would be the Back button.
-
-   Each option carries the count it would yield, and one worth nothing becomes an
-   inert <span> — the same treatment the pager gives an end stop. A link that
-   promises an empty grid is worse than a number saying so up front. #}
+{# Filters survive an empty result. Inactive zero-count choices are inert;
+   selected controls always remain removable, even after a background change. #}
 {% if total_done %}
 {% set chip = "px-2 py-0.5 rounded-full border text-xs font-bold transition" %}
 {% set chip_on = chip ~ " bg-accent border-accent text-white" %}
 {% set chip_off = chip ~ " bg-surface border-line text-muted hover:text-accent hover:border-accent" %}
 {% set chip_dead = chip ~ " border-transparent text-muted opacity-40 cursor-default select-none" %}
-{# Every count here is `total_matched`-relative, not library-relative: under a
-   search the chips report what they would yield *within it* (#180). All says how
-   many the search left; the rest are subsets of that. The container's
-   `data-total-done` is the one number that stays library-wide. #}
+{# Counts include search and the other selections. A category choice replaces
+   only its category; standalone findings intersect and toggle off individually. #}
 <nav class="mb-3 flex flex-wrap items-center gap-1.5" aria-label="Library filters">
-    {% if filter %}
-    <a href="/?tab=library&{{ library_query(none, limit, none, q) }}"
-       hx-get="/library?{{ library_query(none, limit, none, q) }}"
-       hx-target="#library-rows" hx-swap="innerHTML"
-       hx-push-url="/?tab=library&{{ library_query(none, limit, none, q) }}"
-       class="{{ chip_off }}">All <span class="font-normal tabular-nums">{{ total_matched }}</span></a>
-    {% else %}
-    <span class="{{ chip_on }}" aria-current="true">All
-        <span class="font-normal tabular-nums">{{ total_matched }}</span></span>
-    {% endif %}
-
     {% include 'partials/_library_origin_menu.html' %}
     {% for f in filters %}
     {% if f.slug == 'update-available' %}
     {% include 'partials/_library_update_menu.html' %}
-    {% elif f.slug == filter %}
-    <span class="{{ chip_on }}" aria-current="true">{{ f.label }}
-        <span class="font-normal tabular-nums">{{ f.count }}</span></span>
-    {% elif f.count %}
-    {# No `page`, so this starts at the first page of the new answer — see the
-       macro. The reader's page SIZE does travel: that is a standing preference,
-       and resetting it because they asked a different question would be rude. So
-       does the SEARCH, for the stronger reason that dropping it would widen the
-       view without being asked — the thing #174 refused to do with the filter. #}
-    <a href="/?tab=library&{{ library_query(none, limit, f.slug, q) }}"
-       hx-get="/library?{{ library_query(none, limit, f.slug, q) }}"
-       hx-target="#library-rows" hx-swap="innerHTML"
-       hx-push-url="/?tab=library&{{ library_query(none, limit, f.slug, q) }}"
-       class="{{ chip_off }}">{{ f.label }}
-        <span class="font-normal tabular-nums">{{ f.count }}</span></a>
+    {% elif f.slug == 'mixed-format' %}
+    {% include 'partials/_library_format_menu.html' %}
+    {% elif f.count or f.active %}
+    {{ toggle(f, limit, q, chip_on if f.active else chip_off) }}
     {% else %}
     <span class="{{ chip_dead }}" aria-disabled="true">{{ f.label }}
         <span class="font-normal tabular-nums">0</span></span>
     {% endif %}
     {% endfor %}
+    <span class="ml-1 text-xs text-muted tabular-nums" id="library-result-count">{{ total_shown }} {{ 'album' if total_shown == 1 else 'albums' }}</span>
+    {# A full navigation clears even an unsubmitted draft in the hx-preserved
+       search input. Page size is a preference, so it survives the reset. #}
+    <form method="get" action="/" class="ml-1">
+        <input type="hidden" name="tab" value="library">
+        <input type="hidden" name="limit" value="{{ limit }}">
+        <button type="submit" id="library-clear-filters"
+                class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-sm font-bold text-ink transition">
+            Clear
+        </button>
+    </form>
 </nav>
 {% endif %}
 

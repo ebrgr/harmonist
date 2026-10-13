@@ -2,6 +2,7 @@
    dismiss it. Position from the trigger when opened, including in browsers
    without CSS anchors. Links retain ordinary navigation without HTMX. #}
 {% from 'macros.html' import severity_icon %}
+{% from 'partials/_library_filter_controls.html' import unrestricted %}
 {% macro option_contents(option, label, current) -%}
     <span class="library-update-icon" aria-hidden="true">
         {% if option.slug != 'update-available' %}{{ severity_icon(option.significance) }}{% endif %}
@@ -10,7 +11,7 @@
     <span class="library-update-count">{{ option.count }}</span>
     <span class="library-update-check" aria-hidden="true">{% if current %}✓{% endif %}</span>
 {%- endmacro %}
-{% set selected = update_filters | selectattr('slug', 'equalto', filter) | first %}
+{% set selected = update_filters | selectattr('active') | first %}
 <button type="button" id="library-update-button" popovertarget="library-update-menu"
         class="library-update-button {{ chip_on if update_filter_active else chip_off }}"
         {% if not f.count and not update_filter_active %}disabled{% endif %}>
@@ -25,17 +26,19 @@
          this.style.top = (box.bottom + 4) + 'px';
          this.style.maxHeight = Math.max(80, innerHeight - box.bottom - 12) + 'px';
      }">
+    {{ unrestricted('Any update status', update_filter_active, clear_facets.updates, limit, q) }}
+    <hr class="library-update-divider">
     {% for option in [f] + update_filters %}
     {% set label = 'All updates' if option.slug == 'update-available' else option.significance.value | capitalize %}
-    {% if option.slug == filter %}
+    {% if option.active %}
     <span class="library-update-option" aria-current="true">
         {{ option_contents(option, label, true) }}
     </span>
     {% elif option.count %}
-    <a href="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
-       hx-get="/library?{{ library_query(none, limit, option.slug, q) }}"
+    <a href="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
+       hx-get="/library?{{ library_query(none, limit, option.next_filter, q) }}"
        hx-target="#library-rows" hx-swap="innerHTML"
-       hx-push-url="/?tab=library&{{ library_query(none, limit, option.slug, q) }}"
+       hx-push-url="/?tab=library&{{ library_query(none, limit, option.next_filter, q) }}"
        class="library-update-option">
         {{ option_contents(option, label, false) }}
     </a>

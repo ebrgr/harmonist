@@ -675,6 +675,7 @@ def build_album(
             and compare.is_unassigned(f.release_track_id, f.recording_id)
         ),
         audio_format=_audio_format(fields),
+        audio_codecs=frozenset(f.codec for f in fields if f.codec is not None),
         audio_quality=_audio_quality(audio_files, fields),
         format_consensus=_format_consensus(audio_files, fields),
         # A cover exists if there's a folder cover.* OR the first track has

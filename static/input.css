@@ -384,8 +384,11 @@ button[disabled],
 }
 .library-origin-option { grid-template-columns: 1fr auto .75rem; }
 a.library-update-option:hover,
-a.library-update-option:focus-visible { background: var(--color-surface); color: var(--color-accent); }
-.library-update-option[aria-current] { background: var(--color-accent-soft); color: var(--color-accent); }
+a.library-update-option:focus-visible,
+button.library-update-option:hover,
+button.library-update-option:focus-visible { background: var(--color-surface); color: var(--color-accent); }
+.library-update-option[aria-current],
+.library-update-option[aria-pressed="true"] { background: var(--color-accent-soft); color: var(--color-accent); }
 .library-update-option[aria-disabled] { opacity: .4; }
 .library-update-icon { display: flex; align-items: center; justify-content: center; color: var(--color-muted); }
 .library-update-icon svg { width: 1rem; height: 1rem; }

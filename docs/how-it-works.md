@@ -97,8 +97,10 @@ suggestion to confirm.
 ## The Library
 
 Albums with nothing to decide are in the **Library**. Its filters narrow the
-collection by origin or find albums that could be better. Artist and album
-search works within any filter:
+collection by origin or audio format, or find albums that could be better.
+Filters combine: an album must match every selected filter, as well as any
+artist or album search. Origin, codec and update type each have one choice at a
+time, so changing origin keeps the other restrictions.
 
 ![The Library: a search box, then filter chips with counts (All 9, Incomplete
 1, Partially tagged 0, No artwork 0, Mixed formats 0, Update available 1,
@@ -112,7 +114,7 @@ marked "New".](images/library.png)
 | **Incomplete** | are missing tracks or discs, based on the totals in their tags. Albums accepted with **Don't warn me about this** are left out. |
 | **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
 | **No artwork** | have no cover at all. |
-| **Mixed formats** | mix codecs, such as one MP3 among FLACs. |
+| **Format** | contain a file of the selected codec, including mixed albums. **Mixed formats only** independently narrows to albums mixing codecs, such as one MP3 among FLACs; differing bitrates or sample rates alone do not make an album mixed. |
 | **Update available** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
 | **Possible mismatch** | may be matched to the wrong release. See [when the match might be wrong](#when-the-match-might-be-wrong). |
 | **MB contributions** | have a release that's missing something you could add. See [giving back to MusicBrainz](#giving-back-to-musicbrainz). |
