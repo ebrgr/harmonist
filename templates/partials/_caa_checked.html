@@ -2,18 +2,14 @@
 {% macro caa_checked(checked_at, refresh_url, target) %}
     <dt class="col-start-1 text-2xs text-muted uppercase tracking-widest self-baseline">CAA checked</dt>
     {% if checked_at %}
-    <dd class="text-ink tabular-nums self-baseline whitespace-nowrap"
+    <dd class="caa-last text-ink tabular-nums self-baseline whitespace-nowrap"
         title="Cover Art Archive last asked {{ checked_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">
         {{ ago(checked_at) }}
     </dd>
     {% else %}
-    {# Not a date, so not in the dates' typeface: this says the question has not
-       been put yet. The Artwork section puts it by itself once it has rendered
-       (#436), so this is what the row reads while that is on its way — and on
-       an album whose check has failed, which is the state this wording was
-       always for. #}
-    <dd class="text-muted italic self-baseline whitespace-nowrap">not yet</dd>
+    <dd class="caa-last text-muted italic self-baseline whitespace-nowrap">not yet</dd>
     {% endif %}
+    <dd class="caa-progress text-muted italic self-baseline whitespace-nowrap" role="status">In progress</dd>
     <dd class="col-start-3 flex items-center">
         {# Re-asks, and re-renders the Artwork section that reports the answer —
            the same shape as the MusicBrainz control above, which re-fetches into
@@ -28,10 +24,11 @@
         <button type="button"
                 hx-get="{{ refresh_url }}"
                 hx-target="{{ target }}" hx-swap="innerHTML settle:0ms"
+                hx-indicator="{% if target == '#album-artwork' %}#album-artwork .caa-status, #album-artwork .art-pick__loading{% else %}closest .caa-status{% endif %}"
                 hx-disabled-elt="this"
                 title="Ask the Cover Art Archive about this release again"
                 aria-label="Ask the Cover Art Archive about this release again"
-                class="inline-flex items-center justify-center w-4 h-4 rounded-full text-muted hover:text-mb-purple hover:bg-mb-purple/10 transition">
+                class="caa-refresh inline-flex items-center justify-center w-4 h-4 rounded-full text-muted hover:text-mb-purple hover:bg-mb-purple/10 transition">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
                  stroke-width="2.5" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M20 12a8 8 0 11-2.34-5.66"/>

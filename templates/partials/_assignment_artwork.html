@@ -7,7 +7,7 @@
     <div class="flex items-center justify-between gap-3">
         <h3 class="text-sm font-bold">Artwork</h3>
         {% if not artwork_pending %}
-        <dl class="grid grid-cols-[auto_auto_auto] items-center gap-x-2 text-xs">
+        <dl class="caa-status grid grid-cols-[auto_auto_auto] items-center gap-x-2 text-xs">
             {{ caa_checked(caa.fetched_at if caa else none,
                 review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint ~ '&reread=true', replacement),
                 'closest .assignment-artwork') }}

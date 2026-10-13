@@ -125,7 +125,7 @@
 {#- Somewhere to step to: images, or another release that might have some
     (#659). An album whose own release lists nothing is where looking at the
     others matters most. -#}
-{% set steppable = picker or artwork.other_releases %}
+{% set steppable = picker or artwork.other_releases or caa_check_due %}
 {% set selected = artwork_selected|default(0) %}
 {% set front_only = artwork_front_only if artwork_front_only is defined else artwork.front_only %}
 {#- The image the picker shows: the one it showed before this render, or the
@@ -140,11 +140,12 @@
 {# `queue last`: a step's look ahead at the next release (#659) is in flight
    while the user goes on pressing, and a press must wait for it rather than be
    dropped. #}
-<div class="art-layout{% if picker %} art-layout--pick{% endif %}"
+<div class="art-layout{% if steppable %} art-layout--pick{% endif %}"
      style="--art-layout-rows: {{ artwork.rows|length + 2 }}">
 <form id="art-pick-{{ album.id }}"
       class="art-compare{% if steppable %} art-compare--pick{% endif %}"
       hx-get="/album/{{ album.id }}/artwork" hx-sync="this:queue last"
+      hx-indicator="#art-pick-{{ album.id }}, #album-artwork .art-pick__loading"
       hx-target="#album-artwork" hx-swap="innerHTML settle:0ms">
 {% if steppable %}
 <input type="hidden" name="use" value="{{ artwork.use }}">
@@ -433,19 +434,31 @@
     </label>
     {% endif %}
     {% else %}
+    <div class="art-pick__loading" role="status">
+        <span class="art-pick__placeholder" aria-hidden="true">
+            <svg class="animate-spin" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" opacity=".25"/>
+                <path d="M21 12a9 9 0 0 0-9-9"/>
+            </svg>
+        </span>
+        <span>Loading artwork…</span>
+    </div>
     {# This release lists nothing, but another in its group might. #}
+    {% if artwork.other_releases %}
     <button type="submit" name="more" value="step"
             class="art-pick__others text-2xs uppercase tracking-widest font-bold px-3 py-1.5 rounded
                    border border-line text-muted hover:text-ink hover:border-mb-purple/40 transition"
             title="Look for images on the other releases of this album">Other releases ›</button>
     {% endif %}
+    {% endif %}
 </div>
 {# Reserve room beside the last row and Apply for the tallest actual candidate.
    Overlaying the facts measures their maximum without inventing extra lines;
    the inert copy has no controls or requests of its own. #}
-{% if picker %}
-<div class="art-pick__ghost" aria-hidden="true" inert
+{% if steppable %}
+<div class="art-pick__ghost{% if not picker %} art-pick__ghost--loading{% endif %}" aria-hidden="true" inert
      style="--art-pick-last: {{ artwork.rows|length + 1 }}">
+    {% if picker %}
     <div class="art-pick__carousel">
         <div class="art-pick__slide">
             <span class="art-row__art art-pick__image"></span>
@@ -456,6 +469,9 @@
     </div>
     {% if picker|selectattr('front')|list and picker|rejectattr('front')|list %}
     <span class="art-pick__front-only">Front only</span>
+    {% endif %}
+    {% else %}
+    <div class="art-pick__loading-size"><span class="art-pick__placeholder"></span><span>Loading artwork…</span></div>
     {% endif %}
 </div>
 {% endif %}
@@ -535,8 +551,8 @@
    than a section asking forever.
 
    The swap replaces this element along with the rest of the section, which is
-   what retires the trigger. Nothing visible: the section is complete as it
-   stands, and the "CAA checked" row swaps in when the answer arrives. #}
+   what retires the trigger. Its indicators show progress without concealing
+   the local images; HTMX retires them on failure as well as success. #}
 {# Carry the choice already shown. If another request changes it while this
    check is in flight, the album page rejects this older response (#477).
    settle:0ms processes replacement controls immediately; the default settling
@@ -548,6 +564,8 @@
 <div class="hidden"
      hx-get="/album/{{ album.id }}/artwork?check=1{% if artwork.use %}&amp;use={{ artwork.use|urlencode }}{% endif %}{% if selected %}&amp;selected={{ selected }}{% endif %}"
      hx-trigger="load"
+     hx-indicator="#album-artwork .caa-status, #album-artwork .art-pick__loading"
+     hx-disabled-elt="#album-artwork .caa-refresh, #album-artwork .art-pick__others"
      hx-target="#album-artwork" hx-swap="innerHTML settle:0ms"></div>
 {% endif %}
 </div>

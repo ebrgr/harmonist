@@ -6,6 +6,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Artwork retrieval shows a loading placeholder and an in-progress CAA status, restoring retry controls if the request fails (#739).
 - Library updates now checks artwork in the background, with an Artwork filter for missing covers, additions and replacements (#269, #276).
 - A New Library filter finds albums added within seven days and combines with search and other filters (#736).
 - The Library's New badge marks albums added within seven days, including CD rips and downloads from any store (#733).

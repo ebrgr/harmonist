@@ -200,6 +200,13 @@ button[disabled],
   display: none;
 }
 
+/* The request owns these indicators, so failures restore the last observation
+   without a separate flag or a response having to clear it (#739). */
+.caa-progress { display: none; }
+.caa-status.htmx-request { opacity: 1; }
+.caa-status.htmx-request .caa-last { display: none; }
+.caa-status.htmx-request .caa-progress { display: block; }
+
 /* The library tile whose detail panel is currently open. */
 .lib-tile-active img {
   box-shadow: 0 0 0 2px var(--color-accent);
@@ -1312,6 +1319,26 @@ dialog::backdrop {
 .art-pick__ghost { display: none; }
 .art-pick__ghost-facts { display: grid; width: 100%; }
 .art-pick__ghost-facts > .art-row__facts { grid-area: 1 / 1; }
+.art-pick__loading { display: none; }
+.art-pick__loading.htmx-request,
+.art-pick__loading-size {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  color: var(--color-muted);
+  font-size: .75rem;
+  opacity: 1;
+}
+.art-pick__placeholder {
+  display: grid;
+  place-items: center;
+  width: 6.5rem;
+  aspect-ratio: 1;
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  background: var(--color-surface);
+}
+.art-pick__picker:has(.art-pick__loading.htmx-request) .art-pick__others { display: none; }
 
 /* The carousel (#659): one image at a time — the one whose radio is checked —
    and, while Front only is ticked, never one that is not a front. A thumbnail
@@ -1524,6 +1551,9 @@ dialog::backdrop {
     grid-column: 2;
     grid-row: var(--art-pick-last, 2) / -1;
   }
+  .art-pick__ghost--loading { display: none; }
+  .art-layout:has(.art-pick__loading.htmx-request) .art-pick__ghost--loading { display: block; }
+  .art-pick__placeholder { width: 100%; }
   .art-pick__slide:has(input:checked),
   .art-pick__ghost .art-pick__slide { display: flex; flex-direction: column; gap: .5rem; }
   .art-pick__carousel .art-pick__image { width: 100%; height: auto; aspect-ratio: 1; }
