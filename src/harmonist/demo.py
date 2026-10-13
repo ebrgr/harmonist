@@ -1377,7 +1377,7 @@ def _build_sidecar(sc_spec: dict[str, Any], album_spec: dict[str, Any]) -> Sidec
         store_url=store_url,
         bandcamp=bandcamp,
         downloaded_at=(now if store_url else None),
-        added_at=(None if store_url else now),
+        added_at=now,
         mb_release_id=sc_spec.get("mb_release_id"),
         mb_match_candidate=candidate,
         tagged_at=tagged_at,

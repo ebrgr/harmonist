@@ -14,7 +14,7 @@
    `&` in an album name would otherwise end this href early. #}
 {% from 'macros.html' import severity_chip %}
 {% set sc = album.sidecar %}
-{% set is_new = sc and sc.downloaded_at and (now - sc.downloaded_at).days < 7 %}
+{% set is_new = sc and sc.added_at and 0 <= (now - sc.added_at).days < 7 %}
 {% set from_params = [] %}
 {% if page > 1 %}{% set _ = from_params.append('from_page=' ~ page) %}{% endif %}
 {% if filter %}{% set _ = from_params.append('from_filter=' ~ filter) %}{% endif %}
@@ -50,7 +50,7 @@
         {% endif %}
         {% endif %}
         {% if is_new %}
-        {# Bandcamp-style "New" flag (teal — a reserved badge colour). #}
+        {# Newly added to Harmonist, regardless of where the files came from. #}
         <span class="ml-auto px-1.5 py-0.5 text-2xs font-bold uppercase tracking-widest rounded bg-bc-teal text-white shadow-sm">New</span>
         {% endif %}
         </div>

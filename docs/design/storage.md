@@ -63,13 +63,14 @@ breadcrumbs ("matched via barcode on…") belong in `activity.db`.
 | `temp_uid` | A stable ID until a release is confirmed. Exactly one of this and `mb_release_id` is set. |
 | `mb_match_candidate` | A suggested release awaiting the user, with the comparison that justified it. Also carries why it was suggested, when that's a possible mis-tag or a surrender, and `found_by`: how it was found (store URL, barcode, name search, MBID, undo). That is the breadcrumb rule above, not an exception to it: the lookup and the confirm are separate requests, so the suggestion carries the fact until the confirm writes it to `activity.db`, and it goes with the suggestion (#639). |
 | `tagged_at` | When Harmonist last tagged the files, so a later change by another tool can be noticed. |
-| `added_at` | When Harmonist first met the album, shown on its page. |
+| `added_at` | When Harmonist first met the album, shown on its page and used for the Library's seven-day New badge regardless of source. An unknown date does not imply a recent addition. |
 | `purchase_unavailable` | The user accepted that there is no Bandcamp purchase to link. Without it the album would be surrendered again on every full sync. |
 | `tracks_unavailable` | The user accepted an incomplete album as finished ("Don't warn me about this"). It removes the Library completeness badge and excludes the album from the Incomplete filter, while the album page keeps a neutral reminder and a way to reverse the choice. It doesn't change the state: the album really is short. The label describes what the control does rather than claiming the tracks can't be had, because the user can't know that (#245, #720). |
 | `accepted_release_id` | The release the user says they bought, when the evidence suggested another. Keyed to the release rather than a flag, so matching a different release lapses it by construction. Changing the Origin choice also clears it because the source evidence has changed. |
 | `video_media` | Which of the release's media are video, the one release fact the files can't carry, since the missing discs have no files. `null` means not asked and `[]` means asked and none, a distinction that stops a video-free release being asked about forever. |
 | `borrowed_artwork` | Archive images Harmonist wrote as stand-ins because the release had no front of its own: the release group's or another release's, each with the listing it came from and the release it stood in for. The bytes look the same whether an image was borrowed for want of one or chosen over the release's own, and only a borrowed one should give way when the release gets a front (see [artwork](artwork.md#a-stand-in-gives-way)). Held only while the album carries the image and is matched to that release, so a rematch or a different choice lapses it. |
-| `downloaded_at`, `notes` | Legacy. Written and carried, but nothing reads them. |
+| `downloaded_at` | The historical download timestamp, shown on the album page. Linking can also set it, so it cannot establish when an album was added. |
+| `notes` | Legacy. Written and carried, but nothing reads it. |
 
 ### Which fields are audited
 

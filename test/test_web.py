@@ -3040,6 +3040,54 @@ def test_library_tile_is_a_link_to_the_album_page(client, cfg):
     assert "musicbrainz.org/release/abc-123" not in r.text
 
 
+@pytest.mark.parametrize(
+    "url", [None, "https://www.qobuz.com/album/example", "https://x.bandcamp.com/album/example"]
+)
+@pytest.mark.parametrize(
+    "age, expected",
+    [
+        (timedelta(0), True),
+        (timedelta(days=7, seconds=-1), True),
+        (timedelta(days=7), False),
+        (timedelta(days=14), False),
+        (timedelta(seconds=-1), False),
+        (None, False),
+    ],
+)
+def test_library_new_badge_uses_added_date_for_every_source(
+    client, cfg, monkeypatch, url, age, expected
+):
+    """Recent additions count regardless of source; recent sync/tag dates do not."""
+    from bs4 import BeautifulSoup
+
+    now = datetime(2026, 10, 13, 12, tzinfo=UTC)
+    clock = mock.Mock(wraps=datetime)
+    clock.now.return_value = now
+    monkeypatch.setattr("harmonist.web.main.datetime", clock)
+    is_bandcamp = url is not None and "bandcamp.com" in url
+    d = _make_tagged_album(
+        cfg, "Recent", mbid="rel-recent", tagged_at=now, item_id=42 if is_bandcamp else None
+    )
+    existing = sc.read(d)
+    assert existing is not None
+    sc.write(
+        d,
+        replace(
+            existing,
+            store_url=url,
+            added_at=now - age if age is not None else None,
+            downloaded_at=now if is_bandcamp else None,
+        ),
+    )
+
+    for route in ("/library", "/?tab=library"):
+        response = client.get(route)
+        assert response.status_code == 200
+        tile = BeautifulSoup(response.text, "html.parser").find("a", id="lib-rel-recent")
+        assert tile is not None
+        assert (tile.find("span", string="New") is not None) is expected
+
+
 def test_library_detail_links_to_musicbrainz(client, cfg):
     from datetime import datetime
 
@@ -6597,33 +6645,6 @@ def test_settings_shows_sidecar_count(client, cfg):
     assert "Maintenance" in r.text
 
 
-def test_library_new_ribbon_is_time_based(client, cfg):
-    """A 'New' ribbon shows on albums downloaded within the last week, not older ones."""
-    from datetime import timedelta
-
-    now = datetime.now(UTC)
-    fresh = _make_tagged_album(cfg, "FreshDrop", mbid="rel-fresh", tagged_at=now)
-    sc.write(
-        fresh,
-        Sidecar(
-            mb_release_id="rel-fresh",
-            tagged_at=now,
-            downloaded_at=now,
-        ),
-    )
-    stale = _make_tagged_album(cfg, "OldDrop", mbid="rel-stale", tagged_at=now)
-    sc.write(
-        stale,
-        Sidecar(
-            mb_release_id="rel-stale",
-            tagged_at=now,
-            downloaded_at=now - timedelta(days=30),
-        ),
-    )
-    r = client.get("/library")
-    assert r.text.count(">New</span>") == 1  # only the fresh download
-
-
 def test_library_compare_renders_the_tracklist(client, cfg, monkeypatch):
     """The on-demand comparison fetches MB and renders the per-track table."""
     d = _make_tagged_album(cfg, "Verifyme", mbid="rel-verify", tagged_at=datetime.now(UTC))
@@ -9500,6 +9521,10 @@ def test_the_replacement_is_tagged_as_the_release_it_was_archived_as(
     d = _make_tagged_album(
         cfg, "Carried", mbid="rel-carry", tagged_at=datetime.now(UTC), item_id=8001
     )
+    added = datetime(2026, 9, 1, tzinfo=UTC)
+    existing = sc.read(d)
+    assert existing is not None
+    sc.write(d, replace(existing, added_at=added))
     client.post(f"/library/{_id_for(cfg, d)}/redownload")
     shutil.rmtree(d, ignore_errors=True)
 
@@ -9513,6 +9538,7 @@ def test_the_replacement_is_tagged_as_the_release_it_was_archived_as(
 
     assert _resolve_the_download(cfg, back) == "tagged"
     assert sc.read(back).mb_release_id == "rel-carry"
+    assert sc.read(back).added_at == added
 
 
 def test_carrying_the_release_keeps_the_album_out_of_the_inbox(

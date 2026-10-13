@@ -172,6 +172,10 @@ deletes it.
 not the match, so the new copy is tagged as the same release rather than looked
 up again, which could land on a different release or none. This has Confirm's
 authority, so match confidence is skipped, but the track-count check isn't.
+The original addition date travels with that release, because replacing the
+audio does not make the album new to the library. Like the carried release,
+a restart between archiving and replacement loses this in-memory carry-over;
+the archived sidecar still retains the original date.
 
 **An incomplete album may come back incomplete.** It was re-downloaded to try for
 the missing tracks, and if they still aren't there, that's the album it already

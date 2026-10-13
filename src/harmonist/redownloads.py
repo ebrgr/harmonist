@@ -70,6 +70,8 @@ class CarriedMatch:
     #: the one that must NOT be waved through — an album that was complete coming
     #: back short is a bad download, so it does not get this.
     incomplete: bool = False
+    #: Replacing the audio does not make the album a new library addition.
+    added_at: datetime | None = None
 
 
 # item_id → what the archived album was, for the replacement to be tagged as too

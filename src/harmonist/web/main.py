@@ -4554,6 +4554,10 @@ def _tag_as_redownloaded(
     carried = redownloads.take_match(item_id)
     if carried is None:
         return None  # not a re-download, or its match was already consumed
+    if carried.added_at is not None:
+        # Preserve this even when the carried match fails: replacement files
+        # still belong to an album already known to Harmonist.
+        sidecar_mod.write(album_path, replace(sc, added_at=carried.added_at))
     mbid = carried.mb_release_id
     try:
         # `incomplete` is carried, not decided here. An album that was already
@@ -6637,6 +6641,7 @@ def _register_routes(app: FastAPI) -> None:
                         # up), and that is the state it was already in — so it
                         # stays taggable rather than being demoted to the inbox.
                         incomplete=album.state == AlbumState.INCOMPLETE,
+                        added_at=sc.added_at,
                     )
                     if sc and sc.mb_release_id
                     else None

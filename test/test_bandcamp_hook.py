@@ -173,7 +173,11 @@ def test_write_sidecar_creates_file_with_correct_data(tmp_path):
     assert sidecar.bandcamp.item_id == 12345
     assert sidecar.bandcamp.band_id == 678
     assert sidecar.downloaded_at is not None
+    assert sidecar.added_at is not None
     assert sidecar.mb_release_id is None
+
+    write_sidecar_for_item(item, album_dir)
+    assert sc.read(album_dir).added_at == sidecar.added_at
 
 
 def test_write_sidecar_returns_false_when_url_unrecoverable(tmp_path):

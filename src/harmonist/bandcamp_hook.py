@@ -231,6 +231,7 @@ def write_sidecar_for_item(
         store_url=url,
         bandcamp=BandcampInfo(item_id=item_id, band_id=band_id, is_private=is_private),
         downloaded_at=datetime.now(UTC),
+        added_at=datetime.now(UTC),
         bandcamp_downloaded=downloaded,
     )
     sidecar_mod.write(album_dir, sc)
