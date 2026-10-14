@@ -5,11 +5,13 @@ import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from harmonist import (
+    activity,
     activity_store,
     artwork,
     artwork_updates,
@@ -324,6 +326,124 @@ def test_sweep_paces_new_releases_and_stops_at_first_failure(tmp_path, monkeypat
     monkeypatch.setattr(cover_art, "check_front", fail)
     assert artwork_updates.sweep(albums, limit=20) == 0
     assert calls == ["release-000", "release-001", "release-002", "release-003"]
+
+
+@pytest.fixture
+def failing_archive(tmp_path, monkeypatch):
+    """Exercise the worker, durable cache and real log-to-Activity mirror together."""
+    album = _tagged(tmp_path / "music", _release(mbid=MBID))
+    assert album.sidecar is not None
+    albums = [
+        replace(album, sidecar=replace(album.sidecar, mb_release_id=f"release-{n:03}"))
+        for n in range(30)
+    ]
+    clock = [datetime.now(UTC)]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+
+    monkeypatch.setattr(artwork_updates, "datetime", Clock)
+    # Replace this module's time reference, not the process-wide clock used by pytest.
+    monkeypatch.setattr(
+        artwork_updates, "time", SimpleNamespace(monotonic=lambda: clock[0].timestamp())
+    )
+    calls = []
+    failing = [True]
+    check_front = cover_art.check_front
+
+    def check(mbid, **kwargs):
+        calls.append(mbid)
+        transport = httpx.MockTransport(lambda request: httpx.Response(500 if failing[0] else 404))
+        with httpx.Client(transport=transport) as client:
+            return check_front(mbid, client=client, **kwargs)
+
+    monkeypatch.setattr(cover_art, "check_front", check)
+    activity.install_log_handler()
+    activity.clear()
+    return albums, clock, calls, failing
+
+
+def test_background_failure_backs_off_across_releases_and_caps_delay(failing_archive):
+    albums, clock, calls, _ = failing_archive
+    assert artwork_updates.sweep(albums, limit=20) == 0
+    assert calls == ["release-000"]
+    for delay in (10, 20, 40, 60, 60):
+        clock[0] += timedelta(minutes=delay) - timedelta(seconds=1)
+        before = len(calls)
+        assert artwork_updates.sweep(albums, limit=20) == 0
+        assert len(calls) == before
+        clock[0] += timedelta(seconds=1)
+        assert artwork_updates.sweep(albums, limit=20) == 0
+        assert len(calls) == before + 1
+
+
+def test_background_failure_summaries_and_recovery(failing_archive, caplog):
+    albums, clock, calls, failing = failing_archive
+    artwork_updates.sweep(albums, limit=1)
+    first = activity.recent()
+    assert len(first) == 1
+    assert "500" in first[0].message
+    assert "10 minutes" in first[0].message
+    for _ in range(5):
+        clock[0] += timedelta(hours=1)
+        artwork_updates.sweep(albums, limit=1)
+    assert len(activity.recent()) == 1
+    assert len(calls) == 6
+    diagnostics = [r for r in caplog.records if r.name == "harmonist.artwork_updates"]
+    assert len(diagnostics) == 6
+    assert all(r.exc_info for r in diagnostics)
+
+    clock[0] += timedelta(hours=1)
+    artwork_updates.sweep(albums, limit=1)
+    entries = activity.recent()
+    assert len(entries) == 2
+    assert "7 failed checks" in entries[0].message
+    assert "500" in entries[0].message
+
+    failing[0] = False
+    clock[0] += timedelta(hours=1)
+    assert artwork_updates.sweep(albums, limit=1) == 1
+    entries = activity.recent()
+    assert len(entries) == 3
+    assert "succeeded" in entries[0].message
+    assert "7 failed checks" in entries[0].message
+    # Recovery resets pacing; another release can be checked immediately.
+    assert artwork_updates.sweep(albums, limit=1) == 1
+    assert len(activity.recent()) == 3
+
+
+def test_intermittent_failures_do_not_restart_activity_notice_window(failing_archive):
+    albums, clock, calls, failing = failing_archive
+    for _ in range(4):
+        failing[0] = True
+        assert artwork_updates.sweep(albums, limit=1) == 0
+        failing[0] = False
+        clock[0] += timedelta(minutes=10)
+        assert artwork_updates.sweep(albums, limit=1) == 1
+    assert len(calls) == 8
+    # One error and one successful-check notice, despite four separate failures.
+    assert len(activity.recent()) == 2
+    clock[0] += timedelta(hours=6)
+    failing[0] = True
+    artwork_updates.sweep(albums, limit=1)
+    assert "4 failed checks" in activity.recent()[0].message
+
+
+def test_background_failure_preserves_observation_and_configure_resets_backoff(failing_archive):
+    albums, _, calls, _ = failing_archive
+    previous = _archive(png_bytes(100, 100), age=timedelta(days=8))
+    mbid = albums[0].sidecar.mb_release_id
+    activity_store.store_cover_art(mbid, previous)
+    artwork_updates.sweep(albums[:1], limit=1)
+    assert caa_cache.stored(mbid) == previous
+    assert artwork_updates.sweep(albums, limit=1) == 0
+    assert len(calls) == 1
+    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER)
+    artwork_updates.sweep(albums, limit=1)
+    assert len(calls) == 2
+    assert len(activity.recent()) == 2
 
 
 def test_any_image_threshold_fetches_and_recovers_unmeasurable_artwork(tmp_path):

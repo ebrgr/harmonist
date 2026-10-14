@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import (
+    activity,
     activity_store,
     artwork,
     artwork_watch,
@@ -31,6 +32,52 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=10)
 _WINDOW = timedelta(days=1)
 _RETRY = timedelta(hours=1)
+_FAILURE_NOTICE_INTERVAL = timedelta(hours=6)
+
+
+@dataclass
+class _Failures:
+    """Worker-local pacing and reporting, independent of per-release observations.
+
+    A successful check resets backoff, but not the notice window: intermittent
+    failures must not generate a new pair of Activity entries every ten minutes.
+    Unreported failures accumulate for the next summary. Nothing here is an
+    archive answer, and restarting simply permits another attempt and notice.
+    """
+
+    delay: float = 0
+    retry_after: float = 0
+    count: int = 0
+    last_notice: float | None = None
+    reported: bool = False
+
+    def failed(self, error: cover_art.CoverArtError | mb_lookup.MBError) -> None:
+        now = time.monotonic()
+        self.delay = min(max(TICK.total_seconds(), self.delay * 2), _RETRY.total_seconds())
+        self.retry_after = now + self.delay
+        self.count += 1
+        if (
+            self.last_notice is None
+            or now - self.last_notice >= _FAILURE_NOTICE_INTERVAL.total_seconds()
+        ):
+            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
+            activity.error(
+                f"Background artwork checks delayed — {failures}; latest error: {error}. "
+                f"Next attempt in at least {int(self.delay / 60)} minutes."
+            )
+            self.last_notice = now
+            self.reported = True
+
+    def succeeded(self) -> None:
+        self.delay = 0
+        self.retry_after = 0
+        if self.reported:
+            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
+            # This one check is evidence of progress, not proof that every
+            # release endpoint has recovered.
+            activity.info(f"Background artwork check succeeded after {failures}.")
+            self.reported = False
+            self.count = 0
 
 
 @dataclass(frozen=True)
@@ -62,15 +109,17 @@ class Observation:
 
 _observed: dict[str, Observation] = {}
 _attempted: dict[str, datetime] = {}
+_failures = _Failures()
 _revision = 0
 _policy: Callable[[], artwork.FolderCoverPolicy] = lambda: artwork.FolderCoverPolicy.NEVER
 
 
 def configure(policy: Callable[[], artwork.FolderCoverPolicy]) -> None:
-    global _policy, _revision
+    global _policy, _revision, _failures
     _policy = policy
     _observed.clear()
     _attempted.clear()
+    _failures = _Failures()
     _revision = 0
     artwork_watch.reset()
 
@@ -208,11 +257,13 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
     """Refresh a bounded oldest-first slice on CAA's own clock. Never write music.
 
     Attempts also pace failures and evicted images, which cannot advance the
-    durable observation date. Stop at the first service failure so an outage
-    costs one failing request per tick, not one per album. MusicBrainz is read
-    from its cache except when a watch's release-group identity needs refilling;
-    its age never gates CAA work.
+    durable observation date. Stop at the first service failure and back off
+    across releases so an outage cannot advance through the library each tick.
+    MusicBrainz is read from its cache except when a watch's release-group
+    identity needs refilling; its age never gates CAA work.
     """
+    if time.monotonic() < _failures.retry_after:
+        return 0
     now = datetime.now(UTC)
     groups: dict[str, list[Album]] = {}
     for album in albums:
@@ -257,9 +308,17 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
                 release_group_mbid=group if isinstance(group, str) else None,
                 keep_if_wider_than=width,
             )
-        except (cover_art.CoverArtError, mb_lookup.MBError):
-            log.exception("background artwork check failed for %s; will retry later", mbid)
+        except (cover_art.CoverArtError, mb_lookup.MBError) as error:
+            # Keep every attempted failure's traceback without mirroring it
+            # into Activity: the bounded summary below is its visible record.
+            log.exception(
+                "background artwork check failed for %s; will retry later",
+                mbid,
+                extra={"_activity": True},
+            )
+            _failures.failed(error)
             break
         observe(mbid)
+        _failures.succeeded()
         checked += 1
     return checked

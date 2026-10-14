@@ -142,6 +142,15 @@ artwork check. Its worker is separate so the archive's long responses cannot
 hold up tag discovery. Work is divided into small oldest-first slices with a
 time budget; failed attempts back off without replacing the last observation.
 
+A failure delays the worker across releases, because a delay for one release
+alone merely sends an outage to the next album. Successful checks restore the
+normal pace. Activity summarises failures at most once per six hours, with the
+latest reason and a count, and records the first success after each notice.
+Success does not reset that reporting window: intermittent failures would
+otherwise fill the feed just as surely as a continuous outage. Every attempted
+failure retains its traceback in the container log. Backoff belongs to this
+worker, so an explicit check on the album page remains available.
+
 The scan keeps compact descriptions of every audio track's image and the folder
 cover, never their bytes. The Library applies the shared plan to those facts and
 the archive observation held in memory, so filtering spends no requests and

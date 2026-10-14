@@ -317,6 +317,19 @@ without a `cover.jpg` and with artwork available count as having an artwork upda
 **Settings → Tagging**. Plex and Navidrome use the artwork embedded in your
 files, so most albums don't need the file.
 
+### Activity says background artwork checks are delayed
+
+The message includes the latest error. An HTTP 500 response means the artwork
+request received a server error; it does not mean the release has no artwork.
+These checks discover updates and do not change your music files.
+
+Harmonist retries automatically, increasing the delay between failed attempts
+up to an hour. Activity summarises recurring failures at most once per six
+hours, and records the first successful check after a notice. Full tracebacks
+remain in the container log. For a persistent failure, include the Activity
+message and its matching traceback when reporting the problem. The album's
+Artwork refresh remains available during background retry delays.
+
 ### Plex or Navidrome shows no cover, or the wrong one
 
 Open the album's **Artwork** section. It shows every image the album carries,
