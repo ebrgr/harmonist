@@ -4,6 +4,7 @@
         {% if not on_album_page %}hx-sync="body:queue last"{% endif %}
         hx-target="#assignment-error-{{ album.id }}-{{ candidate.mb_release_id }}" hx-swap="none" hx-disabled-elt="this"
         hx-indicator="#assignment-progress-{{ album.id }}"
+        {% if shape_confirmation %}hx-confirm="{{ shape_confirmation }}"{% endif %}
         class="disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 bg-accent hover:bg-accent-dark text-white rounded text-xs font-bold uppercase tracking-widest transition">
     Confirm suggestion
 </button>
@@ -15,9 +16,9 @@
 {% endif %}
 {% elif album.sidecar.mb_match_candidate %}
 <button {% if actions_disabled|default(false) %}disabled{% endif %} type="button" hx-post="/reject/{{ album.id }}" hx-swap="none" hx-disabled-elt="this"
-        {% if on_album_page and (album.barcode or album.sidecar.store_url) %}
+        {% if on_album_page and not album.has_tag_mbid and (album.barcode or album.sidecar.store_url) %}
         hx-on::after-request="if (event.detail.successful) window.location.assign(window.location.pathname + '?search=name')"
         {% else %}{{ reload_on_success(on_album_page) }}{% endif %}
         title="Clear this suggestion. The album stays here so you can search for or assign a different release."
-        class="disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 bg-white hover:bg-surface text-ink border border-line rounded text-xs font-bold uppercase tracking-widest transition">Dismiss suggestion</button>
+        class="disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 bg-white hover:bg-surface text-ink border border-line rounded text-xs font-bold uppercase tracking-widest transition">{{ 'Cancel' if album.has_tag_mbid else 'Dismiss suggestion' }}</button>
 {% endif %}

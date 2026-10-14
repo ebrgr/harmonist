@@ -25,6 +25,7 @@ def test_suggested_release_link_follows_review_and_confirmation(reset_demo_serve
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 1000})
+        page.on("dialog", lambda dialog: dialog.accept())
         card = _card(page, base)
         aid = card.get_attribute("id").removeprefix("task-")
         if on_album:
@@ -175,6 +176,7 @@ def test_partial_confirmation_can_be_applied_and_reviewed(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         card = _card(page, base)
         aid = card.get_attribute("id").removeprefix("task-")
         # Three files against a two-track release leaves one file unassigned.
@@ -219,6 +221,7 @@ def test_arrow_mapping_survives_refresh_review_and_apply(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         card = _card(page, base)
         aid = card.get_attribute("id").removeprefix("task-")
         card.get_by_role("button", name="Edit track assignments").click()
@@ -306,6 +309,7 @@ def test_failed_partial_confirmation_preserves_review_during_inbox_refresh(reset
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         card = _card(page, base)
         aid = card.get_attribute("id").removeprefix("task-")
         assert page.request.post(

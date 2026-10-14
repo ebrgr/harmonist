@@ -247,6 +247,7 @@ class FoundBy(StrEnum):
     STORE_URL = "store_url"
     BARCODE = "barcode"
     NAME_SEARCH = "name_search"
+    RELEASE_GROUP = "release_group"
     MBID = "mbid"  # pasted by the user
     UNDO = "undo"  # the release an undone tagging unlinked
 

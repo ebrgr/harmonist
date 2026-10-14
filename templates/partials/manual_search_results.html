@@ -3,7 +3,6 @@
    dicts), `album_id`, and the local facts for mismatch cues. Optional:
    `heading` (a label above the list) and `more_count` (total found when the
    list was truncated). #}
-{% from 'macros.html' import reload_on_success %}
 {% from 'partials/_release_candidate.html' import release_candidate %}
 {% if heading %}
 <p class="text-2xs uppercase tracking-widest text-muted font-bold mb-1 px-1">{{ heading }}</p>
@@ -24,13 +23,12 @@
             {# Rendered by a route, not included from a card, so the flag has to
                be carried into this response rather than inherited from a
                surrounding template (#150) — see `_render_release_picker`.
-               Assigning a release tags the album and moves it to the Library,
-               so on the album page it is the same "re-render what this page is
-               describing" case as every other decision here. #}
+               The route redirects to the current album after successful
+               selection or tagging. #}
             <form hx-post="/manual/{{ album_id }}/assign" hx-swap="none" hx-disabled-elt="this"
-                  hx-indicator="#tagging-{{ album_id }}"
-                  {{ reload_on_success(on_album_page | default(false)) }}>
+                  hx-indicator="#tagging-{{ album_id }}">
                 <input type="hidden" name="mbid" value="{{ r.id }}">
+                <input type="hidden" name="on_album_page" value="{{ 'true' if on_album_page|default(false) else 'false' }}">
                 <input type="hidden" name="found_by" value="{{ found_by }}">
                 {% if review_only %}<input type="hidden" name="review_only" value="true">{% endif %}
                 <button type="submit"

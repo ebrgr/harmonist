@@ -59,12 +59,15 @@ def test_needs_link_badge_action(
         ) as response:
             page.keyboard.press("Enter")
         assert response.value.ok
-        assert len(dialogs) == 1
+        assert len(dialogs) == (0 if action == "rematch" else 1)
         if action == "rematch":
-            page.wait_for_url(reset_demo_server + "/")
-            corrected = page.get_by_role(
-                "link", name="Little Bit o' Hoot, Whole Lotta Nanny", exact=True
-            ).locator("xpath=ancestor::div[starts-with(@id, 'task-')][1]")
+            corrected = (
+                page.locator("#album-inbox-actions")
+                if on_album
+                else page.get_by_role(
+                    "link", name="Little Bit o' Hoot, Whole Lotta Nanny", exact=True
+                ).locator("xpath=ancestor::div[starts-with(@id, 'task-')][1]")
+            )
             # Rematching deliberately offers no candidate for the release just
             # rejected. Search is available directly; no dismissal is needed.
             corrected.get_by_role("radio", name="Name", exact=True).check()
@@ -74,7 +77,9 @@ def test_needs_link_badge_action(
                 htmx_ready(corrected.get_by_role("button", name="Search", exact=True)).click()
             assert search.value.ok
             playwright_sync.expect(
-                page.get_by_role("button", name="Use", exact=True)
+                corrected.locator('[id^="mbid-results-"]').get_by_role(
+                    "button", name="Use", exact=True
+                )
             ).to_be_visible()
         elif on_album:
             # Reload must expose the new state and remove the live Needs Linking control.

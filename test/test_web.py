@@ -3471,27 +3471,20 @@ def test_an_inbox_card_links_to_the_album_it_is_about(client, cfg):
 
 
 def test_an_action_rendered_on_the_album_page_re_renders_it(client, cfg):
-    """The same block serves two hosts, and only one of them has an inbox to
-    re-render around it (#150). On the album page every one of these decisions
-    changes what the page is describing, so the page has to come back.
+    """The shared form tells the handler whether to redirect the album page or
+    let the Inbox refresh around the changed card (#150, #743)."""
+    from bs4 import BeautifulSoup
 
-    Asserted on the inbox copy too: the flag must change the answer, not merely
-    be present. Without that half this passes on a template that reloads
-    everywhere, which would reload the inbox out from under a half-worked list.
-
-    Matched on the whole attribute rather than on `window.location.reload()`,
-    which the page already contains for an unrelated reason — the re-tag
-    listener at the foot of album.html. Asserting the bare call passes with the
-    flag forced off, which is how this test failed its own mutation check first
-    time round.
-    """
-    reload_attr = 'hx-on::after-request="if (event.detail.successful) window.location.reload()"'
     d = _make_album(cfg, "Reloader")
     sc.write(d, Sidecar(store_url="https://x.bandcamp.com/album/reloader"))
     aid = _id_for(cfg, d)
 
-    assert reload_attr in client.get(f"/album/{aid}").text
-    assert reload_attr not in client.get("/tasks").text
+    for url, expected in ((f"/album/{aid}", "true"), ("/tasks", "false")):
+        soup = BeautifulSoup(client.get(url).text, "html.parser")
+        form = soup.select_one(f'form[hx-post="/manual/{aid}/assign"]')
+        assert form is not None
+        field = form.select_one('[name="on_album_page"]')
+        assert field is not None and field["value"] == expected
 
 
 # ---------- retag / forget ----------
@@ -5163,19 +5156,21 @@ def test_album_page_dates_are_relative_with_the_exact_value_on_hover(client, cfg
     assert datetime.now(UTC).strftime("%Y-%m-%d") in body  # exact value on hover
 
 
-def test_leaving_the_library_returns_you_to_it(client, cfg):
-    """#129: rematch and Forget both send the album OUT of the Library — to
-    Needs MBID and to NEW. The dialog used to close on success, which took you
-    back by construction; a page has to navigate, or it sits there describing an
-    album that moved."""
+def test_forget_returns_to_library_and_rematch_keeps_album_context(client, cfg):
+    """Forget leaves the page; changing its release continues on the album."""
+    from bs4 import BeautifulSoup
+
     d = _make_tagged_album(cfg, "Departing", mbid="rel-s", tagged_at=datetime.now(UTC))
     body = client.get(f"/album/{_id_for(cfg, d)}").text
 
-    assert body.count("window.location.href = '/'") == 2  # rematch and Forget
-    # …and both controls are actually there to navigate from.
     aid = _id_for(cfg, d)
-    assert f"/library/{aid}/rematch" in body
-    assert f"/forget/{aid}" in body
+    soup = BeautifulSoup(body, "html.parser")
+    forget = soup.select_one(f'[hx-post="/forget/{aid}"]')
+    assert forget is not None
+    assert "window.location.href = '/'" in forget["hx-on::after-request"]
+    rematch = soup.select_one(f'[hx-post="/library/{aid}/rematch"]')
+    assert rematch is not None
+    assert '"on_album_page": true' in rematch["hx-vals"]
 
 
 def test_retag_recomputes_count_and_promotes_incomplete_to_complete(client, cfg, monkeypatch):
@@ -12693,6 +12688,9 @@ def test_exact_reassignment_waits_for_artwork_review(client, cfg, monkeypatch):
     from harmonist import formats
 
     d, release, big, _small, _calls = _confirmation_setup(cfg, monkeypatch)
+    current = sc.read(d)
+    assert current is not None
+    sc.write(d, replace(current, mb_match_candidate=None))
     aid = _id_for(cfg, d)
     result = client.post(f"/manual/{aid}/assign", data={"mbid": release["id"]})
     assert "Needs review" in result.text

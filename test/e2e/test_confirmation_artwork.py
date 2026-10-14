@@ -218,6 +218,7 @@ def test_confirmation_applies_only_included_artwork(reset_demo_server, on_album,
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         aid = _suggest(page, base)
         page.goto(f"{base}/album/{aid}" if on_album else base)
         host = page.locator("main") if on_album else page.locator(f"#task-{aid}")
@@ -240,7 +241,7 @@ def test_confirmation_applies_only_included_artwork(reset_demo_server, on_album,
         pw.expect(review.locator('[name="disk_order"]')).to_have_value("1,0,2")
         review.get_by_role("button", name="Reset", exact=True).click()
         pw.expect(review.locator('[name="disk_order"]')).to_have_value("0,1,2")
-        review.get_by_role("button", name="Cancel", exact=True).click()
+        review.locator('[name="assignment_action"][value="cancel"]').click()
         pw.expect(checkbox).to_be_checked(checked=included)
         with page.expect_response(lambda r: r.url.endswith(f"/confirm/{aid}/accept")) as confirmed:
             review.get_by_role("button", name="Confirm suggestion", exact=True).click()
@@ -271,6 +272,7 @@ def test_pending_artwork_does_not_block_tags_only_acceptance(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         aid = _suggest(page, base)
         pending = []
         page.route("**/assignments/*/artwork?*", lambda route: pending.append(route))
@@ -337,6 +339,7 @@ def test_changed_confirmation_preserves_review_and_artwork_choice(reset_demo_ser
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
+        page.on("dialog", lambda dialog: dialog.accept())
         aid = _suggest(page, base)
         page.goto(base)
         card = page.locator(f"#task-{aid}")

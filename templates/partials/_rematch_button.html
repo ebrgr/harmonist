@@ -1,7 +1,6 @@
 <button type="button" hx-post="/library/{{ album.id }}/rematch"
         hx-swap="none" hx-disabled-elt="this"
-        hx-on::after-request="if (event.detail.successful) window.location.href = '/'"
-        hx-confirm="Wrong MusicBrainz release? The album goes back to Needs MBID so you can pick the correct one. Your files keep their current tags until you re-tag."
+        hx-vals='{"on_album_page": {{ "true" if on_album_page|default(false) else "false" }}}'
         title="Wrong MusicBrainz match — pick the correct release"
         aria-label="Wrong MusicBrainz match — pick the correct release"
         class="inline-flex items-center justify-center w-5 h-5 rounded-full text-muted hover:text-mb-purple hover:bg-mb-purple/10 transition">

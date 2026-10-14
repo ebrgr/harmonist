@@ -112,7 +112,8 @@ def test_activity_album_link_actually_opens_the_album(demo_server: str) -> None:
         page.on("dialog", lambda d: d.accept())
         with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
             page.click(_PENCIL)
-        page.wait_for_url(f"{demo_server}/")  # rematch sends it out of the Library
+        page.locator("#album-inbox-actions").wait_for(state="visible")
+        page.goto(demo_server)
 
         # Its Activity entry must carry a link on the album name.
         page.click('[data-tab="activity"]')
@@ -129,14 +130,8 @@ def test_activity_album_link_actually_opens_the_album(demo_server: str) -> None:
         browser.close()
 
 
-def test_album_page_rematch_fires_confirm_and_post_then_navigates(demo_server: str) -> None:
-    """The #40 regression check, on the page instead of the dialog (#129).
-
-    Still worth having in a browser: the pencil pairs an `hx-confirm` with an
-    `hx-on::after-request` side effect, and #40 was precisely a side effect that
-    ran BEFORE htmx could issue its request. Only a real click through a real
-    confirm proves the POST still happens.
-    """
+def test_album_page_rematch_posts_and_opens_picker(demo_server: str) -> None:
+    """The pencil must issue its POST and continue on the album page (#743)."""
     with playwright_sync.sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
@@ -148,13 +143,10 @@ def test_album_page_rematch_fires_confirm_and_post_then_navigates(demo_server: s
         page.locator(_PENCIL).wait_for(state="visible")
         assert "/album/" in page.url
 
-        # Accept the hx-confirm, then click the rematch pencil and require
-        # that the POST is actually issued.
-        page.on("dialog", lambda d: d.accept())
+        # The rematch pencil opens the picker without a preliminary warning.
         with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
             page.click(_PENCIL)
 
-        # The album has left the Library, so the page navigates back to it
-        # rather than sitting there describing something that moved.
-        page.wait_for_url(f"{demo_server}/")
+        page.locator("#album-inbox-actions").wait_for(state="visible")
+        assert "/album/" in page.url
         browser.close()

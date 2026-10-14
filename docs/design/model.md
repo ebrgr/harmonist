@@ -164,6 +164,10 @@ An album's ID is what links, history and actions hang on, so it has to be stable
   when there are copies (above).
 - An **unmatched album with a sidecar** carries a temporary ID in the sidecar,
   which moves with the folder if it's renamed.
+- Clearing a multi-folder album's match gives its parts the same temporary album
+  ID. They remain one decision while the release is reconsidered; the existing
+  disjoint-track check still keeps duplicate copies apart. Confirmation replaces
+  that temporary identity on every part with the selected release.
 - An **album with no sidecar** gets a hash of its path relative to the library
   root. Relative, so re-pointing a bind mount doesn't re-identify the library;
   hashed, because the ID goes in URL paths, where slashes don't survive reverse

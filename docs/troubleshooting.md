@@ -141,8 +141,11 @@ Move each album into its own folder
 ### An album is matched to the wrong release
 
 On the album's page, click the **pencil** beside the MB release link. The album
-goes back to **Needs MBID** so you can pick the right release. Your files keep
-their current tags until you confirm the new one.
+goes back to **Needs MBID**, with the release picker on the same page. Choose a
+release from its group, search, or paste a release URL or MBID, then review and
+confirm it. Your files keep their current tags until confirmation. **Cancel**
+returns to the choices; **Restore previous match** puts back the match without
+rewriting the files.
 
 If the album is in the Library's **Possible mismatch** filter, its page
 explains why and lists the likely alternatives. See

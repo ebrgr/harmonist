@@ -8,6 +8,7 @@
    `library_detail.html` is still a partial rather than inline markup because it
    is the album panel's definition, not because anything else includes it. #}
 {% block content %}
+{% set on_album_page = true %}
 <div class="album-page space-y-5">
 
     {# Back to the Library page this album was opened from, not the top of the

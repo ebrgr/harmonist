@@ -6,6 +6,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Change an album's MusicBrainz release in place, choosing siblings, searching or pasting an MBID through the shared review workflow (#743).
 - “Better artwork wanted” includes smaller release and release-group covers in artwork update proposals; individual images can be excluded and restored in the picker (#586).
 - Selected Cover Art Archive images display correctly in the After Apply preview (#742).
 - The Library's Clear button stays beneath Search, with the redundant album count removed (#276).

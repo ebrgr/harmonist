@@ -311,20 +311,23 @@ def merge_by_identity(scanned: list[ScannedDir]) -> list[Album]:
     disjoint — see `_holds_different_tracks`. A backup copy, a second rip, the
     same album in a FLAC tree and an ALAC tree all stay separate.
 
-    Untagged directories have no identity and are returned untouched.
+    Clearing a match shares the album's temporary ID across its parts. That
+    identity keeps them together during review, with the same disjointness
+    checks as confirmed releases. Unidentified directories stay separate.
     """
-    by_release: dict[str, list[ScannedDir]] = {}
+    by_release: dict[tuple[str | None, str | None], list[ScannedDir]] = {}
     singles: list[Album] = []
     for entry in scanned:
         sc = entry.album.sidecar
         mbid = sc.mb_release_id if sc else None
-        if mbid is None:
+        uid = sc.temp_uid if sc and not mbid else None
+        if mbid is None and uid is None:
             singles.append(entry.album)  # no identity to group on
         else:
-            by_release.setdefault(mbid, []).append(entry)
+            by_release.setdefault((mbid, uid), []).append(entry)
 
     merged: list[Album] = []
-    for mbid, parts in by_release.items():
+    for (mbid, uid), parts in by_release.items():
         copies = [
             group[0].album if len(group) == 1 else _combine(mbid, group)
             for group in _disjoint_groups(parts)
@@ -335,7 +338,9 @@ def merge_by_identity(scanned: list[ScannedDir]) -> list[Album]:
         # on the sidecar, where a lookup or a re-tag reads it — it is what these
         # albums ARE, and it is exactly what cannot address one of them.
         if len(copies) > 1:
-            copies = [replace(a, id=_copy_id(mbid, a.path)) for a in copies]
+            identity = mbid or uid
+            assert identity is not None
+            copies = [replace(a, id=_copy_id(identity, a.path)) for a in copies]
         merged.extend(copies)
     return singles + merged
 
@@ -420,7 +425,7 @@ def _disc_numbers(entry: ScannedDir) -> frozenset[int]:
     return frozenset(d for d in discs if d is not None)
 
 
-def _combine(mbid: str, group: list[ScannedDir]) -> Album:
+def _combine(mbid: str | None, group: list[ScannedDir]) -> Album:
     """Rebuild one album from the directories that hold its parts.
 
     Rebuilt rather than patched: state, the expected track count and the
@@ -485,7 +490,7 @@ def _combine(mbid: str, group: list[ScannedDir]) -> Album:
     return album
 
 
-def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str) -> Sidecar:
+def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str | None) -> Sidecar:
     """One sidecar describing the whole album, from its parts'.
 
     Every part keeps its own file on disk — none is a shard, none is primary, and
@@ -524,16 +529,12 @@ def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str) -> Sidecar:
         and all(s is not None and s.bandcamp_downloaded for s in sidecars),
         added_at=min((s.added_at for s in present if s.added_at), default=None),
         mb_release_id=mbid,
-        # Dropped deliberately, and named so rather than omitted: exactly one of
-        # `(mb_release_id, temp_uid)` is non-null on a persisted sidecar,
-        # and the line above just set the MBID — a merged album is grouped BY its
-        # release, so it always has one and can never still be wearing a temp id.
-        temp_uid=None,
+        # Clearing a multi-folder match gives every part the same temporary
+        # album identity. Keep that identity until a release is confirmed.
+        temp_uid=None if mbid else present[0].temp_uid,
         # A suggestion recorded against any part is a suggestion about the album,
         # by the same reasoning as the surrenders below. It cannot change the
-        # merged album's STATE — `mb_release_id` is set from the tags just above,
-        # so this view never derives NEEDS_MBID — it only lets the card render
-        # the suggestion instead of pretending no one made it.
+        # merged album's state when it still has a confirmed release.
         mb_match_candidate=next(
             (s.mb_match_candidate for s in present if s.mb_match_candidate), None
         ),

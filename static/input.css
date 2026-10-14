@@ -64,7 +64,7 @@
 .contribution-review:not(:has(> *)),
 .album-contribution-area:not(:has(.album-contributions section, .contribution-review > *)),
 .album-contribution-area:has(.contribution-review > *) > .album-contributions,
-.album-page:has(.contribution-review > *) .album-findings { display: none; }
+.album-page:has(.contribution-review > *, #album-inbox-actions .assignment-editor) .album-findings { display: none; }
 .album-page:has(.contribution-review > *, #album-inbox-actions .assignment-editor) #album-artwork { display: none; }
 
 /* Keep numeric columns compact and both title columns equal, including when

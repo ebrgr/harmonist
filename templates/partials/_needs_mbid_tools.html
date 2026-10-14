@@ -12,6 +12,14 @@
     Search by name or paste an MBID.
 </p>
 {% endif %}
+{% if album.has_tag_mbid %}
+<div id="release-siblings-{{ album.id }}" class="mb-4 space-y-2"
+     hx-get="/manual/{{ album.id }}/siblings?on_album_page={{ 'true' if on_album else 'false' }}"
+     hx-trigger="load" hx-swap="innerHTML settle:0ms"
+     hx-on::before-request="if (event.target === this) this.setAttribute('hx-trigger', 'siblings-refresh')">
+    <p role="status" class="text-xs text-muted">Loading releases in the release group…</p>
+</div>
+{% endif %}
 {% include 'partials/_release_search.html' %}
 {# Shared results target. #}
 <div id="mbid-results-{{ album.id }}" class="mt-2"></div>

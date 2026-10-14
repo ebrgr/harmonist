@@ -2043,6 +2043,7 @@ _FOUND_BY = {
     FoundBy.STORE_URL: "found by store URL",
     FoundBy.BARCODE: "found by barcode",
     FoundBy.NAME_SEARCH: "chosen from a name search",
+    FoundBy.RELEASE_GROUP: "chosen from its release group",
     FoundBy.MBID: "entered by MBID",
     FoundBy.UNDO: "restored by an undo",
 }
@@ -6226,7 +6227,9 @@ def _register_routes(app: FastAPI) -> None:
         return _flash_response("Unlinked", f"now {dest}", album=album)
 
     @app.post("/library/{album_id}/rematch", response_class=HTMLResponse)
-    def library_rematch(request: Request, album_id: str) -> Response:
+    def library_rematch(
+        request: Request, album_id: str, on_album_page: bool = Form(False)
+    ) -> Response:
         """Mark the MusicBrainz match as wrong, deriving the album back to Needs
         MBID — where the manual search / store-URL-candidate tools let the user
         pick the correct release and re-tag.
@@ -6244,22 +6247,45 @@ def _register_routes(app: FastAPI) -> None:
 
         The on-disk tags are left untouched until the user re-tags.
         Non-destructive."""
-        album = _find_album(request, album_id)
-        sc = album.sidecar
+        album = _refreshed_from_disk(request, _find_album(request, album_id))
+        sc = sidecar_mod.read(album.path)
         if sc is None or not sc.mb_release_id:
             return _flash_response(
                 "Nothing to re-match",
                 "no MusicBrainz release to replace",
                 level=Level.WARNING,
                 album=album,
+                tasks_changed=False,
+                record_activity=False,
             )
-        sidecar_mod.unlink(album.path, sc)
-        request.app.state.scan_runner.request_scan()
-        return _flash_response(
+        # The temporary ID identifies the same whole album, including parts in
+        # other directories. Each part retains its own provenance (#743).
+        uid = id_registry.get_or_mint(album.path)
+        parts = [(folder, sidecar_mod.read(folder)) for folder in album.folders]
+        for _, part in parts:
+            if part is None or part.mb_release_id != sc.mb_release_id:
+                raise HTTPException(
+                    409, "The album changed. Reload it before changing its release."
+                )
+        for folder, part in parts:
+            assert part is not None
+            sidecar_mod.unlink(folder, replace(part, temp_uid=uid))
+        # A duplicate copy's address includes its location; sidecar.write only
+        # knows the bare release ID. Preserve links to this particular copy.
+        if album.id != sc.mb_release_id:
+            activity_store.record_alias(album.id, uid)
+        runner = request.app.state.scan_runner
+        if runner.is_engaged():
+            runner.refresh_now()
+        request.state.skip_rescan = True
+        response = _flash_response(
             _MATCH_CLEARED,
             "→ Needs MBID — pick the correct release",
             album=album,
         )
+        if on_album_page:
+            response.headers["HX-Redirect"] = _album_location(request, uid)
+        return response
 
     @app.post("/library/{album_id}/rematch/undo", response_class=HTMLResponse)
     def undo_rematch(request: Request, album_id: str) -> Response:
@@ -6285,20 +6311,31 @@ def _register_routes(app: FastAPI) -> None:
                 album=album,
                 record_activity=False,
             )
-        sidecar_mod.write(
-            album.path,
-            replace(
-                album.sidecar,
-                mb_release_id=mbid,
-                mb_match_candidate=None,
-                tagged_at=datetime.now(UTC),
-            ),
-        )
-        request.app.state.scan_runner.request_scan()
+        parts = [(folder, sidecar_mod.read(folder)) for folder in album.folders]
+        for _, part in parts:
+            if part is None or part.mb_release_id:
+                raise HTTPException(
+                    409, "The album changed. Reload it before restoring its release."
+                )
+        for folder, part in parts:
+            assert part is not None
+            sidecar_mod.write(
+                folder,
+                replace(
+                    part, mb_release_id=mbid, mb_match_candidate=None, tagged_at=datetime.now(UTC)
+                ),
+            )
+        runner = request.app.state.scan_runner
+        if runner.is_engaged():
+            runner.refresh_now()
+        request.state.skip_rescan = True
+        current = next(a for a in _albums(request) if album.path in a.folders)
+        if current.id != mbid:
+            activity_store.record_alias(album.id, current.id)
         return _flash_response(
             "MB match restored",
             _matched_detail(mbid, "the release its files carry"),
-            extra_triggers=_retagged_trigger(album),
+            extra_triggers={"album-retagged": {"album_id": current.id}},
             album=album,
         )
 
@@ -7740,6 +7777,18 @@ def _register_routes(app: FastAPI) -> None:
             except (ValueError, OSError, tagger_mod.TagMismatchError) as e:
                 log.warning("could not preview assignment tags: %s", e, extra=_LOG_ONLY)
                 assignment_error = str(e)
+        shape_confirmation = None
+        if panel is not None:
+            if len(panel.files) < len(panel.mb):
+                shape_confirmation = (
+                    f"This release has {len(panel.mb)} tracks; you have {len(panel.files)} files. "
+                    "Apply these assignments and tag the album as incomplete?"
+                )
+            elif any(d is None or m is None or d.number != m.number for d, m in panel.rows):
+                shape_confirmation = (
+                    "The release's track layout differs from your files. "
+                    "Apply the assignments shown in this review?"
+                )
         return _templates(request).TemplateResponse(
             request,
             "partials/_assignment_editor.html",
@@ -7757,6 +7806,7 @@ def _register_routes(app: FastAPI) -> None:
                 fragment=True,
                 assignment_changes=assignment_changes,
                 assignment_error=assignment_error,
+                shape_confirmation=shape_confirmation,
                 review_draft=review_draft,
                 artwork=(
                     _artwork_view(album, folder_cover=_folder_cover_policy(request))
@@ -7993,7 +8043,8 @@ def _register_routes(app: FastAPI) -> None:
                 assignment_draft=draft,
                 release_artwork_only=bool(request.query_params.get("replacement")),
                 # A release chosen from the album page's release review (#618).
-                accept_release=bool(request.query_params.get("replacement")),
+                accept_release=bool(request.query_params.get("replacement"))
+                or bool(album.has_tag_mbid and album.sidecar and not album.sidecar.mb_release_id),
             )
         except (_ConfirmationChanged, track_assignment.AssignmentChanged) as e:
             log.warning("could not apply reviewed changes: %s", e, extra=_LOG_ONLY)
@@ -8043,6 +8094,9 @@ def _register_routes(app: FastAPI) -> None:
         if runner.is_engaged():
             runner.refresh_now()
         # As for re-tagging, the background scan still updates state counts.
+        current = next(a for a in _albums(request) if album.path in a.folders)
+        if current.id != sidecar_mod.album_id_for(album.path):
+            activity_store.record_alias(album.id, current.id)
         response = _flash_response(
             "Matched as incomplete" if incomplete else "Matched",
             "; ".join(details),
@@ -8050,9 +8104,7 @@ def _register_routes(app: FastAPI) -> None:
             extra_triggers={"confirmation-applied": True},
         )
         if on_album_page:
-            current_id = sidecar_mod.album_id_for(album.path)
-            assert current_id is not None  # successful tagging wrote a sidecar
-            response.headers["HX-Redirect"] = _album_location(request, current_id)
+            response.headers["HX-Redirect"] = _album_location(request, current.id)
         return response
 
     @app.post("/reject/{album_id}", response_class=HTMLResponse)
@@ -8061,9 +8113,17 @@ def _register_routes(app: FastAPI) -> None:
         sc = album.sidecar
         if sc is None or sc.mb_match_candidate is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "no candidate to reject")
-        # `replace`, not a fresh `Sidecar(...)` (#263).
-        new_sc = replace(sc, mb_release_id=None, mb_match_candidate=None, accepted_release_id=None)
-        sidecar_mod.write(album.path, new_sc)
+        # Clear the decision, retaining each part's own provenance rather than
+        # persisting the merged display sidecar onto the first folder (#743).
+        for folder in album.folders:
+            part = sidecar_mod.read(folder)
+            if part is not None and part.mb_match_candidate is not None:
+                sidecar_mod.write(
+                    folder,
+                    replace(
+                        part, mb_release_id=None, mb_match_candidate=None, accepted_release_id=None
+                    ),
+                )
         return _flash_response("Match rejected", album=album)
 
     @app.post("/library/{album_id}/tracks-unavailable", response_class=HTMLResponse)
@@ -8450,16 +8510,64 @@ def _register_routes(app: FastAPI) -> None:
             store_url=sc.store_url,
         )
 
+    @app.get("/manual/{album_id}/siblings", response_class=HTMLResponse)
+    def release_siblings(
+        request: Request, album_id: str, on_album_page: bool = False, reread: bool = False
+    ) -> Response:
+        """One live group browse, with the same rows and review as Inbox search."""
+        album = _refreshed_from_disk(request, _find_album(request, album_id))
+        previous = _cleared_release(album)
+        releases: list[Release] = []
+        total = 0
+        error = None if previous else "The files do not all carry the same MusicBrainz release."
+        if previous:
+            try:
+                release = (
+                    mb_cache.fetch_release(previous, max_age=mb_cache.FRESH)
+                    if reread
+                    else mb_cache.fetch_release(previous)
+                )
+                group = _release_group_id(release)
+                if group:
+                    releases, total = mb_cache.fetch_release_group_editions(group)
+                else:
+                    error = "MusicBrainz has no release group for the tagged release."
+            except mb_lookup.ReleaseGoneError:
+                error = "The tagged release is no longer on MusicBrainz. Search for a release or paste its MBID."
+            except mb_lookup.MBError as exc:
+                log.warning("could not load sibling releases: %s", exc, extra=_LOG_ONLY)
+                error = f"Could not load releases in this group: {exc}"
+        return _templates(request).TemplateResponse(
+            request,
+            "partials/_release_siblings.html",
+            _ctx(
+                request,
+                album=album,
+                album_id=album.id,
+                previous_release=previous,
+                siblings_error=error,
+                results=[mb_lookup.release_summary(r) for r in releases],
+                more_count=total,
+                heading="Releases in this release group",
+                local_track_count=album.track_count,
+                local_artist=album.artist,
+                on_album_page=on_album_page,
+                review_only=True,
+                found_by=FoundBy.RELEASE_GROUP,
+            ),
+        )
+
     @app.post("/manual/{album_id}/assign", response_class=HTMLResponse)
     def manual_assign(
         request: Request,
         album_id: str,
         mbid: str = Form(...),
         review_only: bool = Form(False),
+        on_album_page: bool = Form(False),
         # Which picker the release came from (#639); the paste box sends none.
         found_by: FoundBy = Form(FoundBy.MBID),
     ) -> Response:
-        album = _find_album(request, album_id)
+        album = _refreshed_from_disk(request, _find_album(request, album_id))
         extracted = _extract_mbid(mbid)
         if not extracted:
             return _flash_response(
@@ -8470,6 +8578,39 @@ def _register_routes(app: FastAPI) -> None:
                 album=album,
             )
         try:
+            # A previously tagged album always enters review, even when the
+            # user picks its original release again. Build the candidate for
+            # the whole album; the assignment review supplies the actual pairs.
+            if album.has_tag_mbid:
+                if _suggestion_waiting(album.path):
+                    return Response(status_code=status.HTTP_204_NO_CONTENT)
+                release = mb_cache.fetch_release(extracted)
+                current = sidecar_mod.read(album.path)
+                if current is None or current.mb_release_id:
+                    raise mb_lookup.MBError("Album was matched while the lookup ran")
+                if current.mb_match_candidate is not None:
+                    return Response(status_code=status.HTTP_204_NO_CONTENT)
+                candidate = MatchCandidate(
+                    mb_release_id=release["id"],
+                    confidence="no_match",
+                    file_count=album.track_count,
+                    track_count=mb_lookup.release_summary(release)["track_count"] or 0,
+                    found_by=found_by,
+                )
+                sidecar_mod.write(album.path, replace(current, mb_match_candidate=candidate))
+                runner = request.app.state.scan_runner
+                if runner.is_engaged():
+                    runner.refresh_now()
+                request.state.skip_rescan = True
+                response = _flash_response(
+                    "Needs review",
+                    "Review and confirm the selected release",
+                    album=album,
+                    record_activity=False,
+                )
+                if on_album_page:
+                    response.headers["HX-Redirect"] = _album_location(request, album.id)
+                return response
             status_str, msg = _apply_best_match(
                 album.path,
                 [extracted],
@@ -8497,11 +8638,16 @@ def _register_routes(app: FastAPI) -> None:
             )
         if status_str == "tagged":
             # An exact fit tags at once, so this IS the decision (#639).
-            return _flash_response(
+            response = _flash_response(
                 "Matched", _matched_detail(extracted, _FOUND_BY[found_by]), album=album
             )
-        # A suggestion to review, or nothing to act on: flashed, not recorded.
-        return _flash_response("Needs review", msg, album=album, record_activity=False)
+        else:
+            # A suggestion to review, or nothing to act on: flashed, not recorded.
+            response = _flash_response("Needs review", msg, album=album, record_activity=False)
+        if on_album_page:
+            current_id = sidecar_mod.album_id_for(album.path) or album.id
+            response.headers["HX-Redirect"] = _album_location(request, current_id)
+        return response
 
     @app.post("/unconfirmed/{album_id}/manual", response_class=HTMLResponse)
     def mark_unconfirmed_manual(request: Request, album_id: str) -> Response:
