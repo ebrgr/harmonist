@@ -555,6 +555,16 @@ def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str) -> Sidecar:
         borrowed_artwork=tuple(
             dict.fromkeys(b for s in present for b in s.borrowed_artwork if b.release == mbid)
         ),
+        # A watch on any part is about the album. Its controls write all parts.
+        artwork_watch=next(
+            (
+                s.artwork_watch
+                for s in present
+                if s.artwork_watch and s.artwork_watch.release == mbid
+            ),
+            None,
+        ),
+        artwork_rejected=tuple(dict.fromkeys(i for s in present for i in s.artwork_rejected)),
     )
 
 

@@ -60,7 +60,7 @@ def test_artwork_menu(library_filters_server, htmx_ready, engine, width):
         trigger.press("Escape")
         htmx_ready(observation_trigger).click()
         htmx_ready(observations.get_by_role("link", name=re.compile(r"^No artwork"))).click()
-        pw.expect(page.locator("#library-result-count")).to_have_text("1 album")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "1")
         assert parse_qs(urlsplit(page.url).query)["filter"] == ["no-artwork,artwork-addition"]
         pw.expect(trigger).to_have_text(re.compile(r"Artwork updates: Addition\s+1"))
         page.reload()
@@ -84,7 +84,7 @@ def test_artwork_menu(library_filters_server, htmx_ready, engine, width):
         pw.expect(trigger).to_contain_text("Artwork updates: Addition")
         page.get_by_role("searchbox").fill("no-such-album")
         htmx_ready(page.get_by_role("button", name="Search", exact=True)).click()
-        pw.expect(page.locator("#library-result-count")).to_have_text("0 albums")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "0")
         htmx_ready(trigger).click()
         htmx_ready(menu.get_by_role("link", name="Any update status", exact=True)).click()
         pw.expect(trigger).to_be_disabled()

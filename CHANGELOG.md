@@ -6,6 +6,9 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- “Better artwork wanted” includes smaller release and release-group covers in artwork update proposals; individual images can be excluded and restored in the picker (#586).
+- Selected Cover Art Archive images display correctly in the After Apply preview (#742).
+- The Library's Clear button stays beneath Search, with the redundant album count removed (#276).
 - Artwork retrieval shows a loading placeholder and an in-progress CAA status, restoring retry controls if the request fails (#739).
 - Library updates now checks artwork in the background, with counted Tag updates and Artwork updates filters and separate local artwork observations (#269, #276).
 - A New Library filter finds albums added within seven days and combines with search and other filters (#736).

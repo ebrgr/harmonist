@@ -24,6 +24,7 @@ from . import (
     album_files,
     artwork,
     artwork_store,
+    artwork_watch,
     audit,
     compare,
     cover_art,
@@ -772,11 +773,18 @@ def decide_artwork(
             image=formats.EmbeddedArt.of(cover_path.read_bytes(), _mime_for(cover_path)),
             path=cover_path,
         )
+    archive_image = (
+        formats.EmbeddedArt.of(archive.data, archive.mime) if archive is not None else None
+    )
+    sc = sidecar_mod.read(album_dir)
+    if sc and sc.artwork_rejected and sc.mb_release_id:
+        artwork_watch.observe(sc.mb_release_id)
     return artwork.plan(
         album_dir,
         [(f, _embedded_art(f)) for f in files],
         cover,
-        formats.EmbeddedArt.of(archive.data, archive.mime) if archive is not None else None,
+        archive_image,
+        excluded_archive=artwork_watch.excluded(sc, archive_image),
         overwrite_art=overwrite_art,
         chosen=chosen,
         choices=choices,

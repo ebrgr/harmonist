@@ -200,6 +200,14 @@ They propose changes without writing to the music files. With background checks
 off, opening an album still checks the archive when its cached answer is stale;
 the CAA refresh control asks again immediately.
 
+**Better artwork wanted** considers alternatives on an album's matched release
+and release group, including smaller images that may be more appropriate than a
+borrowed cover. They appear through the ordinary artwork update proposal.
+**Don't suggest this image** excludes an image until that checkbox is cleared;
+it stays available for manual selection. Applying artwork ends the watch.
+The watch runs even when general background checks are off, and never applies
+artwork automatically.
+
 The Library's artwork findings use the same proposal as the album page. A missing
 cover can have no image available to add, while an album that already has a cover
 can still have tracks without embedded artwork. **No artwork** and **Addition**

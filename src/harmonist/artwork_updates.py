@@ -15,7 +15,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import activity_store, artwork, caa_cache, cover_art, formats, mb_cache
+from . import (
+    activity_store,
+    artwork,
+    artwork_watch,
+    caa_cache,
+    cover_art,
+    formats,
+    mb_cache,
+    mb_lookup,
+)
 from .models import Album, AlbumState
 
 log = logging.getLogger(__name__)
@@ -63,6 +72,7 @@ def configure(policy: Callable[[], artwork.FolderCoverPolicy]) -> None:
     _observed.clear()
     _attempted.clear()
     _revision = 0
+    artwork_watch.reset()
 
 
 def revision() -> int:
@@ -108,9 +118,14 @@ def observe(mbid: str) -> None:
     )
     previous = _observed.get(mbid)
     _observed[mbid] = observation
-    if (previous.image if previous else None) != observation.image or (
-        bool(previous and previous.answer and previous.answer.from_release_group)
-        != bool(answer and answer.from_release_group)
+    watch_changed = artwork_watch.observe(mbid)
+    if (
+        watch_changed
+        or (previous.image if previous else None) != observation.image
+        or (
+            bool(previous and previous.answer and previous.answer.from_release_group)
+            != bool(answer and answer.from_release_group)
+        )
     ):
         _revision += 1
 
@@ -140,12 +155,16 @@ def operation(album: Album) -> artwork.Operation | None:
         if sc and own
         else frozenset()
     )
+    choices, picks = artwork_watch.proposal(sc, local.tracks, local.cover, _policy())
     return artwork.plan(
         album.path,
         local.tracks,
         local.cover,
         image,
         stand_ins=borrowed,
+        choices=choices,
+        picks=picks,
+        excluded_archive=artwork_watch.excluded(sc, image),
         folder_cover=_policy(),
     ).operation(artwork.Scope.ALL)
 
@@ -191,13 +210,17 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
     Attempts also pace failures and evicted images, which cannot advance the
     durable observation date. Stop at the first service failure so an outage
     costs one failing request per tick, not one per album. MusicBrainz is read
-    only from its cache and its age never gates CAA work.
+    from its cache except when a watch's release-group identity needs refilling;
+    its age never gates CAA work.
     """
     now = datetime.now(UTC)
     groups: dict[str, list[Album]] = {}
     for album in albums:
         if (
-            album.state in {AlbumState.COMPLETE, AlbumState.INCOMPLETE}
+            (
+                album.state in {AlbumState.COMPLETE, AlbumState.INCOMPLETE}
+                or artwork_watch.active(album.sidecar)
+            )
             and album.sidecar
             and album.sidecar.mb_release_id
         ):
@@ -209,7 +232,10 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
         if attempted and timedelta(0) <= now - attempted < _RETRY:
             continue
         width = min((w for a in copies if (w := threshold(a)) is not None), default=None)
-        if caa_cache.front_due(mbid, keep_if_wider_than=width):
+        watching = any(artwork_watch.active(a.sidecar) for a in copies)
+        if caa_cache.front_due(mbid, keep_if_wider_than=width) or (
+            watching and artwork_watch.due(mbid)
+        ):
             known = caa_cache.stored(mbid)
             due.append((max(known.fetched_at if known else floor, attempted or floor), mbid, width))
     due.sort()
@@ -223,12 +249,15 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
         release = mb_cache.stored_release(mbid)
         group = (release.get("release-group") or {}).get("id") if release else None
         try:
+            if any(artwork_watch.active(a.sidecar) for a in groups[mbid]):
+                artwork_watch.check(mbid)
+                artwork_watch.prepare(groups[mbid])
             caa_cache.front(
                 mbid,
                 release_group_mbid=group if isinstance(group, str) else None,
                 keep_if_wider_than=width,
             )
-        except cover_art.CoverArtError:
+        except (cover_art.CoverArtError, mb_lookup.MBError):
             log.exception("background artwork check failed for %s; will retry later", mbid)
             break
         observe(mbid)

@@ -1,0 +1,17 @@
+<div id="album-artwork-watch" class="space-y-2">
+{% if album.sidecar and album.sidecar.mb_release_id %}
+<form hx-post="/album/{{ album.id }}/artwork/watch" hx-target="#album-artwork"
+      hx-swap="innerHTML" hx-trigger="change, submit" hx-disabled-elt="find input"
+      hx-indicator="#artwork-watch-progress" class="flex items-center gap-2">
+    <input type="hidden" name="release" value="{{ album.sidecar.mb_release_id }}">
+    <label class="text-xs text-muted inline-flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="watch" value="true" {{ 'checked' if artwork_watching }}>
+        Better artwork wanted
+    </label>
+    <span id="artwork-watch-progress" class="htmx-indicator text-xs text-muted">{{ 'Saving…' if artwork_watching else 'Starting watch…' }}</span>
+</form>
+{% if artwork_watch_error %}
+<p role="alert" class="text-xs text-amber-700">{{ artwork_watch_error }}</p>
+{% endif %}
+{% endif %}
+</div>

@@ -2623,7 +2623,7 @@ def test_library_ignores_an_unknown_filter(client, cfg):
     body = client.get("/library?filter=<script>alert(1)</script>").text
     assert "Whole" in body
     assert "alert(1)" not in body
-    assert 'id="library-result-count">1 album</span>' in body
+    assert 'data-total-shown="1"' in body
 
 
 def test_library_does_not_remember_a_filter(client, cfg):
@@ -2806,7 +2806,7 @@ def test_library_total_done_ignores_the_search(client, cfg):
     body = client.get("/library?q=aphex").text
     assert 'data-total-done="2"' in body
     # The result count describes the search, separately from library size.
-    assert 'id="library-result-count">1 album</span>' in body
+    assert 'data-total-shown="1"' in body
 
 
 def test_library_filter_counts_are_taken_within_the_search(client, cfg):
@@ -10180,6 +10180,34 @@ def test_artwork_image_404s_for_an_image_this_album_does_not_carry(client, cfg):
     assert client.get(f"/artwork/image/{album_id}/..%2F..%2Fetc%2Fpasswd").status_code == 404
 
 
+def test_artwork_image_serves_only_listed_cached_originals(client, cfg, monkeypatch):
+    from harmonist import caa_cache, cover_art, images
+
+    d = _make_tagged_album(cfg, "SelectedPreview", mbid="rel-preview", tagged_at=datetime.now(UTC))
+    album_id = _id_for(cfg, d)
+    selected = cover_art.Candidate("201", "https://example.test/201.png", "", ("front",), True)
+    unrelated = cover_art.Candidate("202", "https://example.test/202.png", "", ("front",), True)
+    monkeypatch.setattr(cover_art, "fetch_listing", lambda *args: [selected])
+    caa_cache.listing("release", "rel-preview")
+    data = _png(7)
+    other = _png(8)
+    monkeypatch.setattr(cover_art, "fetch_bytes", lambda url, **kw: (data, "image/png"))
+    cover_art.candidate_image(selected)
+    monkeypatch.setattr(cover_art, "fetch_bytes", lambda url, **kw: (other, "image/png"))
+    cover_art.candidate_image(unrelated)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("a digest preview must not fetch from the archive")
+
+    monkeypatch.setattr(cover_art, "fetch_bytes", unexpected)
+    monkeypatch.setattr(cover_art, "fetch_listing", unexpected)
+    response = client.get(f"/artwork/image/{album_id}/{images.digest(data)}")
+    assert response.status_code == 200
+    assert response.content == data
+    assert response.headers["content-type"] == "image/png"
+    assert client.get(f"/artwork/image/{album_id}/{images.digest(other)}").status_code == 404
+
+
 def test_the_cover_art_check_is_reachable_before_it_has_ever_run(client, cfg):
     """The control that asks the archive used to live inside the row that only
     exists once it has been asked, so no album could ever start (#419)."""
@@ -10847,7 +10875,7 @@ def test_a_chosen_release_group_cover_still_says_whose_it_is(client, cfg):
 
     # The picker says whose it is while it is only a candidate — on its own
     # slide, not the ghost's placeholder, which says the same words…
-    slides = re.findall(r'<label class="art-pick__slide".*?</label>', ordinary)
+    slides = _slides(ordinary)
     assert len(slides) == 1 and "Release group" in slides[0]
     # …and the incoming preview keeps saying it once it is the one coming in.
     assert "for the release group, not this release" in chosen
@@ -10954,9 +10982,12 @@ def _step(client, aid: str, html: str, more: str) -> str:
 
 def _slides(html: str) -> list[str]:
     """The carousel's images, each as its markup — not the ghost's stand-in."""
-    import re
+    from bs4 import BeautifulSoup
 
-    return re.findall(r'<label class="art-pick__slide".*?</label>', " ".join(html.split()))
+    return [
+        str(slide)
+        for slide in BeautifulSoup(html, "html.parser").select(".art-pick__slide[data-front]")
+    ]
 
 
 def test_stepping_past_the_last_image_lists_the_groups_next_release(client, cfg, monkeypatch):
@@ -11779,7 +11810,8 @@ def test_a_losing_archive_cover_sits_in_a_column_of_its_own(client, cfg):
     _listed("rel-side", ("1", "https://coverartarchive.org/release/rel-side/1.jpg", True))
 
     rendered = " ".join(client.get(f"/album/{_id_for(cfg, d)}/artwork").text.split())
-    picker = rendered[rendered.index('class="art-pick__head"') : rendered.index("</form>")]
+    start = rendered.index('class="art-pick__head"')
+    picker = rendered[start : rendered.index("</form>", start)]
 
     # Its own column, under a heading that is not the promise "After Apply"
     # makes.

@@ -47,6 +47,7 @@
     foot stay outside it: htmx only finds them at the top level. -#}
 <div class="space-y-3">
 {% include 'partials/_artwork_header.html' %}
+{% include 'partials/_artwork_watch.html' %}
 
 {% if artwork.cover_unreadable %}
 {# "Couldn't read it" and "there isn't one" lead to opposite conclusions about
@@ -393,7 +394,7 @@
        Harmonist; the original is fetched only when it is used. #}
     <div class="art-pick__carousel">
         {% for c in picker %}
-        <label class="art-pick__slide" data-front="{{ 'true' if c.front else 'false' }}">
+        <div class="art-pick__slide" data-front="{{ 'true' if c.front else 'false' }}">
             <input type="radio" name="candidate" value="{{ c.image_id }}"
                    id="art-cand-{{ album.id }}-{{ c.image_id }}" class="art-row__radio"
                    {% if c.image_id == shown.id %}checked{% endif %}>
@@ -405,7 +406,19 @@
                 <img src="/artwork/candidate/{{ album.id }}/{{ c.image_id }}" alt="" loading="lazy">
             </button>
             {{ candidate_facts(c) }}
-        </label>
+            {% if album.sidecar and album.sidecar.mb_release_id %}
+            <label class="text-xs text-muted inline-flex items-center gap-1 mt-2">
+                <input type="checkbox" name="rejected" value="true"
+                       {% if c.image_id in album.sidecar.artwork_rejected %}checked{% endif %}
+                       hx-post="/album/{{ album.id }}/artwork/suggestion/{{ c.image_id }}"
+                       hx-trigger="change" hx-target="#album-artwork" hx-swap="innerHTML"
+                       hx-include="closest form" hx-params="rejected,use" hx-disabled-elt="this"
+                       hx-vals='js:{rejected: event.target.checked}'
+                       aria-label="Don't suggest this image">
+                Don't suggest this image
+            </label>
+            {% endif %}
+        </div>
         {% endfor %}
         {% if picker|length > 1 or artwork.other_releases %}
         <button type="button" class="art-pick__turn art-pick__turn--back" data-art-step="-1"

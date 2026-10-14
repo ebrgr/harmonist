@@ -16,13 +16,18 @@ def test_new_filter(library_filters_server, htmx_ready, engine, width):
         browser = getattr(playwright, engine).launch()
         page = browser.new_page(viewport={"width": width, "height": 900})
         page.goto(f"{library_filters_server}/?tab=library&limit=1")
+        search_box = page.get_by_role("button", name="Search", exact=True).bounding_box()
+        clear_box = page.get_by_role("button", name="Clear", exact=True).bounding_box()
+        assert abs(search_box["x"] - clear_box["x"]) < 1
+        assert abs(search_box["width"] - clear_box["width"]) < 1
+        assert clear_box["y"] > search_box["y"] + search_box["height"]
         new = page.get_by_role("button", name="New", exact=True)
         pw.expect(new).to_contain_text("2")
         htmx_ready(page.get_by_role("link", name="Next →", exact=True)).click()
         htmx_ready(new).press("Space")
         pw.expect(new).to_have_attribute("aria-pressed", "true")
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "1")
-        pw.expect(page.locator("#library-result-count")).to_have_text("2 albums")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "2")
         htmx_ready(page.get_by_role("link", name="Next →", exact=True)).click()
         pw.expect(page.locator("#library-page")).to_have_attribute("data-page", "2")
         htmx_ready(page.locator("#library-grid > a")).click()
@@ -33,7 +38,7 @@ def test_new_filter(library_filters_server, htmx_ready, engine, width):
         pw.expect(new).to_have_attribute("aria-pressed", "true")
         htmx_ready(page.locator("#library-artwork-button")).click()
         htmx_ready(page.locator("#library-filter-no-artwork")).click()
-        pw.expect(page.locator("#library-result-count")).to_have_text("1 album")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "1")
         pw.expect(page.locator("#lib-demo-rel-rural-juror")).to_be_visible()
         assert parse_qs(urlsplit(page.url).query)["filter"] == ["new,no-artwork"]
         htmx_ready(new).wait_for(state="visible")
@@ -42,7 +47,7 @@ def test_new_filter(library_filters_server, htmx_ready, engine, width):
         pw.expect(new).to_have_attribute("aria-pressed", "true")
         page.get_by_role("searchbox").fill("no-such-album")
         htmx_ready(page.get_by_role("button", name="Search", exact=True)).click()
-        pw.expect(page.locator("#library-result-count")).to_have_text("0 albums")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "0")
         pw.expect(new).to_be_enabled()
         htmx_ready(new).click()
         pw.expect(page).to_have_url(re.compile(r"filter=no-artwork(?:&|$)"))
@@ -50,7 +55,7 @@ def test_new_filter(library_filters_server, htmx_ready, engine, width):
         assert parse_qs(urlsplit(page.url).query)["q"] == ["no-such-album"]
         page.get_by_role("button", name="Clear", exact=True).click()
         pw.expect(new).to_have_attribute("aria-pressed", "false")
-        pw.expect(page.locator("#library-result-count")).to_have_text("9 albums")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "9")
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         browser.close()
 
@@ -128,7 +133,7 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
         # Active controls can always be removed, even with an empty search.
         page.get_by_role("searchbox").fill("no-such-album")
         htmx_ready(page.get_by_role("button", name="Search", exact=True)).click()
-        pw.expect(page.locator("#library-result-count")).to_have_text("0 albums")
+        pw.expect(page.locator("#library-page")).to_have_attribute("data-total-shown", "0")
         htmx_ready(no_art).click()
         htmx_ready(page.get_by_role("link", name="Any artwork status", exact=True)).click()
         pw.expect(page).to_have_url(re.compile("filter=mixed-format"))

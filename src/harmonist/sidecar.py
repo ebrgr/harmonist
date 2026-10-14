@@ -17,6 +17,7 @@ from . import activity_store, audit, id_registry, library_index
 from .models import (
     CURRENT_SCHEMA_VERSION,
     SIDECAR_FILENAME,
+    ArtworkWatch,
     BandcampInfo,
     BorrowedArtwork,
     FoundBy,
@@ -287,6 +288,8 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
       * `borrowed_artwork` — which images stand in for a release with no front
         of its own (#663). Provenance nothing else records, and it decides what
         the album page suggests once the release gets its own front.
+      * `artwork_watch` / `artwork_rejected` — the request for alternatives and
+        excluded uploads, neither recoverable from the current cover.
 
     Deliberately NOT audited, so the narrowness here is a choice rather than an
     oversight:
@@ -343,6 +346,10 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
         changes["borrowed_artwork"] = (
             f"{short(old.borrowed_artwork)}->{short(new.borrowed_artwork)}"
         )
+    if old.artwork_watch != new.artwork_watch:
+        changes["artwork_watch"] = f"{old.artwork_watch}->{new.artwork_watch}"
+    if old.artwork_rejected != new.artwork_rejected:
+        changes["artwork_rejected"] = f"{old.artwork_rejected}->{new.artwork_rejected}"
     if changes:
         audit.record("sidecar.update", album_id=album_id, album=album_dir, **changes)
 
@@ -432,7 +439,29 @@ def _to_dict(s: Sidecar) -> dict[str, Any]:
         d["accepted_release_id"] = s.accepted_release_id
     if s.borrowed_artwork:
         d["borrowed_artwork"] = [_borrowed_to_dict(b) for b in s.borrowed_artwork]
+    if s.artwork_watch:
+        d["artwork_watch"] = {
+            "release": s.artwork_watch.release,
+        }
+    if s.artwork_rejected:
+        d["artwork_rejected"] = list(s.artwork_rejected)
     return d
+
+
+def _artwork_watch_from(raw: object) -> ArtworkWatch | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("release"), str) or not raw["release"]:
+        raise InvalidSidecarError("invalid artwork_watch")
+    return ArtworkWatch(raw["release"])
+
+
+def _artwork_rejected_from(raw: object) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or any(not isinstance(i, str) or not i for i in raw):
+        raise InvalidSidecarError("invalid artwork_rejected")
+    return tuple(dict.fromkeys(raw))
 
 
 def _borrowed_to_dict(b: BorrowedArtwork) -> dict[str, str]:
@@ -639,6 +668,8 @@ def _from_dict(d: dict[str, Any], source_path: Path) -> Sidecar:
         video_media=_int_tuple(d.get("video_media")),
         accepted_release_id=d.get("accepted_release_id") or None,
         borrowed_artwork=_borrowed_from(d.get("borrowed_artwork")),
+        artwork_watch=_artwork_watch_from(d.get("artwork_watch")),
+        artwork_rejected=_artwork_rejected_from(d.get("artwork_rejected")),
     )
 
 

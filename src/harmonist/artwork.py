@@ -401,6 +401,7 @@ def plan(
     choices: Choices | None = None,
     picks: Mapping[str, EmbeddedArt] | None = None,
     stand_ins: frozenset[str] = frozenset(),
+    excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
 ) -> ArtworkPlan:
     """The size rule's suggestion (`_suggest`), with the user's choices made
@@ -430,7 +431,7 @@ def plan(
         album_dir,
         tracks,
         cover,
-        archive,
+        archive if not excluded_archive or chosen is Source.ARCHIVE else None,
         overwrite_art=overwrite_art,
         cover_unreadable=cover_unreadable,
         chosen=chosen,
@@ -438,7 +439,7 @@ def plan(
     )
     if overwrite_art or cover_unreadable:
         return suggested
-    if stand_ins and archive is not None:
+    if stand_ins and archive is not None and not excluded_archive:
         # A carrier is the tracks' image's digest, or the folder cover itself.
         waiting = stand_ins - {archive.digest}
         given: dict[str, str] = {
@@ -1391,6 +1392,7 @@ def summarise(
     picks: Mapping[str, EmbeddedArt] | None = None,
     candidates: Sequence[Candidate] = (),
     borrowed: Mapping[str, str] | None = None,
+    excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
 ) -> ArtworkView:
     """Everything the section shows, from tags already read and a folder cover.
@@ -1437,6 +1439,7 @@ def summarise(
         choices=choices,
         picks=picks,
         stand_ins=frozenset(borrowed or ()) if own_front is not None else frozenset(),
+        excluded_archive=excluded_archive,
         folder_cover=folder_cover,
     )
     by_target = {c.target: c for c in the_plan.changes}

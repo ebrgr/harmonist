@@ -71,6 +71,8 @@ breadcrumbs ("matched via barcode on…") belong in `activity.db`.
 | `borrowed_artwork` | Archive images Harmonist wrote as stand-ins because the release had no front of its own: the release group's or another release's, each with the listing it came from and the release it stood in for. The bytes look the same whether an image was borrowed for want of one or chosen over the release's own, and only a borrowed one should give way when the release gets a front (see [artwork](artwork.md#a-stand-in-gives-way)). Held only while the album carries the image and is matched to that release, so a rematch or a different choice lapses it. |
 | `downloaded_at` | The historical download timestamp, shown on the album page. Linking can also set it, so it cannot establish when an album was added. |
 | `notes` | Legacy. Written and carried, but nothing reads it. |
+| `artwork_watch` | The user's request for alternatives on a particular release, including smaller images. Applying artwork ends it; a rematch lapses it. This intent cannot be recovered from the files. |
+| `artwork_rejected` | CAA upload IDs the user excluded from suggestions for this album. The picker can restore each one; the same ID is excluded through every listing. |
 
 ### Which fields are audited
 

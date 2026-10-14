@@ -36,7 +36,7 @@
 {% from 'macros.html' import library_query %}
 {% from 'partials/_library_filter_controls.html' import toggle %}
 <div id="library-page" data-total-done="{{ total_done }}" data-page="{{ page }}"
-     data-limit="{{ limit }}">
+     data-limit="{{ limit }}" data-total-shown="{{ total_shown }}">
 {# A separate leaf keeps the background request's abort strategy from being
    inherited by the navigation controls. All requests share the stable target:
    refreshes yield to pending navigation and navigation cancels older refreshes. #}
@@ -97,7 +97,7 @@
            placeholder="Search artist or album"
            class="flex-1 min-w-0 bg-white border border-line rounded px-2 py-1 text-sm text-ink placeholder:text-muted focus:border-accent outline-none">
     <button type="submit"
-            class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-sm font-bold text-ink transition">
+            class="w-20 shrink-0 px-3 py-1 rounded border border-line bg-surface hover:bg-line text-sm font-bold text-ink transition">
         Search
     </button>
 </form>
@@ -128,7 +128,8 @@
 {% set chip_dead = chip ~ " border-transparent text-muted opacity-40 cursor-default select-none" %}
 {# Counts include search and the other selections. A category choice replaces
    only its category; standalone findings intersect and toggle off individually. #}
-<nav class="mb-3 flex flex-wrap items-center gap-1.5" aria-label="Library filters">
+<div class="mb-3 flex items-start gap-2">
+<nav class="flex-1 min-w-0 flex flex-wrap items-center gap-1.5" aria-label="Library filters">
     {% include 'partials/_library_origin_menu.html' %}
     {% for f in filters %}
     {% if f.slug == 'update-available' %}
@@ -149,18 +150,18 @@
         <span class="font-normal tabular-nums">0</span></span>
     {% endif %}
     {% endfor %}
-    <span class="ml-1 text-xs text-muted tabular-nums" id="library-result-count">{{ total_shown }} {{ 'album' if total_shown == 1 else 'albums' }}</span>
+</nav>
     {# A full navigation clears even an unsubmitted draft in the hx-preserved
        search input. Page size is a preference, so it survives the reset. #}
-    <form method="get" action="/" class="ml-1">
+    <form method="get" action="/" class="w-20 shrink-0">
         <input type="hidden" name="tab" value="library">
         <input type="hidden" name="limit" value="{{ limit }}">
         <button type="submit" id="library-clear-filters"
-                class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-sm font-bold text-ink transition">
+                class="w-full px-3 py-1 rounded border border-line bg-surface hover:bg-line text-sm font-bold text-ink transition">
             Clear
         </button>
     </form>
-</nav>
+</div>
 {% endif %}
 
 {% if not rows %}

@@ -143,6 +143,11 @@ def carousel_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
 
 @pytest.fixture
+def artwork_watch_server(tmp_path):
+    yield from _run_demo_server(tmp_path, app_module="test.e2e.artwork_watch_app:app")
+
+
+@pytest.fixture
 def reset_carousel_server(carousel_server: str) -> str:
     """Each carousel scenario from a library and history nobody has stepped
     through: a release listed by one test would otherwise be in the next one's

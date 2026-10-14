@@ -49,6 +49,7 @@ from harmonist import (
     artwork,
     artwork_store,
     artwork_updates,
+    artwork_watch,
     audit,
     caa_cache,
     compare,
@@ -86,6 +87,7 @@ from harmonist.match import Ranking, match_releases
 from harmonist.models import (
     Album,
     AlbumState,
+    ArtworkWatch,
     BandcampInfo,
     BorrowedArtwork,
     FoundBy,
@@ -1933,6 +1935,9 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
         ),
     }
     base.update(extra)
+    album = extra.get("album")
+    if isinstance(album, Album):
+        base["artwork_watching"] = artwork_watch.active(album.sidecar) is not None
     return base
 
 
@@ -3295,47 +3300,25 @@ def _summarised_view(
         for b in (sc.borrowed_artwork if sc else ())
         if sc is not None and b.release == sc.mb_release_id
     }
-    if album.cover_path is None or not album.cover_path.exists():
-        return artwork.summarise(
-            album.path,
-            tracks,
-            None,
-            caa,
-            archive,
-            chosen=chosen,
-            choices=choices,
-            picks=picks,
-            candidates=candidates,
-            borrowed=borrowed,
-            folder_cover=folder_cover,
-        )
-    try:
-        data = album.cover_path.read_bytes()
-    except OSError:
-        # Loud, per the unattended rule — and NOT reported as "this album has no
-        # folder cover". There is one; Harmonist couldn't read it, and the two
-        # lead to opposite conclusions about what applying would do (#112). The
-        # view says so and its plan writes nothing rather than guessing.
-        log.exception("could not read the folder cover for %s", album.path)
-        return artwork.summarise(
-            album.path,
-            tracks,
-            None,
-            caa,
-            archive,
-            cover_unreadable=True,
-            chosen=chosen,
-            choices=choices,
-            picks=picks,
-            candidates=candidates,
-            borrowed=borrowed,
-            folder_cover=folder_cover,
-        )
-    mime = "image/png" if album.cover_path.suffix.lower() == ".png" else "image/jpeg"
-    cover = artwork.FolderCover(
-        name=album.cover_path.name,
-        image=formats.EmbeddedArt.of(data, mime),
-        path=album.cover_path,
+    cover = None
+    cover_unreadable = False
+    if album.cover_path is not None and album.cover_path.exists():
+        try:
+            data = album.cover_path.read_bytes()
+        except OSError:
+            log.exception("could not read the folder cover for %s", album.path)
+            cover_unreadable = True
+        else:
+            mime = "image/png" if album.cover_path.suffix.lower() == ".png" else "image/jpeg"
+            cover = artwork.FolderCover(
+                name=album.cover_path.name,
+                image=formats.EmbeddedArt.of(data, mime),
+                path=album.cover_path,
+            )
+    proposed, proposed_images = (
+        artwork_watch.proposal(sc, [(p, t.art) for p, t in tracks], cover, folder_cover)
+        if not cover_unreadable and not any(t.unreadable for _, t in tracks)
+        else ({}, {})
     )
     return artwork.summarise(
         album.path,
@@ -3343,9 +3326,11 @@ def _summarised_view(
         cover,
         caa,
         archive,
+        cover_unreadable=cover_unreadable,
+        excluded_archive=artwork_watch.excluded(sc, archive),
         chosen=chosen,
-        choices=choices,
-        picks=picks,
+        choices={**proposed, **(choices or {})},
+        picks={**proposed_images, **picks},
         candidates=candidates,
         borrowed=borrowed,
         folder_cover=folder_cover,
@@ -3407,7 +3392,7 @@ def _artwork_check_if_idle(
     *,
     check: bool = True,
 ) -> None:
-    """CAA has its own worker and due dates, under the same opt-in as tags.
+    """CAA has its own worker and due dates; explicit watches also opt in.
 
     A slow archive must not hold the tag worker's lock. Startup only warms
     durable observations, including when background network checks are off.
@@ -3415,9 +3400,12 @@ def _artwork_check_if_idle(
     if not scan_runner.has_completed():
         return
     if check and (
-        app.state.cfg.gardener.level == "off"
-        or sync_runner.is_running
+        sync_runner.is_running
         or reconcile_runner.is_running
+        or (
+            app.state.cfg.gardener.level == "off"
+            and not any(artwork_watch.active(a.sidecar) for a in scan_runner.albums())
+        )
     ):
         return
     if not _artwork_check_lock.acquire(blocking=False):
@@ -3428,6 +3416,8 @@ def _artwork_check_if_idle(
             albums = scan_runner.albums()
             artwork_updates.warm(albums)
             if check:
+                if app.state.cfg.gardener.level == "off":
+                    albums = [a for a in albums if artwork_watch.active(a.sidecar)]
                 artwork_updates.sweep(albums)
         except Exception:
             # Worker boundary: a defect or failed cache must be visible, not
@@ -4626,6 +4616,12 @@ def _tag_with_release(
                 mbid,
                 base.borrowed_artwork,
                 outcome.artwork.written,
+            ),
+            artwork_watch=(
+                None
+                if outcome.artwork.written
+                and not (outcome.artwork.stale or outcome.artwork.unkept or outcome.artwork.failed)
+                else base.artwork_watch
             ),
         )
         sidecar_mod.write(folder, new)
@@ -6875,6 +6871,134 @@ def _register_routes(app: FastAPI) -> None:
             )
         return JSONResponse(payload)
 
+    @app.post("/album/{album_id}/artwork/watch", response_class=HTMLResponse)
+    def album_artwork_watch(
+        request: Request,
+        album_id: str,
+        release: str = Form(...),
+        watch: bool = Form(False),
+    ) -> Response:
+        request.state.skip_rescan = True
+        album = _refreshed_from_disk(request, _find_album(request, album_id))
+        if _release_of(album) != release:
+            raise HTTPException(
+                409, "The release changed; reload before changing its artwork watch."
+            )
+        changed = False
+        error = None
+        try:
+            current = artwork_watch.active(album.sidecar)
+            if watch and current is None:
+                # The group is source evidence, not guessed from the album name.
+                # A cached payload suffices; a cold cache costs one MB request.
+                known = mb_cache.stored_release(release) or mb_cache.fetch_release(release)
+                if known.get("id") != release:
+                    raise HTTPException(409, "The release was merged; refresh the match first.")
+                group = (known.get("release-group") or {}).get("id")
+                if not isinstance(group, str):
+                    raise HTTPException(
+                        409, "The release group is unavailable; refresh the match first."
+                    )
+                artwork_watch.check(release, fresh=True)
+                assert album.sidecar is not None
+                decision = ArtworkWatch(release)
+                artwork_watch.prepare(
+                    [replace(album, sidecar=replace(album.sidecar, artwork_watch=decision))]
+                )
+                artwork_updates.observe(release)
+                changed = artwork_watch.save(album, decision)
+            elif not watch and current is not None:
+                changed = artwork_watch.save(album, None)
+        except (cover_art.CoverArtError, mb_lookup.MBError) as exc:
+            log.exception("could not start artwork watch for %s", release, extra=_LOG_ONLY)
+            error = f"Couldn't start the artwork watch: {exc}"
+            aid, label = _live_album_ref(album)
+            activity.warning(error, album_id=aid, album_label=label)
+        if changed:
+            request.app.state.scan_runner.refresh_now()
+            aid, label = _live_album_ref(album)
+            activity.info(
+                "Watching for better artwork" if watch else "Stopped watching for artwork",
+                album_id=aid,
+                album_label=label,
+            )
+        fresh_album = _refreshed_from_disk(request, _find_album(request, album_id))
+        caa = caa_cache.stored(release)
+        response = _templates(request).TemplateResponse(
+            request,
+            "partials/_artwork.html",
+            _ctx(
+                request,
+                album=fresh_album,
+                artwork_watch_error=error,
+                artwork=_artwork_view(
+                    fresh_album,
+                    caa,
+                    _archive_image(release),
+                    folder_cover=_folder_cover_policy(request),
+                ),
+                caa_check_due=False,
+                caa_checked_at=caa.fetched_at if caa else None,
+            ),
+        )
+        if changed:
+            response.headers["HX-Trigger"] = "tasks-changed"
+        return response
+
+    @app.post("/album/{album_id}/artwork/suggestion/{image_id}", response_class=HTMLResponse)
+    def artwork_suggestion(
+        request: Request,
+        album_id: str,
+        image_id: str,
+        rejected: bool = Form(False),
+        use: str = Form(""),
+    ) -> Response:
+        request.state.skip_rescan = True
+        album = _refreshed_from_disk(request, _find_album(request, album_id))
+        mbid = _release_of(album)
+        if mbid is None or _listed_candidate(mbid, image_id) is None:
+            raise HTTPException(404, "No such artwork candidate")
+        if artwork_watch.reject(album, image_id, rejected):
+            aid, label = _live_album_ref(album)
+            activity.info(
+                "Stopped suggesting this image" if rejected else "Restored artwork suggestion",
+                album_id=aid,
+                album_label=label,
+            )
+            request.app.state.scan_runner.refresh_now()
+        fresh = _refreshed_from_disk(request, _find_album(request, album_id))
+        # A rejected suggestion disappears from the preview, while other row
+        # choices survive. Explicitly pressing Use afterwards still overrides it.
+        choices = {
+            k: v for k, v in artwork.parse_choices(use).items() if not rejected or v != image_id
+        }
+        try:
+            artwork_watch.prepare([fresh])
+        except cover_art.CoverArtError:
+            log.exception("could not prepare the next artwork alternative for %s", mbid)
+        artwork_updates.observe(mbid)
+        caa = caa_cache.stored(mbid)
+        response = _templates(request).TemplateResponse(
+            request,
+            "partials/_artwork.html",
+            _ctx(
+                request,
+                album=fresh,
+                artwork=_artwork_view(
+                    fresh,
+                    caa,
+                    _archive_image(mbid),
+                    choices=choices,
+                    folder_cover=_folder_cover_policy(request),
+                ),
+                artwork_candidate=image_id,
+                caa_check_due=False,
+                caa_checked_at=caa.fetched_at if caa else None,
+            ),
+        )
+        response.headers["HX-Trigger"] = "tasks-changed"
+        return response
+
     @app.get("/album/{album_id}/artwork", response_class=HTMLResponse)
     def album_artwork(
         request: Request,
@@ -6951,6 +7075,12 @@ def _register_routes(app: FastAPI) -> None:
                 _artwork_view(album, folder_cover=_folder_cover_policy(request)),
                 max_age=caa_cache.FRESH if reread else None,
             )
+            if artwork_watch.active(album.sidecar):
+                try:
+                    artwork_watch.prepare([album])
+                except cover_art.CoverArtError:
+                    log.exception("could not prepare artwork alternatives for %s", mbid)
+                artwork_updates.observe(mbid)
             if (
                 album.sidecar is not None
                 and album.sidecar.borrowed_artwork
@@ -7225,6 +7355,12 @@ def _register_routes(app: FastAPI) -> None:
             )
             if stand_ins != sc.borrowed_artwork:
                 sidecar_mod.write(album.path, replace(sc, borrowed_artwork=stand_ins))
+        if (
+            outcome.written
+            and not (outcome.stale or outcome.unkept or outcome.failed)
+            and artwork_watch.active(album.sidecar)
+        ):
+            artwork_watch.save(_refreshed_from_disk(request, album), None)
         changed = outcome.changed
         message = (
             f"Updated artwork on {changed} file{'s' if changed != 1 else ''}"
@@ -7392,6 +7528,12 @@ def _register_routes(app: FastAPI) -> None:
         )
         if cached is not None and images.digest(cached.data) == digest:
             return Response(content=cached.data, media_type=cached.mime, headers=_IMMUTABLE)
+        # A picker selection is cached by upload ID, separately from the default
+        # front. Resolve only originals in this release's known listings (#742).
+        for listed in _listings(mbid):
+            original = cover_art.cached_candidate_image(listed.listing.image_id)
+            if original is not None and images.digest(original.data) == digest:
+                return Response(content=original.data, media_type=original.mime, headers=_IMMUTABLE)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
 
     @app.get("/cover/{album_id}")

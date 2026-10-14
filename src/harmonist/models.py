@@ -333,6 +333,14 @@ class Sidecar:
     # Archive images written as stand-ins for a release with no front of its
     # own (#663). Each is held only while its `release` is `mb_release_id`.
     borrowed_artwork: tuple[BorrowedArtwork, ...] = ()
+    # A request for alternatives on THIS release; rejected uploads are album decisions.
+    artwork_watch: ArtworkWatch | None = None
+    artwork_rejected: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ArtworkWatch:
+    release: str
 
 
 @dataclass(frozen=True)

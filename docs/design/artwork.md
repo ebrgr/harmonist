@@ -164,8 +164,34 @@ an update is available. Unreadable images are not evidence of absence. Both tag
 and artwork update counts describe albums, not fields or images to be written. A
 tag-update ignore is about a MusicBrainz version and cannot suppress artwork
 whose source changes independently. Background proposals require review; source
-preferences, watches for new alternatives and automatic writes remain separate
-decisions.
+preferences and automatic writes remain separate decisions.
+
+## Watching for alternatives
+
+“Better artwork wanted” is an explicit request to watch the matched release and
+its release group, even with the general background check switched off. It does
+not browse sibling releases. A user borrowing a sibling's cover can therefore
+wait for their own release to get one, without claiming that the current match
+or image is wrong. It also works for inherited covers with no stand-in record.
+
+A watch broadens the ordinary artwork proposal to include smaller front images,
+including existing alternatives. The Library's Artwork updates filter and the
+album's After Apply preview use the same plan. A group's copy of the same upload
+is considered only once, and distinct per-track sleeves remain protected.
+Notifications belong to the future router, not a parallel Inbox workflow.
+
+“Don't suggest this image” excludes an upload from automatic proposals while
+keeping it in the picker. It is reversible and does not prevent an explicit Use.
+The decision names the upload, rather than a URL or resolution, so the same
+image arriving through another listing does not bypass it. Rejection survives
+turning the watch off. Applying artwork successfully ends the watch; a failed
+apply leaves it on. Rematching lapses it because it names the old release.
+
+Only these decisions go in the sidecar. Listings and originals use the existing
+cache, and Library filtering reads warmed descriptions without disk or network
+requests. The paced worker checks watches on the same TTL and failure backoff
+as other artwork, downloading only as far as an eligible alternative. No watch
+authorizes an unattended write.
 
 ## Additions and replacements
 
