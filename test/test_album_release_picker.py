@@ -74,8 +74,10 @@ def test_siblings_use_shared_rows_and_one_browse(client, cfg, monkeypatch):
     assert all(
         form.select_one('[name="review_only"][value="true"]') for form in soup.select("form")
     )
-    assert "Restore previous match" in response.text
-    assert "Currently tagged as" in response.text
+    assert (
+        soup.select_one(f'#release-revert-{aid}[hx-swap-oob="innerHTML"] button').get_text()
+        == "Revert to Previous"
+    )
     page = client.get(f"/album/{aid}")
     assert f"/manual/{aid}/siblings" in page.text
     assert f"/manual/{aid}/search" in page.text
@@ -127,7 +129,7 @@ def test_sibling_failure_keeps_restore_search_and_paste(client, cfg, monkeypatch
     response = client.get(f"/manual/{aid}/siblings?on_album_page=true")
     soup = BeautifulSoup(response.text, "html.parser")
     assert soup.select_one('[role="alert"]')
-    assert "Restore previous match" in response.text
+    assert soup.select_one(f'#release-revert-{aid} button[hx-post$="/rematch/undo"]')
     assert soup.select_one('[hx-get*="reread=true"]')
     page = BeautifulSoup(client.get(f"/album/{aid}").text, "html.parser")
     assert page.select_one(f'form[hx-post="/manual/{aid}/search"]')
@@ -213,3 +215,21 @@ def test_cancelling_multi_folder_choice_preserves_each_parts_provenance(client, 
     assert all(sc.read(p).mb_match_candidate is None for p in (first, second))
     albums = scanner.scan(cfg.paths.music_dir)
     assert len(albums) == 1 and albums[0].state == AlbumState.NEEDS_MBID
+
+
+def test_replacement_barcode_search_waits_for_selection(client, cfg, monkeypatch):
+    from test.test_barcode_discovery import album, release, services
+
+    root, track = album(cfg.paths.music_dir)
+    formats.write_owned(track, dict(formats.read_owned(track), mb_album_id=REL_A))
+    sc.write(root, test_web.Sidecar())
+    aid = test_web._id_for(cfg, root)
+    search, fetch = services(monkeypatch, [release()])
+    before = track.read_bytes()
+    response = client.post(f"/manual/{aid}/barcode")
+    assert response.status_code == 200
+    assert sc.read(root).mb_match_candidate is None
+    soup = BeautifulSoup(response.text, "html.parser")
+    assert len(soup.select('form[hx-post$="/assign"]')) == 1
+    assert search.call_count == 1 and fetch.call_count == 0
+    assert track.read_bytes() == before

@@ -1,5 +1,6 @@
 """Sibling and unrelated releases for the album-page picker."""
 
+import os
 from copy import deepcopy
 
 from harmonist import demo
@@ -10,7 +11,8 @@ sibling = deepcopy(original)
 sibling["id"] = "demo-rel-picker-sibling"
 sibling["disambiguation"] = "Alternate pressing"
 sibling["medium-list"][0]["format"] = "CD"
-demo.MB_RELEASES[sibling["id"]] = sibling
+if os.environ.get("HARMONIST_TEST_NO_SIBLINGS") != "1":
+    demo.MB_RELEASES[sibling["id"]] = sibling
 
 unrelated = deepcopy(original)
 unrelated["id"] = "demo-rel-picker-other"

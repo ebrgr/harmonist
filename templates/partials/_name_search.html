@@ -5,6 +5,10 @@
 <form hx-post="/manual/{{ album.id }}/search"
       hx-target="#mbid-results-{{ album.id }}"
       hx-swap="innerHTML"
+      {% if show_siblings|default(false) and prefer_name|default(false) %}
+      hx-trigger="load delay:1ms, submit"
+      hx-on::before-request="this.setAttribute('hx-trigger', 'submit')"
+      {% endif %}
       class="flex gap-2">
     {# Which page is asking (#150). The rows this comes back with carry a **Use**
        button that assigns the release, and the right thing to do afterwards

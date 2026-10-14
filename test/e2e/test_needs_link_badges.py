@@ -70,7 +70,7 @@ def test_needs_link_badge_action(
             )
             # Rematching deliberately offers no candidate for the release just
             # rejected. Search is available directly; no dismissal is needed.
-            corrected.get_by_role("radio", name="Name", exact=True).check()
+            corrected.get_by_role("radio", name="By name", exact=True).check()
             with page.expect_response(
                 lambda r: r.request.method == "POST" and r.url.endswith("/search")
             ) as search:

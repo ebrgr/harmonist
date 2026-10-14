@@ -8383,13 +8383,17 @@ def _register_routes(app: FastAPI) -> None:
             return response
         try:
             results, total = mb_search.search_barcode(evidence)
-            release = mb_search.barcode_suggestion(
-                evidence,
-                results,
-                total,
-                origin=provenance.origin(album),
-                track_count=album.track_count,
-                max_age=mb_cache.FRESH,
+            release = (
+                None
+                if album.has_tag_mbid
+                else mb_search.barcode_suggestion(
+                    evidence,
+                    results,
+                    total,
+                    origin=provenance.origin(album),
+                    track_count=album.track_count,
+                    max_age=mb_cache.FRESH,
+                )
             )
             if release is not None:
                 ranking = match_releases(album.path, [release])
@@ -8519,6 +8523,7 @@ def _register_routes(app: FastAPI) -> None:
         previous = _cleared_release(album)
         releases: list[Release] = []
         total = 0
+        no_alternatives = False
         error = None if previous else "The files do not all carry the same MusicBrainz release."
         if previous:
             try:
@@ -8530,6 +8535,9 @@ def _register_routes(app: FastAPI) -> None:
                 group = _release_group_id(release)
                 if group:
                     releases, total = mb_cache.fetch_release_group_editions(group)
+                    no_alternatives = total <= len(releases) and not any(
+                        r["id"] != release["id"] for r in releases
+                    )
                 else:
                     error = "MusicBrainz has no release group for the tagged release."
             except mb_lookup.ReleaseGoneError:
@@ -8537,7 +8545,7 @@ def _register_routes(app: FastAPI) -> None:
             except mb_lookup.MBError as exc:
                 log.warning("could not load sibling releases: %s", exc, extra=_LOG_ONLY)
                 error = f"Could not load releases in this group: {exc}"
-        return _templates(request).TemplateResponse(
+        response = _templates(request).TemplateResponse(
             request,
             "partials/_release_siblings.html",
             _ctx(
@@ -8548,7 +8556,7 @@ def _register_routes(app: FastAPI) -> None:
                 siblings_error=error,
                 results=[mb_lookup.release_summary(r) for r in releases],
                 more_count=total,
-                heading="Releases in this release group",
+                heading=None,
                 local_track_count=album.track_count,
                 local_artist=album.artist,
                 on_album_page=on_album_page,
@@ -8556,6 +8564,11 @@ def _register_routes(app: FastAPI) -> None:
                 found_by=FoundBy.RELEASE_GROUP,
             ),
         )
+        if no_alternatives:
+            response.headers["HX-Trigger-After-Swap"] = json.dumps(
+                {"release-group-empty": {"target": f"#release-siblings-{album.id}"}}
+            )
+        return response
 
     @app.post("/manual/{album_id}/assign", response_class=HTMLResponse)
     def manual_assign(

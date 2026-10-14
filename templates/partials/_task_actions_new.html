@@ -32,7 +32,6 @@
    search results — they live only in the DOM. #}
 <div id="newtools-{{ album.id }}" hx-preserve="true" class="space-y-2">
     {% include 'partials/_release_search.html' %}
-    <div id="mbid-results-{{ album.id }}" class="mt-2"></div>
     <p class="text-muted font-bold uppercase tracking-widest text-2xs mt-2">Or paste a MusicBrainz ID</p>
     {% include 'partials/_mbid_paste.html' %}
 </div>

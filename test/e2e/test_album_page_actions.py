@@ -51,7 +51,9 @@ def test_search_tools_wait_until_suggestion_is_dismissed(reset_demo_server, on_a
         with page.expect_response(lambda r: "/reject/" in r.url):
             dismiss.click()
         playwright_sync.expect(tools).to_be_visible()
-        playwright_sync.expect(tools.get_by_role("radio", name="Name", exact=True)).to_be_visible()
+        playwright_sync.expect(
+            tools.get_by_role("radio", name="By name", exact=True)
+        ).to_be_visible()
         playwright_sync.expect(tools.locator('input[name="mbid"]')).to_be_visible()
         # Polling must neither hide the tools again nor re-suggest the rejected release.
         if not on_album:
@@ -60,7 +62,7 @@ def test_search_tools_wait_until_suggestion_is_dismissed(reset_demo_server, on_a
             page.wait_for_load_state("networkidle")
             playwright_sync.expect(tools).to_be_visible()
         # A deliberate new search offers a suggestion and hides the alternatives again.
-        tools.get_by_role("radio", name="Name", exact=True).check()
+        tools.get_by_role("radio", name="By name", exact=True).check()
         with page.expect_response(lambda r: "/candidates" in r.url):
             tools.get_by_role("radio", name="Store URL", exact=True).check()
         playwright_sync.expect(dismiss).to_be_visible()
@@ -123,7 +125,9 @@ def test_a_card_links_to_its_album_page_and_the_decision_can_be_taken_there(
         with page.expect_response(lambda r: "/reject/" in r.url, timeout=15_000) as got:
             page.get_by_role("button", name="Dismiss suggestion", exact=True).click()
         assert got.value.ok
-        playwright_sync.expect(page.get_by_role("radio", name="Name", exact=True)).to_be_checked()
+        playwright_sync.expect(
+            page.get_by_role("radio", name="By name", exact=True)
+        ).to_be_checked()
         # Selecting URL is an explicit fresh search after dismissal.
         with page.expect_response(lambda r: "/candidates" in r.url):
             page.get_by_role("radio", name="Store URL", exact=True).check()

@@ -1,6 +1,6 @@
 {# Find/assign tools for the Needs MBID card. ONE "find a different release"
    area: a radio picks the search method and only the chosen method's controls
-   show — all feed the shared #mbid-results box. Plus a direct MBID-paste fallback.
+   show — all searches feed the shared #mbid-results box.
    The whole thing sits inside the card's hx-preserve wrapper, so a background
    re-render can't wipe the selected mode or the results. #}
 {% set sc = album.sidecar %}
@@ -12,19 +12,15 @@
     Search by name or paste an MBID.
 </p>
 {% endif %}
-{% if album.has_tag_mbid %}
-<div id="release-siblings-{{ album.id }}" class="mb-4 space-y-2"
-     hx-get="/manual/{{ album.id }}/siblings?on_album_page={{ 'true' if on_album else 'false' }}"
-     hx-trigger="load" hx-swap="innerHTML settle:0ms"
-     hx-on::before-request="if (event.target === this) this.setAttribute('hx-trigger', 'siblings-refresh')">
-    <p role="status" class="text-xs text-muted">Loading releases in the release group…</p>
-</div>
-{% endif %}
+{% with show_siblings=album.has_tag_mbid %}
 {% include 'partials/_release_search.html' %}
-{# Shared results target. #}
-<div id="mbid-results-{{ album.id }}" class="mt-2"></div>
-{# Direct entry fallback. #}
+{% endwith %}
+{% if album.has_tag_mbid %}
+{# Filled by the release-group response when the files identify a prior match. #}
+<div id="release-revert-{{ album.id }}" class="mt-4 flex justify-end empty:hidden"></div>
+{% else %}
 <div class="mt-6">
     <p class="text-muted font-bold uppercase tracking-widest text-2xs mb-1">Or paste a MusicBrainz ID</p>
     {% include 'partials/_mbid_paste.html' %}
 </div>
+{% endif %}

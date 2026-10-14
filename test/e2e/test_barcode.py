@@ -21,12 +21,12 @@ def test_barcode_choices_open_review_without_tagging(barcode_server):
         with page.expect_response(lambda r: r.url.endswith("/barcode")):
             page.goto(f"{server}/album/{album.id}")
         playwright_sync.expect(
-            page.get_by_role("radio", name="Barcode", exact=True)
+            page.get_by_role("radio", name="By barcode", exact=True)
         ).to_be_checked()
         playwright_sync.expect(
             page.get_by_role("button", name="Search", exact=True)
         ).to_be_enabled()
-        page.get_by_role("radio", name="Name", exact=True).check()
+        page.get_by_role("radio", name="By name", exact=True).check()
         playwright_sync.expect(page.get_by_placeholder("Artist", exact=True)).to_be_visible()
         results = page.locator(f"#mbid-results-{album.id}")
         with page.expect_response(lambda r: r.url.endswith("/search")):
@@ -36,7 +36,7 @@ def test_barcode_choices_open_review_without_tagging(barcode_server):
         # Widen HTMX's initialization interval to catch fast-click races.
         page.evaluate("htmx.config.defaultSettleDelay = 1000")
         with page.expect_response(lambda r: r.url.endswith("/barcode")):
-            page.get_by_role("radio", name="Barcode", exact=True).check()
+            page.get_by_role("radio", name="By barcode", exact=True).check()
         playwright_sync.expect(results.get_by_role("listitem")).to_have_count(2)
         playwright_sync.expect(results.get_by_role("listitem").first).to_contain_text(
             "Barcode matches"
@@ -75,7 +75,7 @@ def test_automatic_barcode_outcomes(barcode_outcome_server, htmx_ready):
             assert sidecar.read(folder).mb_match_candidate is not None
             htmx_ready(page.get_by_role("button", name="Dismiss suggestion", exact=True)).click()
             playwright_sync.expect(
-                page.get_by_role("radio", name="Name", exact=True)
+                page.get_by_role("radio", name="By name", exact=True)
             ).to_be_checked()
             assert sidecar.read(folder).mb_match_candidate is None
         else:
@@ -93,7 +93,7 @@ def test_automatic_barcode_outcomes(barcode_outcome_server, htmx_ready):
                 playwright_sync.expect(
                     results.get_by_text("Barcode lookup failed", exact=False)
                 ).to_be_visible()
-            page.get_by_role("radio", name="Name", exact=True).check()
+            page.get_by_role("radio", name="By name", exact=True).check()
             playwright_sync.expect(page.get_by_placeholder("Artist", exact=True)).to_be_visible()
         assert len(searches) == 1
         assert sidecar.read(folder).mb_release_id is None

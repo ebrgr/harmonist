@@ -132,6 +132,12 @@ def release_picker_server(tmp_path):
     yield from _run_demo_server(tmp_path, app_module="test.e2e.release_picker_app:app")
 
 
+@pytest.fixture
+def release_picker_no_siblings_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARMONIST_TEST_NO_SIBLINGS", "1")
+    yield from _run_demo_server(tmp_path, app_module="test.e2e.release_picker_app:app")
+
+
 @pytest.fixture(params=["absent", "cached-group", "failure"])
 def sibling_artwork_server(tmp_path, monkeypatch, request):
     monkeypatch.setenv("HARMONIST_TEST_SIBLING_ARTWORK", request.param)

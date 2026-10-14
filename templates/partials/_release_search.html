@@ -2,37 +2,67 @@
 {% from 'macros.html' import reload_unless_retargeted %}
 {% set sc = album.sidecar %}
 {% set on_album = on_album_page | default(false) %}
-{% set public_url = sc and sc.store_url and not (sc.bandcamp and sc.bandcamp.is_private) %}
+{% set public_url = sc and sc.store_url and not (sc.bandcamp and sc.bandcamp.is_private) and not show_siblings|default(false) %}
 {% set prefer_name = request.query_params.get('search') == 'name' %}
-{% set barcode_default = album.barcode and not prefer_name %}
+{% set siblings_default = show_siblings|default(false) and not prefer_name %}
+{% set barcode_default = album.barcode and not prefer_name and not siblings_default %}
 {# Look up on render only when nothing already names a release. Files tagged with
    an MBID are reconcile's to adopt; a lookup fired here races it and loses (#671). #}
 {% set auto_lookup = not album.has_tag_mbid and not (sc and sc.mb_match_candidate) %}
 <div class="find-mode mb-2"
+     hx-on:release-group-empty="const mode = this.querySelector('input[value=siblings]'); if (mode && mode.checked) { const name = this.querySelector('input[value=name]'); name.checked = true; htmx.trigger(name, 'change'); this.querySelector('.find-mode__panel--name form').requestSubmit(); }"
      hx-on:change="if (event.target.type === 'radio') document.getElementById('mbid-results-{{ album.id }}').replaceChildren()">
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-xs">
-        <span class="text-muted font-bold uppercase tracking-widest text-2xs">Search MusicBrainz by</span>
+        <span class="text-muted font-bold uppercase tracking-widest text-2xs">Find release:</span>
+        {% if show_siblings|default(false) %}
+        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="radio" name="find-{{ album.id }}" value="siblings"
+                   {% if siblings_default %}checked{% endif %} class="accent-mb-purple">
+            <span>In this release group</span>
+        </label>
+        {% endif %}
         <label class="inline-flex items-center gap-1.5 cursor-pointer">
             <input type="radio" name="find-{{ album.id }}" value="name"
-                   {% if prefer_name or (not album.barcode and not public_url) %}checked{% endif %} class="accent-mb-purple">
-            <span>Name</span>
+                   {% if prefer_name or (not siblings_default and not album.barcode and not public_url) %}checked{% endif %} class="accent-mb-purple">
+            <span>By name</span>
         </label>
         <label class="inline-flex items-center gap-1.5 {% if album.barcode %}cursor-pointer{% else %}text-muted{% endif %}">
             <input id="barcode-mode-{{ album.id }}" type="radio" name="find-{{ album.id }}" value="barcode"
                    {% if barcode_default %}checked{% endif %} {% if not album.barcode %}disabled{% endif %} class="accent-mb-purple">
-            <span>Barcode</span>
+            <span>By barcode</span>
         </label>
         {% if public_url %}
         <label class="inline-flex items-center gap-1.5 cursor-pointer">
             <input id="url-mode-{{ album.id }}" type="radio" name="find-{{ album.id }}" value="url"
-                   {% if not barcode_default and not prefer_name %}checked{% endif %} class="accent-mb-purple">
+                   {% if not siblings_default and not barcode_default and not prefer_name %}checked{% endif %} class="accent-mb-purple">
             <span>Store URL</span>
         </label>
         {% endif %}
+        {% if show_siblings|default(false) %}
+        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="radio" name="find-{{ album.id }}" value="mbid" class="accent-mb-purple">
+            <span>By MBID</span>
+        </label>
+        {% endif %}
     </div>
+    {% if show_siblings|default(false) %}
+    <div class="find-mode__panel find-mode__panel--siblings">
+        <div id="release-siblings-{{ album.id }}" class="space-y-2"
+             hx-get="/manual/{{ album.id }}/siblings?on_album_page={{ 'true' if on_album else 'false' }}"
+             hx-trigger="load" hx-swap="innerHTML settle:0ms"
+             hx-on::before-request="if (event.target === this) this.setAttribute('hx-trigger', 'siblings-refresh')">
+            <p role="status" class="text-xs text-muted">Loading releases in the release group…</p>
+        </div>
+    </div>
+    {% endif %}
     <div class="find-mode__panel find-mode__panel--name">
         {% include 'partials/_name_search.html' %}
     </div>
+    {% if show_siblings|default(false) %}
+    <div class="find-mode__panel find-mode__panel--mbid">
+        {% include 'partials/_mbid_paste.html' %}
+    </div>
+    {% endif %}
     {% if album.barcode %}
     <div class="find-mode__panel find-mode__panel--barcode">
         <form hx-post="/manual/{{ album.id }}/barcode"
@@ -70,4 +100,5 @@
        what it is doing rather than borrowing the card's "Tagging…" overlay
        (#638), which claimed a tagging that wasn't happening. #}
     <span id="lookup-progress-{{ album.id }}" class="hidden [&.htmx-request]:inline text-xs text-muted" role="status">Looking up on MusicBrainz…</span>
+    <div id="mbid-results-{{ album.id }}" class="find-mode__results mt-2"></div>
 </div>
