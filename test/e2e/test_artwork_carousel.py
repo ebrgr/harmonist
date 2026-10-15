@@ -66,6 +66,39 @@ def test_front_only_steps_over_the_back_cover(reset_carousel_server: str) -> Non
         browser.close()
 
 
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+@pytest.mark.parametrize("width", [390, 1440])
+def test_rejected_image_does_not_stay_visible_when_stepping(
+    reset_carousel_server: str, htmx_ready, engine: str, width: int
+) -> None:
+    """Rejecting a slide must not select it alongside the next image."""
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_page(viewport={"width": width, "height": 1000})
+        page.goto(f"{reset_carousel_server}/album/{ALBUM_ID}")
+        section = page.locator("#album-artwork")
+        slide = section.locator(".art-pick__picker .art-pick__slide:visible")
+        reject = slide.get_by_role("checkbox", name="Don't suggest this image")
+        htmx_ready(reject).check()
+        pw.expect(reject).to_be_checked()
+        page.wait_for_function(SETTLED)
+        assert _shown(page) == ["101"]
+
+        section.get_by_role("button", name="Next image").click()
+        page.wait_for_function(SETTLED)
+        assert _shown(page) == ["103"]
+
+        section.get_by_role("button", name="Previous image").click()
+        assert _shown(page) == ["101"]
+        pw.expect(reject).to_be_checked()
+        htmx_ready(reject).uncheck()
+        pw.expect(reject).not_to_be_checked()
+        page.wait_for_function(SETTLED)
+        assert _shown(page) == ["101"]
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
+
+
 def test_an_image_is_measured_when_it_is_shown(reset_carousel_server: str) -> None:
     """Each image's size line is measured the first time the carousel shows
     it, and no sooner: a hidden slide asks for nothing (#659)."""

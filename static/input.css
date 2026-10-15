@@ -1351,7 +1351,7 @@ dialog::backdrop {
    where there is room to look at it and nothing else to fill. */
 .art-pick__carousel { position: relative; container-type: inline-size; }
 .art-pick__slide { display: none; cursor: default; }
-.art-pick__slide:has(input:checked),
+.art-pick__slide:has(input[name="candidate"]:checked),
 .art-pick__ghost .art-pick__slide {
   display: grid;
   grid-template-columns: 6.5rem minmax(0, 1fr);
@@ -1558,7 +1558,7 @@ dialog::backdrop {
   .art-pick__ghost--loading { display: none; }
   .art-layout:has(.art-pick__loading.htmx-request) .art-pick__ghost--loading { display: block; }
   .art-pick__placeholder { width: 100%; }
-  .art-pick__slide:has(input:checked),
+  .art-pick__slide:has(input[name="candidate"]:checked),
   .art-pick__ghost .art-pick__slide { display: flex; flex-direction: column; gap: .5rem; }
   .art-pick__carousel .art-pick__image { width: 100%; height: auto; aspect-ratio: 1; }
   /* Centred on the image, which is as tall as the panel is wide. */
