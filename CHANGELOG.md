@@ -6,16 +6,34 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
-- Change an album's MusicBrainz release in place, choosing from its release group or finding another by name, barcode or MBID through the shared review workflow (#743).
-- “Better artwork wanted” includes smaller release and release-group covers in artwork update proposals; individual images can be excluded and restored in the picker (#586).
-- Selected Cover Art Archive images display correctly in the After Apply preview (#742).
-- The Library's Clear button stays beneath Search, with the redundant album count removed (#276).
-- Artwork retrieval shows a loading placeholder and an in-progress CAA status, restoring retry controls if the request fails (#739).
-- Library updates now checks artwork in the background, with counted Tag updates and Artwork updates filters and separate local artwork observations (#269, #276).
-- A New Library filter finds albums added within seven days and combines with search and other filters (#736).
-- The Library's New badge marks albums added within seven days, including CD rips and downloads from any store (#733).
-- Library filters can be combined, including a codec choice and mixed-format albums, with counts that reflect the current query (#732).
-- Rematching an album spanning several folders keeps every folder on the new release, instead of splitting it into incomplete albums (#730).
+## [1.27.0] - 2026-10-15
+
+### Added
+
+- **Library updates finds Cover Art Archive artwork to add or replace**, under a
+  new **Artwork updates** filter; every proposal waits for review, and **Update
+  available** is now **Tag updates** (#269, #276).
+- **An album can be marked Better artwork wanted**, so new Cover Art Archive
+  images are offered even when smaller than its current cover (#586).
+- **Library filters combine with each other and with search**, and add
+  **Format** (by codec) and **New** (#732, #736).
+
+### Changed
+
+- **An album's release is replaced on its own page**: the pencil beside the MB
+  release link opens the release picker there, its release group's other
+  releases first, instead of sending the album to the Inbox (#743).
+- **The New badge marks every album added in the last seven days**, CD rips and
+  other stores' downloads included (#733).
+- **The Artwork panel shows while it is checking the Cover Art Archive**, and
+  keeps a retry when the check fails (#739).
+
+### Fixed
+
+- **Confirming a different release for an album spanning several folders keeps
+  it one album**, instead of splitting it into incomplete parts (#730).
+- **A chosen Cover Art Archive image shows in the After Apply preview**, instead
+  of a broken image (#742).
 
 ## [1.26.0] - 2026-10-12
 

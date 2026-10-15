@@ -30,7 +30,7 @@ what to do. For the ideas behind the answers, see
   [everything has an update](#almost-every-album-shows-update-available) ·
   [artwork in Plex/Navidrome](#plex-or-navidrome-shows-no-cover-or-the-wrong-one) ·
   [track lengths](#track-lengths-dont-match-musicbrainz) ·
-  [Mixed formats](#an-album-is-listed-under-mixed-formats)
+  [Mixed formats](#an-album-is-listed-under-mixed-formats-only)
 - **Undoing things:** [undo a change](#undo-a-change) ·
   [undo refused](#undo-is-refused-or-missing) ·
   [remove Harmonist](#remove-harmonist-completely)
