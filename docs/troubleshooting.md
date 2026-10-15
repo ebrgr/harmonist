@@ -278,6 +278,12 @@ tags. The album's page names what's missing: *10 of 11 tracks on disk*, or
 
 A video disc you never ripped doesn't count against an album.
 
+A hidden pregap appears as **track 0** and counts toward the total, as in
+Picard. Its row says *Not in your files* when there is no separate file for it.
+Some rips join that audio to track 1; Harmonist cannot determine that from a
+length difference or split the audio by re-tagging. **Don't warn me about this**
+acknowledges an intentional file layout.
+
 ### Applying an update says the release has more tracks than my files
 
 Someone has added tracks to the release on MusicBrainz since you tagged it, and

@@ -23,6 +23,9 @@ def test_changed_track_count_opens_review_and_cancel_preserves_finding(reset_dem
         review = finding.get_by_role("button", name="Review assignments")
         editor = page.locator("#album-track-editor")
         pw.expect(editor.locator("[data-assignment-row]")).to_have_count(4)
+        pw.expect(editor.locator("[data-structural-reason]")).to_have_text(
+            ["Disc 1: track total 2 on disk → 4 on MusicBrainz."]
+        )
         pw.expect(editor.get_by_role("checkbox", name="Use artwork")).to_have_count(0)
         pw.expect(page.get_by_role("dialog")).not_to_be_visible()
         editor.get_by_role("button", name="Cancel", exact=True).click()
@@ -67,4 +70,26 @@ def test_generic_apply_redirects_into_review_even_with_short_override(reset_demo
         pw.expect(page.get_by_role("dialog")).not_to_be_visible()
         page.locator("#album-track-editor").get_by_role("button", name="Cancel", exact=True).click()
         pw.expect(page.get_by_role("button", name="Review assignments")).to_be_visible()
+        browser.close()
+
+
+def test_absent_pregap_does_not_open_review_but_remains_visible(pregap_server):
+    with pw.sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{pregap_server}/album/demo-rel-electric-mayhem")
+        pw.expect(page.locator("main")).to_contain_text("2 of 3 tracks on disk")
+        tracklist = page.locator("#album-tracks .tracklist")
+        pw.expect(tracklist).to_contain_text("Hidden Prelude")
+        pw.expect(tracklist).to_be_visible()
+        editor = page.locator("#album-track-editor")
+        pw.expect(editor.locator(".assignment-content")).to_have_count(0)
+        page.get_by_role("button", name="Edit track assignments", exact=True).click()
+        rows = editor.locator("[data-assignment-row]")
+        pw.expect(rows).to_have_count(3)
+        pw.expect(rows.first.locator("td").nth(1)).to_contain_text("Missing on disk")
+        pw.expect(rows.first.locator("td").nth(3)).to_have_text("0")
+        pw.expect(editor.locator("[data-structural-reason]")).to_have_count(0)
+        editor.get_by_role("button", name="Cancel", exact=True).click()
+        pw.expect(tracklist).to_be_visible()
         browser.close()

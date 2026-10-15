@@ -64,6 +64,7 @@ def test_split_discs_with_duplicate_filenames_keep_their_own_identity(album_with
         files[i] = path.rename(disc / "track.m4a")
     release = _release_2_tracks()
     first, second = release["medium-list"][0]["track-list"]
+    second["position"] = "1"
     release["medium-list"] = [
         {"position": "1", "track-list": [first]},
         {"position": "2", "track-list": [second]},

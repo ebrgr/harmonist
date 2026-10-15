@@ -204,6 +204,8 @@ def test_restart_and_repeated_checks_rederive_structural_review(
     tagger.tag_album(root, release)
     sidecar.write(root, Sidecar(mb_release_id=release["id"]))
     release["medium-list"][0]["track-list"].reverse()
+    for position, track in enumerate(release["medium-list"][0]["track-list"], 1):
+        track["position"] = str(position)
     release["title"] = "A different title too"
     from harmonist import mb_lookup
 

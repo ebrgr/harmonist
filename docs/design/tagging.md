@@ -1,5 +1,17 @@
 # Tagging
 
+## Pregap tracks
+
+MusicBrainz supplies a medium's hidden pregap separately from its ordinary
+track list. It remains track 0, and contributes one to the per-disc track total,
+as Picard writes it. Positions come from MusicBrainz rather than list indices,
+so including the pregap cannot renumber the ordinary tracks.
+
+An absent pregap file remains a missing track even when its audio may be joined
+to track 1. Duration is not evidence of identity or a licence to split audio:
+Harmonist describes the file layout, and the existing incomplete-album
+acknowledgement covers a layout the owner intends to keep.
+
 ## The owned set
 
 Harmonist promises not to touch tags it doesn't understand. The **owned set** is

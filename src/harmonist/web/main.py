@@ -66,6 +66,7 @@ from harmonist import (
     mb_cache,
     mb_lookup,
     mb_search,
+    mb_tracks,
     pending_downloads,
     provenance,
     reconcile,
@@ -2713,8 +2714,7 @@ def _absent_media_summary(album: Album, release: Release) -> list[tuple[int, str
         except (TypeError, ValueError):
             continue
         if position in album.absent_media:
-            tracks = medium.get("track-list") or []
-            count = len(tracks) or int(medium.get("track-count") or 0)
+            count = mb_tracks.track_total(medium)
             out.append((position, str(medium.get("format") or "Disc"), count))
     return out
 

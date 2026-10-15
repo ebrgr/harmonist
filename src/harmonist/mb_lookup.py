@@ -14,6 +14,7 @@ from typing import Any
 
 import musicbrainzngs
 
+from . import mb_tracks
 from .models import Release
 
 # The picker lists at most this many candidate releases for a store URL — beyond
@@ -201,7 +202,7 @@ def video_media_of(release: Release) -> tuple[int, ...]:
     """
     positions: list[int] = []
     for medium in release.get("medium-list") or []:
-        tracks = medium.get("track-list") or []
+        tracks = mb_tracks.tracks_of(medium)
         if not tracks:
             continue
         if all((t.get("recording") or {}).get("video") == "true" for t in tracks):
@@ -312,10 +313,7 @@ def release_summary(release: Release) -> dict[str, Any]:
     renders both the store-URL picker and the artist/title search.
     """
     media = release.get("medium-list") or []
-    track_count = 0
-    for m in media:
-        tc = m.get("track-count")
-        track_count += int(tc) if tc is not None else len(m.get("track-list") or [])
+    track_count = sum(mb_tracks.track_total(m) for m in media)
     label = None
     catalog = None
     for li in release.get("label-info-list") or []:

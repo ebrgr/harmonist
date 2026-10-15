@@ -27,7 +27,7 @@ class Entry:
 
 
 def _number(disc: int | None, track: int | None) -> str:
-    return f"{disc or '?'}.{track or '?'}"
+    return f"{disc or '?'}.{track if track is not None else '?'}"
 
 
 def _order(value: str, count: int, rows: int) -> list[int | None]:
@@ -62,6 +62,7 @@ class Panel:
     mb_order: list[int | None]
     disk_fingerprint: str
     known_slots: tuple[int | None, ...] | None = None
+    review_reasons: tuple[str, ...] = ()
 
     @property
     def proposed(self) -> frozenset[tuple[int, int]]:
@@ -181,5 +182,12 @@ def panel(
         disk_order = _order(draft.disk_order, len(disk), rows)
         mb_order = _order(draft.mb_order, len(mb), rows)
     return Panel(
-        files, disk, mb, disk_order, mb_order, fingerprint, known.slots if confirmed else None
+        files,
+        disk,
+        mb,
+        disk_order,
+        mb_order,
+        fingerprint,
+        known.slots if confirmed else None,
+        track_structure.review(tags, mb_tags, eligible, release["id"]).reasons if confirmed else (),
     )

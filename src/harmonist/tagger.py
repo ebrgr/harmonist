@@ -32,6 +32,7 @@ from . import (
     id_registry,
     images,
     mb_lookup,
+    mb_tracks,
     tag_history,
     track_structure,
 )
@@ -78,7 +79,7 @@ from .transforms import NO_CHOICES, TaggingChoices
 
 log = logging.getLogger(__name__)
 
-# One flattened MB track: (medium, track_pos_in_medium, track).
+# One flattened MB track: (medium, MusicBrainz position, track), including zero.
 _FlatTrack = tuple[dict[str, Any], int, Track]
 
 
@@ -357,11 +358,7 @@ def _tag_files(
             "tag.track",
             album_id=album_id,
             file=naming.name_of(file_path),
-            # +1 because `_flatten_tracks` enumerates from zero and MusicBrainz,
-            # the files and the album page all count from one (#240). A record
-            # off by one is worse than none: it is exactly what someone auditing
-            # a re-tag would read as the tagger having assigned the wrong track.
-            track=track_pos_in_medium + 1,
+            track=track_pos_in_medium,
             title=_track_title(track),
         )
         if event_id is not None:
@@ -1356,7 +1353,7 @@ def _history_position(snapshot: dict[str, Any]) -> str | None:
     track = snapshot.get(owned.Owned.TRACK_NUM)
     disc = snapshot.get(owned.Owned.DISC_NUM) or 1
     total = snapshot.get(owned.Owned.DISC_TOTAL) or 1
-    if not isinstance(track, int) or track < 1:
+    if not isinstance(track, int) or track < 0:
         return None
     return f"{disc}-{track}" if total > 1 or disc > 1 else str(track)
 
@@ -2190,7 +2187,7 @@ def _build_tagset(
     labels, catalog_numbers = _label_info(release.get("label-info-list") or [])
     rg = release.get("release-group") or {}
 
-    track_total = len(medium.get("track-list", []))
+    track_total = mb_tracks.track_total(medium)
     disc_num = _disc_num(medium)
 
     return TagSet(
@@ -2199,7 +2196,7 @@ def _build_tagset(
         album_artist=_artist_phrase(release.get("artist-credit"), tagging),
         title=_track_title(track),
         artist=_artist_phrase(track_artist_credit, tagging),
-        track_num=track_pos + 1,
+        track_num=track_pos,
         track_total=track_total,
         album_artist_sort=_artist_sort_phrase(release.get("artist-credit"), tagging) or None,
         artist_sort=_artist_sort_phrase(track_artist_credit, tagging) or None,
@@ -2281,7 +2278,7 @@ def _identity_of(flat: _FlatTrack) -> compare.TrackIdentity:
     `_build_tagset` derives the same disc from the medium and the same track
     number from the position."""
     medium, track_pos, track = flat
-    return compare.TrackIdentity(track.get("id"), _disc_num(medium), track_pos + 1)
+    return compare.TrackIdentity(track.get("id"), _disc_num(medium), track_pos)
 
 
 def _taggable_tracks(release: Release, flat_tracks: list[_FlatTrack]) -> list[_FlatTrack]:
@@ -2326,8 +2323,11 @@ def _disc_num(medium: dict[str, Any]) -> int:
 def _flatten_tracks(release: Release) -> Iterator[_FlatTrack]:
     """Yield (medium, track_pos_in_medium, track) for every track in every medium."""
     for medium in release.get("medium-list", []):
-        for i, track in enumerate(medium.get("track-list", [])):
-            yield medium, i, track
+        # Minimal payloads may omit positions; retain their conventional order.
+        # Supplied positions are authoritative, including the pregap's zero.
+        start = 0 if medium.get("pregap") else 1
+        for number, track in enumerate(mb_tracks.tracks_of(medium), start):
+            yield medium, int(track.get("position", number)), track
 
 
 def _track_title(track: Track) -> str:

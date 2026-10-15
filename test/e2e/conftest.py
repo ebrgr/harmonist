@@ -57,6 +57,13 @@ def demo_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
+def pregap_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    yield from _run_demo_server(
+        tmp_path_factory.mktemp("e2e-pregap"), app_module="test.e2e.pregap_app:app"
+    )
+
+
+@pytest.fixture(scope="module")
 def album_formats_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     yield from _run_demo_server(
         tmp_path_factory.mktemp("e2e-formats"), app_module="test.e2e.album_formats_app:app"

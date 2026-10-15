@@ -15,7 +15,7 @@ from typing import Any
 
 import musicbrainzngs
 
-from . import barcodes, mb_cache, mb_lookup
+from . import barcodes, mb_cache, mb_lookup, mb_tracks
 from .models import Release, host_is
 from .provenance import Origin
 
@@ -104,7 +104,7 @@ def _qobuz_compatible(release: Release, track_count: int) -> bool:
     return (
         bool(media)
         and all(medium.get("format") == "Digital Media" for medium in media)
-        and sum(len(medium.get("track-list") or []) for medium in media) == track_count
+        and sum(mb_tracks.track_total(medium) for medium in media) == track_count
         and any(
             relation.get("type") in {"purchase for download", "streaming", "free streaming"}
             and host_is(relation.get("target"), "qobuz.com")

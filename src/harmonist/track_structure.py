@@ -160,16 +160,17 @@ def review(
         for key, label in [("track_num", "Track numbering"), ("disc_num", "Disc numbering")]:
             before, after = tag.owned.get(key), getattr(target, key)
             if before is not None and before != after:
-                reasons.append(f"{label} changed in MusicBrainz.")
+                reasons.append(f"{label} differs from MusicBrainz.")
         before = tag.owned.get("track_total")
         if before is not None and before != target.track_total:
             reasons.append(
-                f"Disc {target.disc_num}: track count changed ({before} → {target.track_total})."
+                f"Disc {target.disc_num}: track total {before} on disk → "
+                f"{target.track_total} on MusicBrainz."
             )
         # An unsupported bonus medium alone must not demand an audio remap.
         before = tag.owned.get("disc_total")
         if len(eligible) == len(targets) and before is not None and before != target.disc_total:
-            reasons.append(f"Disc count changed ({before} → {target.disc_total}).")
+            reasons.append(f"Disc total {before} on disk → {target.disc_total} on MusicBrainz.")
     if unassigned:
         reasons.append(
             f"{unassigned} {'file needs' if unassigned == 1 else 'files need'} track assignments."

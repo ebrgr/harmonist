@@ -6,6 +6,11 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).
+- **Required track-assignment reviews show the numbering or total-count difference that triggered them** (#750).
+
 ## [1.27.0] - 2026-10-15
 
 ### Added

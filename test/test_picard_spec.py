@@ -428,3 +428,21 @@ def test_complete_inventory_against_picard_spec(tmp_path):
     # from the fixture file itself, not from our tagger. Filter those out.
     extra = {a for a in extra if not a.startswith("\xa9too")}
     assert not extra, f"unexpected atoms written: {extra}"
+
+
+def test_picard_pregap_number_and_total_are_written_to_the_mp4_pair(tmp_path):
+    """Picard mbjson.medium_to_metadata adds pregap to track-count, and
+    _TRACK_TO_METADATA maps position to tracknumber (checked 2026-10-15):
+    https://github.com/metabrainz/picard/blob/master/picard/mbjson.py
+    """
+    from test.test_pregap import pregap_release
+
+    root = _setup_album(tmp_path, 3)
+    files = sorted(root.glob("*.m4a"))
+    PicardCompatibleTagger().tag_and_artwork(
+        root,
+        pregap_release(),
+        artwork_included=False,
+        assignment={f: i for i, f in enumerate(files)},
+    )
+    assert [MP4(f)["trkn"] for f in files] == [[(0, 3)], [(1, 3)], [(2, 3)]]

@@ -34,6 +34,11 @@
         </div>
         {% endif %}
         {% if panel %}
+        {% if panel.review_reasons %}
+        <ul class="text-xs text-amber-700 space-y-1">
+            {% for reason in panel.review_reasons %}<li data-structural-reason>{{ reason }}</li>{% endfor %}
+        </ul>
+        {% endif %}
         {% set counts = namespace(unassigned=0, multidisc=false) %}
         {% for disk, mb in panel.rows %}
             {% if disk and not mb %}{% set counts.unassigned = counts.unassigned + 1 %}{% endif %}
