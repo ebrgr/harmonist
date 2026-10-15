@@ -1054,6 +1054,8 @@ class ComparedTrack:
     #: instead of a change to `shows_mb`: there is a line worth drawing here, and
     #: it is drawn the moment the identifiers are revealed.
     mb_only_identifiers: bool = False
+    included_in_first_track: bool = False
+    contains_pregap: bool = False
 
     @property
     def differs(self) -> bool:
@@ -1064,7 +1066,9 @@ class ComparedTrack:
         how the Bandcamp comment stays quiet), but a whole track MusicBrainz has
         never heard of is one.
         """
-        return self.state is not TrackState.PRESENT or any(f.differs for f in self.fields)
+        return not self.included_in_first_track and (
+            self.state is not TrackState.PRESENT or any(f.differs for f in self.fields)
+        )
 
     @property
     def shows_mb(self) -> bool:
@@ -1495,7 +1499,9 @@ class TracklistComparison:
         prose wants it wrapped to three short lines and read as a warning notice
         rather than as a footnote.
         """
-        n = sum(1 for t in self.tracks if any(f.advisory for f in t.fields))
+        n = sum(
+            1 for t in self.tracks if not t.contains_pregap and any(f.advisory for f in t.fields)
+        )
         if not n:
             return None
         count = "One track is" if n == 1 else f"{n} tracks are"
@@ -1589,7 +1595,7 @@ class TracklistComparison:
             (TrackState.UNREADABLE, "unreadable"),
             (TrackState.EXTRA, "not in MusicBrainz"),
         ):
-            count = sum(1 for t in counted if t.state is state)
+            count = sum(1 for t in counted if t.state is state and not t.included_in_first_track)
             if count:
                 clauses.append(f"{count} {phrase}")
         return " · ".join(clauses)
@@ -2380,6 +2386,7 @@ def tracklist(
     *,
     confirmed_mbid: str | None = None,
     art: Mapping[str, TrackMark] = {},
+    included_pregaps: Mapping[str, str] = {},
 ) -> TracklistComparison:
     """Compare an album's files, track by track, against its MusicBrainz release.
 
@@ -2465,7 +2472,10 @@ def tracklist(
         if entry is None:
             rows.append(
                 ComparedTrack(
-                    TrackState.MISSING, _track_fields(None, mb_track, multi_disc, kept), disc=disc
+                    TrackState.MISSING,
+                    _track_fields(None, mb_track, multi_disc, kept),
+                    disc=disc,
+                    included_in_first_track=mb_track.tags.mb_release_track_id in included_pregaps,
                 )
             )
             continue
@@ -2508,6 +2518,7 @@ def tracklist(
                 _track_fields(tags, mb_track, multi_disc, kept),
                 file_name=name,
                 disc=disc,
+                contains_pregap=mb_track.tags.mb_release_track_id in included_pregaps.values(),
             )
         )
 

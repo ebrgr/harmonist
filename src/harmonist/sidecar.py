@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,7 @@ from .models import (
     BandcampInfo,
     BorrowedArtwork,
     FoundBy,
+    IncludedPregap,
     MatchCandidate,
     Sidecar,
     TrackComparison,
@@ -276,6 +277,8 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
         shared by its display and contribution checks.
       * `video_media` — which media are video-only, so an album missing just
         those derives COMPLETE rather than INCOMPLETE. Reclassifies the album.
+      * `included_pregaps` — the owner's scoped combined-rip decisions, which
+        credit pregaps toward completeness without changing track assignments.
       * `tracks_unavailable` — accepting an incomplete album as finished. Takes
         it out of the Library's Incomplete filter, so changing it reclassifies
         what the user is shown as needing attention.
@@ -314,6 +317,7 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
             store_url=new.store_url,
             bandcamp_downloaded=new.bandcamp_downloaded,
             origin_override=new.origin_override,
+            **({"included_pregaps": str(new.included_pregaps)} if new.included_pregaps else {}),
         )
         return
     old_item = old.bandcamp.item_id if old.bandcamp else None
@@ -334,6 +338,8 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
         changes["purchase_unavailable"] = f"{old.purchase_unavailable}->{new.purchase_unavailable}"
     if old.tracks_unavailable != new.tracks_unavailable:
         changes["tracks_unavailable"] = f"{old.tracks_unavailable}->{new.tracks_unavailable}"
+    if old.included_pregaps != new.included_pregaps:
+        changes["included_pregaps"] = f"{old.included_pregaps}->{new.included_pregaps}"
     if old.video_media != new.video_media:
         changes["video_media"] = f"{old.video_media}->{new.video_media}"
     if old.accepted_release_id != new.accepted_release_id:
@@ -431,6 +437,8 @@ def _to_dict(s: Sidecar) -> dict[str, Any]:
         d["purchase_unavailable"] = True
     if s.tracks_unavailable:
         d["tracks_unavailable"] = True
+    if s.included_pregaps:
+        d["included_pregaps"] = [asdict(p) for p in s.included_pregaps]
     if s.video_media is not None:
         # `[]` is meaningful — "asked, none are video" — so it is written, while
         # the None default (never asked) is omitted like every other default.
@@ -446,6 +454,29 @@ def _to_dict(s: Sidecar) -> dict[str, Any]:
     if s.artwork_rejected:
         d["artwork_rejected"] = list(s.artwork_rejected)
     return d
+
+
+def _included_pregaps_from(raw: object) -> tuple[IncludedPregap, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise InvalidSidecarError("invalid included_pregaps")
+    result = []
+    for p in raw:
+        if (
+            not isinstance(p, dict)
+            or any(
+                not isinstance(p.get(k), str) or not p[k] for k in ("release", "pregap", "track")
+            )
+            or any(type(p.get(k)) is not int or p[k] <= 0 for k in ("duration_ms", "track_total"))
+        ):
+            raise InvalidSidecarError("invalid included_pregaps entry")
+        result.append(
+            IncludedPregap(
+                p["release"], p["pregap"], p["track"], p["duration_ms"], p["track_total"]
+            )
+        )
+    return tuple(dict.fromkeys(result))
 
 
 def _artwork_watch_from(raw: object) -> ArtworkWatch | None:
@@ -665,6 +696,7 @@ def _from_dict(d: dict[str, Any], source_path: Path) -> Sidecar:
         notes=d.get("notes"),
         purchase_unavailable=bool(d.get("purchase_unavailable", False)),
         tracks_unavailable=bool(d.get("tracks_unavailable", False)),
+        included_pregaps=_included_pregaps_from(d.get("included_pregaps")),
         video_media=_int_tuple(d.get("video_media")),
         accepted_release_id=d.get("accepted_release_id") or None,
         borrowed_artwork=_borrowed_from(d.get("borrowed_artwork")),

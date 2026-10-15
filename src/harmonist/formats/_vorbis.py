@@ -303,6 +303,7 @@ class VorbisTagger:
             release_track_id=first(KEY_RELEASE_TRACK_ID),
             recording_id=first(KEY_TRACK_ID),
             quality=stream,
+            duration_ms=round(audio.info.length * 1000) if audio.info else None,
         )
 
     def read_tags(self, path: Path, codec: str, *, lossless: bool) -> TrackTags:

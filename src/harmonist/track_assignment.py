@@ -8,8 +8,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import compare, formats, match, mb_lookup, tagger, track_structure
-from .models import Release
+from . import compare, formats, match, mb_lookup, pregaps, tagger, track_structure
+from .models import IncludedPregap, Release
 from .transforms import TaggingChoices
 
 
@@ -51,6 +51,7 @@ class Draft:
     disk_order: str
     mb_order: str
     disk_fingerprint: str
+    included_pregaps: tuple[str, ...] = ()
 
 
 @dataclass
@@ -63,6 +64,31 @@ class Panel:
     disk_fingerprint: str
     known_slots: tuple[int | None, ...] | None = None
     review_reasons: tuple[str, ...] = ()
+    pregap_offers: tuple[pregaps.Offer, ...] = ()
+    included_pregaps: tuple[str, ...] = ()
+
+    @property
+    def available_pregaps(self) -> tuple[pregaps.Offer, ...]:
+        paired = {m: d for d, m in zip(self.disk_order, self.mb_order) if m is not None}
+        return tuple(
+            p
+            for p in self.pregap_offers
+            if paired.get(p.first_slot) == p.disk_index and paired.get(p.pregap_slot) is None
+        )
+
+    @property
+    def unavailable_pregaps(self) -> tuple[str, ...]:
+        available = {p.decision.pregap for p in self.available_pregaps}
+        return tuple(p for p in self.included_pregaps if p not in available)
+
+    def pregap_decisions(self) -> tuple[IncludedPregap, ...]:
+        if self.unavailable_pregaps:
+            raise AssignmentChanged(
+                "The combined pregap no longer matches these files and assignments. Untick it or review again."
+            )
+        return tuple(
+            p.decision for p in self.available_pregaps if p.decision.pregap in self.included_pregaps
+        )
 
     @property
     def proposed(self) -> frozenset[tuple[int, int]]:
@@ -76,7 +102,12 @@ class Panel:
 
     @property
     def draft(self) -> Draft:
-        return Draft(encode(self.disk_order), encode(self.mb_order), self.disk_fingerprint)
+        return Draft(
+            encode(self.disk_order),
+            encode(self.mb_order),
+            self.disk_fingerprint,
+            self.included_pregaps,
+        )
 
     @property
     def rows(self) -> list[tuple[Entry | None, Entry | None]]:
@@ -119,7 +150,12 @@ class Panel:
 
 
 def panel(
-    files: list[Path], release: Release, draft: Draft | None = None, *, confirmed: bool = False
+    files: list[Path],
+    release: Release,
+    draft: Draft | None = None,
+    *,
+    confirmed: bool = False,
+    included_pregaps: tuple[IncludedPregap, ...] = (),
 ) -> Panel:
     tags = [formats.read_tags(f) for f in files]
     if any(t.unreadable for t in tags):
@@ -190,4 +226,8 @@ def panel(
         fingerprint,
         known.slots if confirmed else None,
         track_structure.review(tags, mb_tags, eligible, release["id"]).reasons if confirmed else (),
+        pregaps.offers(release, tags, mb_tags, lengths) if confirmed else (),
+        draft.included_pregaps
+        if draft
+        else tuple(p.pregap for p in included_pregaps if p.release == release["id"]),
     )

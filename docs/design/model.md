@@ -95,13 +95,15 @@ trip through two states.
 disc totals into every file, as Picard does, so the expected count is already on
 disk from the moment of tagging. An adopted library therefore shows Incomplete
 immediately, with no lookups. Storing the count in the sidecar as well was tried
-and removed (#195): it duplicated the tags, and could drift from them. Three
+and removed (#195): it duplicated the tags, and could drift from them. Four
 rules refine it:
 
 - a disc entirely absent makes the album Incomplete with no known total, because
   that disc's length was recorded only in the files that are missing;
 - files with no totals at all derive Complete, so an album Harmonist has never
   tagged isn't accused of missing tracks;
+- a pregap the owner explicitly says is included in track 1 counts as present
+  while that decision still describes the same rip; other absent tracks do not;
 - a medium that is entirely absent *and entirely video* doesn't count, since
   Harmonist can't tag video and the user can't act on it. A partly present video
   disc still counts: having some of it suggests a failed rip, not a choice.

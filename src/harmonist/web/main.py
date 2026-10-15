@@ -68,6 +68,7 @@ from harmonist import (
     mb_search,
     mb_tracks,
     pending_downloads,
+    pregaps,
     provenance,
     reconcile,
     redownloads,
@@ -92,6 +93,7 @@ from harmonist.models import (
     BandcampInfo,
     BorrowedArtwork,
     FoundBy,
+    IncludedPregap,
     MatchCandidate,
     Release,
     Sidecar,
@@ -1133,6 +1135,7 @@ def _album_comparison(
     *,
     reads: tuple[_FileTags, _FileTags] | None = None,
     tagging: TaggingChoices = NO_CHOICES,
+    included_pregaps: tuple[IncludedPregap, ...] = (),
 ) -> tuple[compare.AlbumComparison, compare.TracklistComparison]:
     """Read the album's files and compare their tags to `release` (#106, #135).
 
@@ -1190,6 +1193,12 @@ def _album_comparison(
             # artwork plan never targets one. Costs no read: the images came off
             # disk with the tags, in the pass above.
             art=artwork.marks(audio),
+            included_pregaps={
+                p.pregap: p.track
+                for p in pregaps.effective_for_tags(
+                    [t for _, t in audio], included_pregaps, release["id"]
+                )
+            },
         ),
     )
 
@@ -4440,10 +4449,17 @@ def _tag_with_release(
         release = mb_cache.fetch_release(mbid, max_age=mb_cache.FRESH)
         tagging = library_titles.choices(cfg.tagging.choices(), excluding=paths or [album_path])
     assignment = None
+    pregap_decisions = None
     if assignment_draft is not None:
-        assignment = track_assignment.panel(
-            album_files.for_paths(paths or [album_path]), release, assignment_draft
-        ).mapping()
+        current_sidecar = sidecar_mod.read(album_path)
+        panel = track_assignment.panel(
+            album_files.for_paths(paths or [album_path]),
+            release,
+            assignment_draft,
+            confirmed=bool(current_sidecar and current_sidecar.mb_release_id == release["id"]),
+        )
+        assignment = panel.mapping()
+        pregap_decisions = panel.pregap_decisions()
     else:
         # Refuse before artwork lookup or any write, including callers that
         # supply their own Tagger. The tagger itself enforces the same guard.
@@ -4602,7 +4618,10 @@ def _tag_with_release(
             added_at=base.added_at or tagged_at,
             mb_release_id=mbid,
             mb_match_candidate=None,  # cleared on tag — a suggestion, now acted on
-            tagged_at=tagged_at,
+            tagged_at=tagged_at if outcome.tags_changed else base.tagged_at or tagged_at,
+            included_pregaps=pregap_decisions
+            if pregap_decisions is not None
+            else base.included_pregaps,
             # Read off the release this tagging used, so the one fact the files
             # cannot carry (#206) is recorded at the moment it is known rather than
             # left for a reconcile pass to fetch again. Pure — no request (#237).
@@ -6023,6 +6042,7 @@ def _register_routes(app: FastAPI) -> None:
             album.folders,
             reads=reads,
             tagging=_tagging(request, album),
+            included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
         )
         # Opening an album is a look at exactly the question the Library filter
         # asks, against a release already in hand — so answer it here too and
@@ -6422,7 +6442,9 @@ def _register_routes(app: FastAPI) -> None:
                 # correction has grown, and no derived fact can settle that — so
                 # the refusal below turns into a question, and this carries the
                 # user's answer to it.
-                incomplete=accept_short or album.state == AlbumState.INCOMPLETE,
+                incomplete=accept_short
+                or album.state == AlbumState.INCOMPLETE
+                or bool(album.included_pregap_count),
                 overwrite_art=overwrite_art,
                 paths=album.folders,
                 expected_artwork=art_plan or None,
@@ -6796,7 +6818,8 @@ def _register_routes(app: FastAPI) -> None:
                         # just as short (they haven't, or Bandcamp hasn't caught
                         # up), and that is the state it was already in — so it
                         # stays taggable rather than being demoted to the inbox.
-                        incomplete=album.state == AlbumState.INCOMPLETE,
+                        incomplete=album.state == AlbumState.INCOMPLETE
+                        or bool(album.included_pregap_count),
                         added_at=sc.added_at,
                     )
                     if sc and sc.mb_release_id
@@ -7744,6 +7767,7 @@ def _register_routes(app: FastAPI) -> None:
                     confirmed=bool(
                         album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
                     ),
+                    included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
                 )
                 release_fingerprint = current
                 if move:
@@ -7782,7 +7806,11 @@ def _register_routes(app: FastAPI) -> None:
             if len(panel.files) < len(panel.mb):
                 shape_confirmation = (
                     f"This release has {len(panel.mb)} tracks; you have {len(panel.files)} files. "
-                    "Apply these assignments and tag the album as incomplete?"
+                    + (
+                        "Apply the assignments shown in this review?"
+                        if panel.available_pregaps or panel.included_pregaps
+                        else "Apply these assignments and tag the album as incomplete?"
+                    )
                 )
             elif any(d is None or m is None or d.number != m.number for d, m in panel.rows):
                 shape_confirmation = (
@@ -7851,9 +7879,12 @@ def _register_routes(app: FastAPI) -> None:
         review_disk_fingerprint: str = Form(""),
         on_album_page: bool = Form(False),
         album_tracks: bool = Form(False),
+        included_pregaps: list[str] = Form([]),
     ) -> Response:
         request.state.skip_rescan = True  # page-local draft; no library mutation
-        draft = track_assignment.Draft(disk_order, mb_order, disk_fingerprint)
+        draft = track_assignment.Draft(
+            disk_order, mb_order, disk_fingerprint, tuple(included_pregaps)
+        )
         baseline = (
             track_assignment.Draft(review_disk_order, review_mb_order, review_disk_fingerprint)
             if review_disk_fingerprint
@@ -7988,6 +8019,7 @@ def _register_routes(app: FastAPI) -> None:
         mb_order: str = Form(""),
         disk_fingerprint: str = Form(""),
         incomplete: bool = Form(False),
+        included_pregaps: list[str] = Form([]),
     ) -> Response:
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         sc = album.sidecar
@@ -8003,7 +8035,9 @@ def _register_routes(app: FastAPI) -> None:
         if disk_order or mb_order or disk_fingerprint:
             if not all((disk_order, mb_order, disk_fingerprint, release_fingerprint)):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "incomplete assignment review")
-            draft = track_assignment.Draft(disk_order, mb_order, disk_fingerprint)
+            draft = track_assignment.Draft(
+                disk_order, mb_order, disk_fingerprint, tuple(included_pregaps)
+            )
         if request.url.path.endswith("/accept") and draft is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "review assignments before applying")
         try:
@@ -8098,7 +8132,7 @@ def _register_routes(app: FastAPI) -> None:
         if current.id != sidecar_mod.album_id_for(album.path):
             activity_store.record_alias(album.id, current.id)
         response = _flash_response(
-            "Matched as incomplete" if incomplete else "Matched",
+            "Matched as incomplete" if current.state == AlbumState.INCOMPLETE else "Matched",
             "; ".join(details),
             album=album,
             extra_triggers={"confirmation-applied": True},

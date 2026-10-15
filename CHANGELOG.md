@@ -6,6 +6,10 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
+
 ### Fixed
 
 - **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).

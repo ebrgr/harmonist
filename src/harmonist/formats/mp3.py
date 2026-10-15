@@ -241,6 +241,7 @@ def read_scan_fields(path: Path) -> ScanFields:
         release_track_id=_txxx(tags, TXXX_RELEASE_TRACK_ID),
         recording_id=ufid.data.decode("ascii", "replace") if ufid is not None else None,
         quality=quality.read(audio.info, lossless=False),
+        duration_ms=round(audio.info.length * 1000) if audio.info.length else None,
     )
 
 

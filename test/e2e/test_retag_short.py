@@ -53,6 +53,37 @@ def test_changed_track_count_opens_review_and_cancel_preserves_finding(reset_dem
         browser.close()
 
 
+def test_combined_pregap_is_a_cancelable_assignment_choice(pregap_server, htmx_ready):
+    with pw.sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{pregap_server}/album/demo-rel-electric-mayhem")
+        edit = page.get_by_role("button", name="Edit track assignments", exact=True)
+        htmx_ready(edit).click()
+        editor = page.locator("#album-track-editor")
+        box = editor.get_by_role("checkbox", name="Track 1 includes the pregap", exact=True)
+        pw.expect(box).not_to_be_checked()
+        pw.expect(editor.locator("[data-pregap-choice]")).to_contain_text("0:10 + 0:20")
+        box.focus()
+        box.press("Space")
+        pw.expect(box).to_be_checked()
+        editor.get_by_role("button", name="Cancel", exact=True).click()
+        htmx_ready(edit).click()
+        pw.expect(box).not_to_be_checked()
+        box.check()
+        editor.get_by_role("button", name="Accept changes", exact=True).click()
+        pw.expect(page.locator("#album-track-view")).to_contain_text("Included in track 1")
+        pw.expect(page.locator("main")).not_to_contain_text("2 of 3 tracks on disk")
+        page.reload()
+        pw.expect(page.locator("#album-track-view")).to_contain_text("Included in track 1")
+        htmx_ready(edit).click()
+        pw.expect(box).to_be_checked()
+        box.uncheck()
+        editor.get_by_role("button", name="Accept changes", exact=True).click()
+        pw.expect(page.locator("main")).to_contain_text("2 of 3 tracks on disk")
+        browser.close()
+
+
 def test_generic_apply_redirects_into_review_even_with_short_override(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()

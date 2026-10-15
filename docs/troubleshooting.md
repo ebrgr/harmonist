@@ -280,9 +280,13 @@ A video disc you never ripped doesn't count against an album.
 
 A hidden pregap appears as **track 0** and counts toward the total, as in
 Picard. Its row says *Not in your files* when there is no separate file for it.
-Some rips join that audio to track 1; Harmonist cannot determine that from a
-length difference or split the audio by re-tagging. **Don't warn me about this**
-acknowledges an intentional file layout.
+Some rips join that audio to track 1. When the combined lengths fit, **Edit track
+assignments** offers **Track 1 includes the pregap** beside the timing evidence.
+**Accept changes** saves that choice for this album; **Cancel** leaves it alone.
+The pregap then counts toward completeness without changing the /total tags.
+Untick it in the same editor to reverse the decision. A changed rip needs a new
+decision. Re-tagging cannot split the audio; **Don't warn me about this** remains
+available for other intentional incomplete layouts.
 
 ### Applying an update says the release has more tracks than my files
 

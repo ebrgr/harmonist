@@ -303,6 +303,7 @@ def read_scan_fields(path: Path) -> ScanFields:
         # `bits_per_sample` for AAC too, and it describes the decoder's output
         # rather than the file — see `quality`.
         quality=quality.read(audio.info, lossless=codec == "ALAC"),
+        duration_ms=round(audio.info.length * 1000) if audio.info else None,
     )
 
 

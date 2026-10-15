@@ -193,7 +193,7 @@ def plan_for(album: Album, release: Release) -> tagger.AlbumPlan:
         # Without it every INCOMPLETE album raises `TagMismatchError` and flags
         # permanently — a defect the Incomplete filter already gathers, and not
         # an update MusicBrainz is offering.
-        incomplete=album.state == AlbumState.INCOMPLETE,
+        incomplete=album.state == AlbumState.INCOMPLETE or bool(album.included_pregap_count),
         # An album can span several directories (#197); planning over the
         # primary one alone would miss whatever the other discs need.
         files=album_files.for_paths(album.folders),

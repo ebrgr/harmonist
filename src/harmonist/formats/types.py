@@ -120,6 +120,9 @@ class ScanFields(NamedTuple):
     # Compact facts, measured from the image already parsed in this file open.
     art: EmbeddedArt | None = None
 
+    # Read from the same audio handle; scopes a combined-pregap decision to this rip.
+    duration_ms: int | None = None
+
 
 @dataclass
 class TagSet:

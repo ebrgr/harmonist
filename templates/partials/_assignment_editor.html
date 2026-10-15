@@ -152,10 +152,28 @@
                                 {% endif %}
                             </td>
                         </tr>
+                        {% for offer in panel.available_pregaps if panel.mb_order[row] == offer.pregap_slot %}
+                        <tr data-pregap-choice class="border-b border-line">
+                            <td colspan="6" class="p-2">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}"
+                                           {% if offer.decision.pregap in panel.included_pregaps %}checked{% endif %}>
+                                    {{ 'Disc ' ~ offer.disc ~ ', track' if counts.multidisc else 'Track' }} 1 includes the pregap
+                                </label>
+                                <span class="text-muted ml-2">{{ duration(offer.decision.duration_ms) }} in your file · {{ duration(offer.pregap_length) }} + {{ duration(offer.first_length) }} on MusicBrainz</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+            {% for pregap in panel.unavailable_pregaps %}
+            <label class="flex items-center gap-1.5 text-xs text-amber-700">
+                <input type="checkbox" name="included_pregaps" value="{{ pregap }}" checked>
+                Previously included pregap — these files or assignments no longer qualify
+            </label>
+            {% endfor %}
             {% if counts.unassigned %}
             <p class="text-xs text-amber-700">Unassigned files will receive the album's MusicBrainz ID and keep their current track metadata. You can finish their assignments later.</p>
             {% endif %}

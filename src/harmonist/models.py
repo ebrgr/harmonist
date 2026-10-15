@@ -327,6 +327,7 @@ class Sidecar:
     notes: str | None = None
     purchase_unavailable: bool = False
     tracks_unavailable: bool = False
+    included_pregaps: tuple[IncludedPregap, ...] = ()
     # None: not asked yet. (): asked, and none of the release's media are video.
     video_media: tuple[int, ...] | None = None
     # Accepted only while it equals `mb_release_id`, so a rematch lapses it.
@@ -337,6 +338,17 @@ class Sidecar:
     # A request for alternatives on THIS release; rejected uploads are album decisions.
     artwork_watch: ArtworkWatch | None = None
     artwork_rejected: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class IncludedPregap:
+    """The owner's claim about this rip, scoped to the reviewed audio and total."""
+
+    release: str
+    pregap: str
+    track: str
+    duration_ms: int
+    track_total: int
 
 
 @dataclass(frozen=True)
@@ -454,6 +466,7 @@ class Album:
     # state comes from `scanner.expected_tracks(...).complete`, which answers
     # the missing-medium case that no total can express.
     expected_track_count: int | None = None
+    included_pregap_count: int = 0
     # Every directory this album's files come from, in path order, and always
     # non-empty (a one-folder album holds just `path`).
     #

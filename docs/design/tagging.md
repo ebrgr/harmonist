@@ -7,10 +7,19 @@ track list. It remains track 0, and contributes one to the per-disc track total,
 as Picard writes it. Positions come from MusicBrainz rather than list indices,
 so including the pregap cannot renumber the ordinary tracks.
 
-An absent pregap file remains a missing track even when its audio may be joined
-to track 1. Duration is not evidence of identity or a licence to split audio:
-Harmonist describes the file layout, and the existing incomplete-album
-acknowledgement covers a layout the owner intends to keep.
+An absent pregap file does not establish that its audio is absent. A rip can
+join it to track 1. When a uniquely identified track 1 is within two seconds of
+the combined lengths, and no separate pregap is present, the assignment editor
+offers an explicit owner decision. Duration makes that choice available; it
+never assigns a file or establishes audio identity automatically.
+
+Accepting the draft records the combined-rip decision in the sidecar and credits
+only that pregap toward completeness. The release's totals and track identities
+remain unchanged, as in Picard. The decision is scoped to the release, both
+track identities, and the reviewed file duration and total: a changed duration
+or tagged layout cannot silently reuse it. Scans need no cache or
+network access to apply it. Other missing tracks still matter, and editing the
+assignments can reverse the choice. Neither acceptance nor reversal splits audio.
 
 ## The owned set
 

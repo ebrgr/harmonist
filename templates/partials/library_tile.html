@@ -68,8 +68,8 @@
            Muting removes this Library warning; the neutral reminder and its
            checkbox remain on the album page (#720). Other warnings stay. #}
         <span class="album-warning__badge"
-              title="{% if album.expected_track_count %}{{ album.track_count - album.unassigned_track_count }} of {{ album.expected_track_count }} tracks {{ 'assigned' if album.unassigned_track_count else 'on disk' }}{% elif album.absent_media %}{{ missing_discs(album.absent_media, album.disc_total) }}{% else %}Fewer tracks on disk than this release has{% endif %}">
-            {% if album.expected_track_count %}{{ album.track_count - album.unassigned_track_count }} of {{ album.expected_track_count }}{% else %}Incomplete{% endif %}
+              title="{% if album.expected_track_count %}{{ album.track_count - album.unassigned_track_count + album.included_pregap_count }} of {{ album.expected_track_count }} tracks {{ 'accounted for' if album.included_pregap_count else 'assigned' if album.unassigned_track_count else 'on disk' }}{% elif album.absent_media %}{{ missing_discs(album.absent_media, album.disc_total) }}{% else %}Fewer tracks on disk than this release has{% endif %}">
+            {% if album.expected_track_count %}{{ album.track_count - album.unassigned_track_count + album.included_pregap_count }} of {{ album.expected_track_count }}{% else %}Incomplete{% endif %}
         </span>
         {% endif %}
         {% if album.unassigned_track_count %}

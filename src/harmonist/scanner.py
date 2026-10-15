@@ -24,11 +24,12 @@ from . import (
     contributions,
     formats,
     id_registry,
+    pregaps,
     provenance,
     url_recovery,
 )
 from .formats import quality
-from .models import Album, AlbumState, InconsistentTrack, Sidecar, is_bandcamp_url
+from .models import Album, AlbumState, IncludedPregap, InconsistentTrack, Sidecar, is_bandcamp_url
 from .sidecar import InvalidSidecarError, UnsupportedSchemaVersionError
 from .sidecar import read as read_sidecar
 
@@ -542,6 +543,9 @@ def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str | None) -> Sidecar
         notes=next((s.notes for s in present if s.notes), None),
         purchase_unavailable=any(s.purchase_unavailable for s in present),
         tracks_unavailable=any(s.tracks_unavailable for s in present),
+        included_pregaps=tuple(
+            dict.fromkeys(p for s in present for p in s.included_pregaps if p.release == mbid)
+        ),
         # "Not asked" is None and "asked, none are video" is `()`, so the first
         # part that ASKED wins — `any`/`or` would collapse those two into each
         # other and re-ask MusicBrainz forever on a release with no video (#206).
@@ -673,7 +677,14 @@ def build_album(
     # The sidecar is kept on disk; once the user fixes the on-disk tags
     # via Picard, the next scan re-derives state from the sidecar.
     inconsistent_tracks = _check_consistency(audio_files, fields)
-    expected = expected_tracks(fields, io.video_fields, sidecar.video_media if sidecar else None)
+    included = (
+        pregaps.effective(fields, sidecar.included_pregaps, sidecar.mb_release_id)
+        if sidecar
+        else ()
+    )
+    expected = expected_tracks(
+        fields, io.video_fields, sidecar.video_media if sidecar else None, included
+    )
     state = (
         AlbumState.INCONSISTENT
         if inconsistent_tracks
@@ -724,6 +735,7 @@ def build_album(
         barcode=barcode_evidence.barcode if barcode_evidence else None,
         source_upc=source_evidence.barcode if source_evidence else None,
         expected_track_count=expected.total,
+        included_pregap_count=len(included),
         absent_media=expected.absent_media,
         disc_total=_consistent(f.disc_total for f in fields if not f.unreadable),
         paths=tuple(sorted({f.parent for f in audio_files})) or (album_dir,),
@@ -772,6 +784,7 @@ def expected_tracks(
     fields: list[formats.ScanFields],
     video_fields: Sequence[formats.ScanFields] = (),
     video_media: tuple[int, ...] | None = None,
+    included_pregaps: Sequence[IncludedPregap] = (),
 ) -> ExpectedTracks:
     """How many tracks the release has, read from the files' own tags (#195).
 
@@ -839,7 +852,9 @@ def expected_tracks(
         return UNKNOWN_EXPECTED  # a disc we can't size — don't guess the album's total
 
     total = sum(t for t in totals.values() if t is not None)
-    return ExpectedTracks(total=total, complete=len(present) >= total, absent_media=absent)
+    return ExpectedTracks(
+        total=total, complete=len(present) + len(included_pregaps) >= total, absent_media=absent
+    )
 
 
 #: What `Album.audio_format` reads when the album's files don't agree on a codec.
@@ -1015,7 +1030,8 @@ def _derive_state(
         # number. `complete` rather than a count comparison, because an album
         # missing an entire medium is knowably incomplete with no total to
         # compare against — see `expected_tracks`.
-        if not expected_tracks(fields, video_fields, sidecar.video_media).complete:
+        included = pregaps.effective(fields, sidecar.included_pregaps, sidecar.mb_release_id)
+        if not expected_tracks(fields, video_fields, sidecar.video_media, included).complete:
             return AlbumState.INCOMPLETE
         # NEEDS_SYNC: Bandcamp-sourced album, MB release known, files tagged,
         # but Bandcamp item_id not yet linked (a Sync run resolves this).
