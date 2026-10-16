@@ -546,3 +546,70 @@ def test_refreshing_one_folder_of_a_two_folder_album_keeps_it_whole(tmp_path):
     assert len(albums) == 1, "the refreshed part came back as an album of its own"
     assert albums[0].track_count == 5
     assert {p.name for p in albums[0].paths} == {"Wide Angle", "Live Angle"}
+
+
+def _rescanned(runner, before_rescan) -> list[list[set[str]]]:
+    """Scan, run `before_rescan(albums)`, rescan; return the folder names of
+    each album the rescan reported as rebuilt."""
+    import asyncio
+
+    reported: list[list[set[str]]] = []
+    runner.set_on_rebuilt(
+        lambda albums: reported.append([{p.name for p in a.folders} for a in albums])
+    )
+
+    async def go() -> None:
+        runner.attach_loop()
+        for _ in range(300):
+            if runner.has_completed():
+                break
+            await asyncio.sleep(0.01)
+        before_rescan(runner.albums())
+        runner._kick()
+        await runner._task
+
+    asyncio.run(go())
+    return reported
+
+
+@pytest.mark.parametrize("layout", ["two discs", "two copies"])
+def test_an_untouched_album_assembled_from_folders_keeps_its_flag_through_a_rescan(
+    tmp_path, layout
+):
+    """#758. Both layouts are assembled afresh from their folders on every
+    scan — two discs into one album, two copies into albums with addresses of
+    their own — so before this they came out of every hourly rescan with no
+    update flag, though nothing about them had changed. An album whose folders
+    the scan served from its cache is now the album the snapshot already held."""
+    from harmonist.web.scan_runner import ScanRunner
+
+    second = "Live Angle" if layout == "two discs" else "Wide Angle (FLAC)"
+    _part(tmp_path / "Hybrid" / "Wide Angle", track_ids=DISC1)
+    _part(tmp_path / "Hybrid" / second, track_ids=DISC2 if layout == "two discs" else DISC1)
+    runner = ScanRunner(tmp_path)
+
+    def flag(albums):
+        for album in albums:
+            album.update_available = True
+
+    reported = _rescanned(runner, flag)
+
+    assert runner.albums() and all(a.update_available for a in runner.albums())
+    assert reported == []  # and nothing to read again
+
+
+def test_an_edit_to_one_folder_rebuilds_the_album_it_belongs_to(tmp_path):
+    """The other half: the album is kept only while every folder is, since its
+    verdict is about all of its files. One edited disc is a rebuilt album."""
+    from harmonist.web.scan_runner import ScanRunner
+
+    _part(tmp_path / "Hybrid" / "Wide Angle", track_ids=DISC1)
+    _part(tmp_path / "Hybrid" / "Live Angle", track_ids=DISC2)
+    runner = ScanRunner(tmp_path)
+
+    def edit(albums):
+        audio = MP4(tmp_path / "Hybrid" / "Wide Angle" / "01 Track 1.m4a")
+        audio["\xa9gen"] = ["Breakbeat"]
+        audio.save()
+
+    assert _rescanned(runner, edit) == [[{"Wide Angle", "Live Angle"}]]

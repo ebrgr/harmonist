@@ -126,6 +126,9 @@ class ScanRunner:
         # Fired once, after the FIRST scan completes — used to kick reconcile
         # backend-side so it runs without waiting for the frontend /tasks poll.
         self._on_first_complete: Callable[[], object] | None = None
+        # Fired with the albums a publish rebuilt rather than kept (#758), so
+        # the update flags they started without can be judged again.
+        self._on_rebuilt: Callable[[list[Album]], object] | None = None
         # A SINGLE worker thread runs all the scan's blocking filesystem I/O
         # (walk/stat + tag reads) AND the album build that follows it, so the
         # event loop never blocks on syscalls. One worker keeps reads serial →
@@ -153,6 +156,21 @@ class ScanRunner:
         completes. Set before `attach_loop`. Used to kick reconcile so it runs
         on startup without the frontend `/tasks` poll."""
         self._on_first_complete = callback
+
+    def set_on_rebuilt(self, callback: Callable[[list[Album]], object]) -> None:
+        """Register a callback fired with the albums each publish REBUILT (#758).
+
+        Kept albums are the snapshot's own objects, carrying whatever has been
+        worked out about them since they were read; a rebuilt one is new, and
+        starts without it. That is the update flag's whole problem, and this is
+        the list it needs: on an hourly rescan of an unchanged library it is
+        empty, so nothing is read at all.
+
+        Not fired by the first publish, where everything is new: the startup
+        warm-up that scan triggers looks at the whole library anyway. Fired from
+        whichever thread published, outside the snapshot lock, so it must return
+        quickly."""
+        self._on_rebuilt = callback
 
     def is_engaged(self) -> bool:
         """True once the background runner is driving scans (lifespan ran).
@@ -256,32 +274,50 @@ class ScanRunner:
         if not fresh:
             return
         with self._snapshot_lock:
-            rebuilt: list[scanner.ScannedDir] = []
+            entries: list[scanner.ScannedDir] = []
             for entry in self._scanned:
                 if entry.album.path not in fresh:
-                    rebuilt.append(entry)
+                    entries.append(entry)
                     continue
                 replacement = fresh[entry.album.path]
                 if replacement is not None:
-                    rebuilt.append(replacement)
+                    entries.append(replacement)
                 else:
                     self._cache.pop(entry.album.path, None)
-            self._publish_locked(rebuilt)
+            _, _, rebuilt = self._publish_locked(entries)
+        self._report_rebuilt(rebuilt)
 
     def _publish(self, scanned: list[scanner.ScannedDir]) -> tuple[list[Album], bool]:
         with self._snapshot_lock:
-            return self._publish_locked(scanned)
+            results, changed, rebuilt = self._publish_locked(scanned)
+        self._report_rebuilt(rebuilt)
+        return results, changed
 
-    def _publish_locked(self, scanned: list[scanner.ScannedDir]) -> tuple[list[Album], bool]:
+    def _report_rebuilt(self, albums: list[Album]) -> None:
+        # Before the first completion every album is new, and the warm-up covers it.
+        if not albums or not self._completed_once or self._on_rebuilt is None:
+            return
+        try:
+            self._on_rebuilt(albums)
+        except Exception:
+            # Bookkeeping after a publish that has already happened, so it must
+            # not fail the scan or the mutation that published. Loud, though:
+            # the visible symptom is only a Library filter missing albums.
+            log.exception("on-rebuilt callback failed")
+
+    def _publish_locked(
+        self, scanned: list[scanner.ScannedDir]
+    ) -> tuple[list[Album], bool, list[Album]]:
         """Fold the per-directory entries into albums and publish both, so the
         two never disagree. Caller holds `_snapshot_lock`. Also answers whether
         the snapshot actually CHANGED, which is what the client's refresh hangs
-        off since the hourly rescan started producing identical ones.
+        off since the hourly rescan started producing identical ones, and which
+        albums it rebuilt (`set_on_rebuilt`).
 
         The comparison is cheap in the case that matters: an unchanged directory
         is served from the mtime cache as the very same `Album` object, and list
         equality short-circuits on identity per element."""
-        results = scanner.merge_by_identity(scanned)
+        results, rebuilt = self._keep_unchanged(scanned, scanner.merge_by_identity(scanned))
         # Multi-folder albums are rebuilt from cached parts, whose observations
         # can predate a check on the combined album. Carry the freshest RELEASE
         # evidence; provenance and conclusions still belong to each local copy.
@@ -301,7 +337,45 @@ class ScanRunner:
         self._scanned = scanned
         self._albums = results
         library_titles.reset_from(results)
-        return results, changed
+        return results, changed, rebuilt
+
+    def _keep_unchanged(
+        self, scanned: list[scanner.ScannedDir], merged: list[Album]
+    ) -> tuple[list[Album], list[Album]]:
+        """Swap back in every album the snapshot already holds unchanged; return
+        the albums to publish and the ones that are new (#758).
+
+        A single-folder album the cache served is already the snapshot's own
+        object. An album assembled from folders is not — `merge_by_identity`
+        builds two discs into one album, and two copies into albums with ids of
+        their own, afresh every time — so whatever was worked out about it
+        since it was read, its update flag above all, was lost on every rescan.
+        When every folder came from the cache and the album still has the same
+        id and folders, it IS the album already published: same files, same
+        parts, same answer. Keeping that object is what a single-folder album
+        gets for free, and a judgement still running on it lands where the
+        Library reads it.
+
+        Caller holds `_snapshot_lock`. Identity is compared through `id()`,
+        which is safe here: every object compared is alive in `self._scanned`
+        or `scanned` for the whole call."""
+        kept_parts = {id(e.album) for e in self._scanned}
+        parts = {e.album.path: e.album for e in scanned}
+        published = {(a.id, a.folders): a for a in self._albums}
+        results: list[Album] = []
+        rebuilt: list[Album] = []
+        for album in merged:
+            before = published.get((album.id, album.folders))
+            if before is album:
+                results.append(album)
+            elif before is not None and all(
+                d in parts and id(parts[d]) in kept_parts for d in album.folders
+            ):
+                results.append(before)
+            else:
+                results.append(album)
+                rebuilt.append(album)
+        return results, rebuilt
 
     def status(self) -> dict[str, Any]:
         return self._status.to_dict()

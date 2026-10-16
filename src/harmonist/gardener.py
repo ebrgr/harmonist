@@ -406,6 +406,22 @@ def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     return _refresh_from_cache(albums, duty=duty, wanted=lambda _: True, what="warm-up")
 
 
+def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
+    """Re-judge albums a rescan rebuilt (#758). Returns how many were flagged.
+
+    A rebuilt album starts with no flag. That is right when the edit that
+    rebuilt it took the update, and wrong in every other case — a genre set in
+    another tool, a Picard re-tag that kept a title of its own — where the
+    album would leave the filter with the update still outstanding, and stay
+    out until it was opened or Harmonist restarted. `sweep` would not put it
+    back either: it re-judges only when MusicBrainz's payload has moved.
+
+    The warm-up's loop over just those albums, so it reads only their files
+    and, like the warm-up, spends no MusicBrainz requests.
+    """
+    return _refresh_from_cache(albums, duty=duty, wanted=lambda _: True, what="rescan re-check")
+
+
 def recheck_for_settings(
     albums: Sequence[Album],
     before: TaggingChoices,
@@ -442,7 +458,7 @@ def recheck_for_settings(
 def _refresh_from_cache(
     albums: Sequence[Album], *, duty: float, wanted: Callable[[Release], bool], what: str
 ) -> int:
-    """The paced loop `warm_from_cache` and `recheck_for_settings` share."""
+    """The paced loop `warm_from_cache` and the re-checks share."""
     started = time.monotonic()
     log.info("update-available %s: checking %d albums", what, len(albums))
     flagged = 0

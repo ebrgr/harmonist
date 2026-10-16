@@ -73,7 +73,10 @@ already say what MusicBrainz says.
 
 The release comparison still earns its keep as a shortcut: if a freshly fetched
 release is identical to the cached one, the files needn't be read. An unchanged
-release *skips* an album, and never *clears* its flag.
+release *skips* an album, and never *clears* its flag. The skip holds because
+the other input is covered elsewhere: a rescan that rebuilds an album because
+its files changed re-judges it from the stored release, again with no requests,
+so the background check never has to notice an edit to the files.
 
 **Nothing computed here is stored.** The flag and its significance are rebuilt
 from the cache and the files whenever needed. **Only new updates are

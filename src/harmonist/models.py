@@ -505,12 +505,13 @@ class Album:
     # filter can miss an album, but it can never invite the user to act on an
     # update that isn't there.
     #
-    # Survives a rescan for the usual single-directory album, because
-    # `resolve_dir` returns the cached Album on a signature hit and
-    # `merge_by_identity` passes a one-part album straight through — the same
-    # object, flag intact. An album whose files or sidecar changed is rebuilt
-    # and starts False again, which is the self-invalidation we want: a re-tag
-    # that took the update clears the flag by construction.
+    # Survives a rescan of an album nothing touched, because the snapshot keeps
+    # the same object: `resolve_dir` returns the cached Album on a signature
+    # hit, and the scan runner keeps an album assembled from cached folders
+    # rather than its fresh copy. An album whose files or sidecar changed is
+    # rebuilt and starts False — so a re-tag that took the update clears the
+    # flag by construction — and is then judged again from its stored release
+    # (#758), because every other edit leaves the update as outstanding as it was.
     update_available: bool = False
     # How far the outstanding update reaches — `owned.Significance` (#271). Set
     # by the same `gardener.refresh_flag` call as the flag beside it, from the

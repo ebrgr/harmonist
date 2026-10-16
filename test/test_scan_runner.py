@@ -218,6 +218,35 @@ def test_scan_runner_rescan_picks_up_new_album(tmp_path):
     assert {a.path.name for a in runner.albums()} == {"A", "B"}
 
 
+def test_a_rescan_reports_exactly_the_albums_it_rebuilt(tmp_path):
+    """What the update flags are re-judged from (#758). An album the scan
+    served from its cache is the same object, flag and all, and re-reading it
+    would be a whole-library pass on every rescan; an album it rebuilt starts
+    with no flag, and is the one that needs looking at again. The first scan
+    reports nothing, because the startup warm-up already looks at everything."""
+    from mutagen.mp4 import MP4
+
+    music = tmp_path / "music"
+    edited = _album(music, "A")
+    _album(music, "B")
+    runner = ScanRunner(music)
+    reported: list[list[Path]] = []
+    runner.set_on_rebuilt(lambda albums: reported.append([a.path for a in albums]))
+
+    async def go() -> None:
+        runner.attach_loop()
+        await _wait(runner.has_completed)
+        assert reported == []
+        audio = MP4(edited / "01 Track.m4a")
+        audio["\xa9gen"] = ["Ambient"]
+        audio.save()
+        await _scan_to_completion(runner)
+        await _scan_to_completion(runner)  # nothing changed since
+
+    asyncio.run(go())
+    assert reported == [[edited]]
+
+
 # ---------- Discovery records (#107) ----------
 
 

@@ -820,6 +820,7 @@ def create_app(
         _artwork_check_if_idle(app, sync_runner, reconcile_runner, scan_runner, check=False)
 
     scan_runner.set_on_first_complete(_on_first_scan)
+    scan_runner.set_on_rebuilt(_start_rebuilt_recheck)
 
     project_root = Path(__file__).resolve().parent.parent.parent.parent
     templates_dir = project_root / "templates"
@@ -3375,6 +3376,27 @@ def _start_flag_warm_up(scan_runner: ScanRunner) -> None:
             log.exception("update-available warm-up failed")
 
     threading.Thread(target=_run, name="harmonist-flag-warmup", daemon=True).start()
+
+
+def _start_rebuilt_recheck(albums: list[Album]) -> None:
+    """Re-judge the update flags of albums a scan just rebuilt (#758).
+
+    The warm-up covers the first scan; this covers every publish after it, for
+    only the albums it rebuilt — on an hourly rescan of an untouched library,
+    none, and no thread is started. Its own thread for the warm-up's reasons:
+    file reads, nothing to await, nothing persisted.
+    """
+
+    def _run() -> None:
+        try:
+            gardener.recheck_rebuilt(albums)
+        except Exception:
+            # Boundary catch, as for the warm-up: a background hint must not die
+            # silently, and its symptom would be albums quietly missing from the
+            # Library's filter and the Inbox, which reads as "no updates".
+            log.exception("update-available re-check after a rescan failed")
+
+    threading.Thread(target=_run, name="harmonist-flag-rebuilt", daemon=True).start()
 
 
 def _start_settings_recheck(

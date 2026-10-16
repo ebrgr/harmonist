@@ -25,6 +25,7 @@ versions follow [semantic versioning](https://semver.org).
 - **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).
 - **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).
 - **Required track-assignment reviews show the numbering or total-count difference that triggered them** (#750).
+- **Albums keep their Tag updates flag when their files change outside Harmonist**, and albums spanning several folders keep it through the hourly rescan; previously both dropped out of Tag updates until the album was opened or Harmonist restarted (#758).
 
 ## [1.27.0] - 2026-10-15
 

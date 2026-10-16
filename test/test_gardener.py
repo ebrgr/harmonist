@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mutagen.mp4 import MP4
 
 from harmonist import activity_store, gardener, mb_cache, mb_lookup, scanner, tagger
 from harmonist import sidecar as sc
@@ -288,6 +289,62 @@ def test_a_retag_clears_the_flag_by_rebuilding_the_album(tmp_path):
     tagger.tag_album(album_dir, _release("Test Album (remastered)"))
 
     assert runner.scan_now()[0].update_available is False
+
+
+def _join(thread_name: str) -> None:
+    for thread in threading.enumerate():
+        if thread.name == thread_name:
+            thread.join(timeout=10)
+
+
+def test_an_edit_that_does_not_take_the_update_keeps_the_flag_through_a_rescan(
+    tmp_path, monkeypatch
+):
+    """#758. Rebuilding an album clears its flag, which is right when the edit
+    took the update and wrong in every other case: a genre set in another tool
+    leaves MusicBrainz's update exactly as outstanding as it was. The rescan
+    re-judges what it rebuilt from the stored release, so the album stays in the
+    filter without anyone opening it, and without a request spent on it."""
+    from harmonist.config import BandcampConfig, Config, PathsConfig, ServerConfig, TestConfig
+    from harmonist.web.main import create_app
+
+    music = tmp_path / "music"
+    (tmp_path / "config").mkdir()
+    cfg = Config(
+        paths=PathsConfig(config_dir=tmp_path / "config", music_dir=music),
+        bandcamp=BandcampConfig(),
+        server=ServerConfig(),
+        test=TestConfig(mode="fixture"),
+    )
+    album_dir = _tagged(music, _release()).path
+    monkeypatch.setattr(
+        mb_lookup, "fetch_release", lambda *a, **k: pytest.fail("the re-check went to MusicBrainz")
+    )
+    runner: ScanRunner = create_app(cfg).state.scan_runner
+    # After `create_app`, which opens the store the app reads.
+    _store(_release("Test Album (remastered)"))
+
+    async def go() -> None:
+        await _scan_via_runner(runner)
+        _join("harmonist-flag-warmup")
+        [before] = runner.albums()
+        assert before.update_available is True
+
+        audio = MP4(next(album_dir.glob("*.m4a")))
+        audio["\xa9gen"] = ["Ambient"]  # not a tag Harmonist owns
+        audio.save()
+        runner._kick()
+        assert runner._task is not None
+        await runner._task
+        _join("harmonist-flag-rebuilt")
+
+        [after] = runner.albums()
+        assert after is not before  # the edit really did rebuild it
+
+    asyncio.run(go())
+
+    assert runner.albums()[0].update_available is True
+    assert runner.albums()[0].update_significance is not None
 
 
 # ---------------------------------------------------------------------------
