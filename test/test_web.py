@@ -5729,7 +5729,7 @@ def test_an_action_with_two_entries_shows_its_detail_under_one_of_them(client, c
 
     activity_store.clear()
     with activity_store.action():
-        # Written in the order the real path writes them: `_record_merge` runs
+        # Written in the order the real path writes them: `retag._record_merge` runs
         # before the response that reports the tagging, so the outcome is the
         # NEWER row and leads the page.
         audit.record("sidecar.update", album_id="rel-1", mbid="old->new")
@@ -7984,7 +7984,7 @@ def test_claim_pending_by_store_url_is_subdomain_insensitive(client):
     subdomain for the same edition still resolves. Unrelated pending is untouched.
     This is the belt-and-braces behind confirming a mis-tag."""
     from harmonist import pending_downloads as pd
-    from harmonist.web.main import _claim_pending_by_store_url
+    from harmonist.retag import _claim_pending_by_store_url
 
     pd.replace_all(
         [
@@ -10360,7 +10360,7 @@ def test_the_page_and_the_tagger_fingerprint_one_plan_alike(client, cfg, policy)
 
     Under BOTH folder-cover policies (#516), because the policy is now one of
     the plan's inputs and the two sides read it from different places: the page
-    off `app.state.cfg`, the write off whatever `_tag_with_release` hands the
+    off `app.state.cfg`, the write off whatever `retag.tag_with_release` hands the
     tagger. A seam that dropped it on one side would produce two fingerprints
     that differ only on this album's missing `cover.png` — a mismatch on every
     press, blamed on a page that had not changed.
@@ -10554,7 +10554,7 @@ def test_retag_writes_no_artwork_the_page_did_not_show(client, cfg, monkeypatch)
     assert formats.read_cover(d / "02 Track.m4a") is None
     assert any("changed after the page showed it" in e.message for e in activity.recent(20))
     # …and the person who pressed the button is told, without going to look for
-    # it (#482). The flash said only "Re-tagged" until `_tag_with_release`
+    # it (#482). The flash said only "Re-tagged" until `retag.tag_with_release`
     # returned its outcome: `TaggingOutcome.artwork_withheld` had no reader
     # anywhere, so the one channel carrying the reason was the feed.
     assert "artwork left alone" in r.text

@@ -1,6 +1,6 @@
 """What a re-tag does to the sidecar beside the files (#239, #240).
 
-`_tag_with_release` used to build a **new** `Sidecar(...)` field by field, which
+`retag.tag_with_release` used to build a **new** `Sidecar(...)` field by field, which
 meant every field it did not name was reset to its default — silently, and with
 nothing in the suite to notice. Three of them mattered:
 

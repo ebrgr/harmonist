@@ -167,7 +167,7 @@ def test_sibling_classification_is_reused_until_the_browse_changes():
     ],
 )
 def test_acceptance_after_tagging(accepted, requested, tagged, accept, expected):
-    from harmonist.web.main import _accepted_after_tagging
+    from harmonist.retag import _accepted_after_tagging
 
     assert _accepted_after_tagging(accepted, requested, tagged, accept=accept) == expected
 

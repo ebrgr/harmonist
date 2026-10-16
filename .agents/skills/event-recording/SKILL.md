@@ -36,7 +36,7 @@ the write is frequently already dead by the time you record it.
 
 ```python
 album = _find_album(request, album_id)   # id valid HERE
-_tag_with_release(album.path, ...)       # ...and dead by HERE
+retag.tag_with_release(album.path, ...)  # ...and dead by HERE
 ```
 
 Use `sidecar.album_id_for(album_dir)` after the write. `_live_album_ref()` does

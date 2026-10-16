@@ -157,7 +157,7 @@ new = Sidecar(store_url=sc.store_url, mb_release_id=None, ...)        # no
 
 A fresh `Sidecar(...)` listing what to carry forward silently resets **every
 field you didn't name** to its default. That is not a hypothetical: #239 found
-it in `_tag_with_release` and fixed that one site; #263 found the same
+it in `retag.tag_with_release` and fixed that one site; #263 found the same
 construction at **twelve** more, all of them dropping `video_media` and
 `tracks_unavailable`, eleven dropping `purchase_unavailable`. The surrenders are
 the worst case — they are decisions with no evidence on disk, so once defaulted

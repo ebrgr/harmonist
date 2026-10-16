@@ -221,7 +221,7 @@ def test_replacement_review_keeps_original_until_confirmed(library, monkeypatch,
         sidecar.write(root / "Download", replace(sc, mb_release_id="other"))
     if outcome == "failure":
         monkeypatch.setattr(
-            "harmonist.web.main._tag_with_release", Mock(side_effect=OSError("disk full"))
+            "harmonist.retag.tag_with_release", Mock(side_effect=OSError("disk full"))
         )
     response = client.post(f"/confirm/{aid}/accept?{query}", data=fields)
     if outcome == "apply":
@@ -301,7 +301,7 @@ def test_replacement_artwork_serves_reviewed_release_without_fetching(library, m
     from bs4 import BeautifulSoup
 
     from harmonist import cover_art, images
-    from harmonist.web.main import _release_fingerprint
+    from harmonist.retag import release_fingerprint
     from test.test_web import _png
 
     client, _ = library
@@ -324,7 +324,7 @@ def test_replacement_artwork_serves_reviewed_release_without_fetching(library, m
     query = f"replacement={MBID}:digital"
     response = client.get(
         f"/assignments/{MBID}/artwork?{query}"
-        f"&release_fingerprint={_release_fingerprint(selected, 'digital')}"
+        f"&release_fingerprint={release_fingerprint(selected, 'digital')}"
     )
     page = BeautifulSoup(response.text, "html.parser")
     preview = page.find("img", alt="Artwork for selected release")

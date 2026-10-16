@@ -2701,7 +2701,7 @@ def album_label(release: dict[str, Any], album_dir: Path) -> str:
     lose the attribution this exists to add.
 
     PUBLIC because a tagging's outcome is not the only entry it writes (#571).
-    A merge is named by its own entry, from `web/main._record_merge`, and that
+    A merge is named by its own entry, from `retag._record_merge`, and that
     one had built its label out of the folder name — so one press put two rows in
     the feed naming the same album two different ways, each row's name a link.
     The label has to come from one place if they are to agree, and this is the

@@ -6,7 +6,7 @@ keep. Every field left off the list was reset to its default — including
 have no evidence on disk and so cannot be recovered once lost.
 
 #239 diagnosed exactly this and fixed one site. Its comment is still in
-`_tag_with_release`, and its last sentence is why this file exists:
+`retag.tag_with_release`, and its last sentence is why this file exists:
 
     A field added to the model later would have joined them, silently, with no
     test to notice.

@@ -3,7 +3,7 @@
 MusicBrainz *redirects* a merged MBID: `fetch_release(old)` answers with the
 **target** release, carrying a different `id`. Two writers then disagree —
 `tagger._build_tagset` puts `release["id"]` (the new id) into every file while
-`_tag_with_release` wrote the *requested* id to the sidecar. The album derives
+`retag.tag_with_release` wrote the *requested* id to the sidecar. The album derives
 TAGGING off that disagreement, the Inbox kicks the reconciler, and reconcile
 adopts the file tags: an identity change laundered through machinery built for
 "the user re-tagged in Picard", with nothing anywhere saying a merge happened.

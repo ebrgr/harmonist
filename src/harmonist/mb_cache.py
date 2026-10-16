@@ -25,7 +25,7 @@ fetch fresh; continuing or applying an explicitly reviewed snapshot never fetche
   assessment — cached. All of them are looking at a release, not acting on it,
   and the sweep's cost is bounded by library size rather than by a user's
   selection, which is the review-gate's call-budget concern exactly.
-* `_tag_with_release` — fresh for unreviewed writes. Reviewed confirmation uses
+* `retag.tag_with_release` — fresh for unreviewed writes. Reviewed confirmation uses
   `stored_release` regardless of TTL and validates the supplied fingerprint.
   A missing or changed stored snapshot requires another review, not a fetch or
   substitution. The same applies to reviewed artwork and URL recovery (#532).

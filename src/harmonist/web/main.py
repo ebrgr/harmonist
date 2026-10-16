@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import html
 import json
 import logging
@@ -21,7 +20,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any, Literal, NamedTuple, Protocol, get_args
+from typing import Annotated, Any, Literal, Protocol, get_args
 from urllib.parse import parse_qsl, quote, urlencode
 
 from fastapi import (
@@ -52,6 +51,7 @@ from harmonist import (
     artwork_watch,
     audit,
     caa_cache,
+    caa_listings,
     compare,
     contributions,
     cover_art,
@@ -80,6 +80,7 @@ from harmonist import (
     url_recovery,
 )
 from harmonist import config as config_mod
+from harmonist import retag as retag_mod
 from harmonist import sidecar as sidecar_mod
 from harmonist import tagger as tagger_mod
 from harmonist.activity_store import Level
@@ -91,7 +92,6 @@ from harmonist.models import (
     AlbumState,
     ArtworkWatch,
     BandcampInfo,
-    BorrowedArtwork,
     FoundBy,
     IncludedPregap,
     MatchCandidate,
@@ -102,7 +102,7 @@ from harmonist.models import (
     titles_match,
 )
 from harmonist.tagger import PicardCompatibleTagger, Tagger, tagsets_for
-from harmonist.transforms import NO_CHOICES, TaggingChoices, TagTransform, album_title
+from harmonist.transforms import NO_CHOICES, TaggingChoices, TagTransform
 from harmonist.web import dir_watcher, periodic
 from harmonist.web.reconcile_runner import ReconcileRunner, reconcile_pending_orphans
 from harmonist.web.scan_runner import ScanRunner
@@ -2145,7 +2145,7 @@ def _demote_to_needs_mbid(
     # about the SOURCE — no purchase exists, no more tracks exist — so a demote
     # over the release identity leaves them as true as it found them. Stale
     # `video_media` rides along harmlessly: nothing reads it while the album has
-    # no MBID, and `_tag_with_release` recomputes it from the release it uses.
+    # no MBID, and `retag.tag_with_release` recomputes it from the release it uses.
     sidecar_mod.write(
         album_path,
         # Acceptance was of the release being taken away (#618).
@@ -2835,112 +2835,15 @@ def _release_of(album: Album) -> str | None:
     return album.sidecar.mb_release_id if album.sidecar else None
 
 
-class _Listed(NamedTuple):
-    """One image a listing names, and which listing: `artwork.Candidate`'s
-    origins, and for another release, what tells it apart."""
-
-    origin: str
-    listing: cover_art.Candidate
-    #: The MBID of the release or release group whose listing it is.
-    source: str
-    release: str | None = None
-
-
-def _group_of(mbid: str) -> str | None:
-    """The release's group, from the STORED release payload — a local read
-    with no MusicBrainz request in it (#434)."""
-    stored = mb_cache.stored_release(mbid)
-    group = (stored.get("release-group") or {}).get("id") if stored else None
-    return group if isinstance(group, str) else None
-
-
-def _other_releases(mbid: str, group: str) -> list[Release]:
-    """The group's other releases, as its last browse listed them, leaving out
-    any MusicBrainz says has no artwork in the archive: listing one of those
-    would spend a request to learn nothing."""
-    stored = mb_cache.stored_release_group_editions(group)
-    return [
-        r
-        for r in (stored[0] if stored else [])
-        if r.get("id") != mbid and (r.get("cover-art-archive") or {}).get("artwork") != "false"
-    ]
-
-
-def _release_label(release: Release) -> str:
-    """What tells one release of an album from another: the same facts the
-    release pickers show, minus the title they share."""
-    s = mb_lookup.release_summary(release)
-    return " · ".join(
-        str(v) for v in (s["disambiguation"], s["date"], s["country"], s["media"]) if v
-    )
-
-
-def _listings(mbid: str | None) -> list[_Listed]:
-    """Every image the archive lists for this release, then its group, then
-    any other release in the group someone has stepped to (#659) — from what
-    is stored, never the network.
-
-    Another release's listing is kept only while it is fresh: nothing else
-    refreshes it, so a stale one drops out and the next step lists it again.
-    The group's stored browse only says which listings are its releases'; it
-    decides nothing about what to ask for next (see `_list_another_release`).
-    """
-    if mbid is None:
-        return []
-    listed = [
-        _Listed(artwork.Candidate.RELEASE, c, mbid)
-        for c in caa_cache.stored_listing("release", mbid) or []
-    ]
-    group = _group_of(mbid)
-    if group is None:
-        return listed
-    listed += [
-        _Listed(artwork.Candidate.RELEASE_GROUP, c, group)
-        for c in caa_cache.stored_listing("release-group", group) or []
-    ]
-    for release in _other_releases(mbid, group):
-        release_id = str(release["id"])
-        stored = caa_cache.stored_listing("release", release_id, fresh=True)
-        label = _release_label(release)
-        listed += [
-            _Listed(artwork.Candidate.OTHER_RELEASE, c, release_id, label) for c in stored or []
-        ]
-    return listed
-
-
 def _listed_candidate(mbid: str | None, image_id: str) -> cover_art.Candidate | None:
     """The image this release's listings name `image_id`, or None.
 
     The ONLY way an image id from a request reaches a fetch: what is fetched is
     the URL the archive's own listing gave for it, so a request can never point
     a server-side fetch anywhere else."""
-    return next((x.listing for x in _listings(mbid) if x.listing.image_id == image_id), None)
-
-
-def _picked_originals(mbid: str | None, choices: artwork.Choices) -> dict[str, cover_art.Front]:
-    """The originals of the archive images `choices` name by id, as
-    `_in_hand` finds them — what an apply writes them from (#659). One not in
-    hand is simply absent, and the plan rebuilt without it fails the page's
-    fingerprint.
-
-    By id alone for one no listing names any more: another release's image
-    stays chosen after its listing lapses, and was fetched under its id when
-    it was chosen. A lookup in the cache, never a fetch."""
-    found: dict[str, cover_art.Front] = {}
-    ids = {c for c in choices.values() if c.isdigit()}
-    if not ids:
-        return found
-    listed = {x.listing.image_id: x.listing for x in _listings(mbid)}
-    for choice in ids:
-        listing = listed.get(choice)
-        front = (
-            _in_hand(mbid, listing)
-            if listing is not None
-            else cover_art.cached_candidate_image(choice)
-        )
-        if front is not None:
-            found[choice] = front
-    return found
+    return next(
+        (x.listing for x in caa_listings.listings(mbid) if x.listing.image_id == image_id), None
+    )
 
 
 def _list_another_release(mbid: str, *, browsed: bool) -> str | None:
@@ -2959,13 +2862,13 @@ def _list_another_release(mbid: str, *, browsed: bool) -> str | None:
     to show. `MBError` and `CoverArtError` propagate, and nothing is stored for
     a release whose listing failed.
     """
-    group = _group_of(mbid)
+    group = caa_listings.group_of(mbid)
     if group is None:
         return None
     if not browsed or mb_cache.stored_release_group_editions(group) is None:
         mb_cache.fetch_release_group_editions(group)
     tried = 0
-    for release in _other_releases(mbid, group):
+    for release in caa_listings.other_releases(mbid, group):
         release_id = str(release["id"])
         if caa_cache.stored_listing("release", release_id, fresh=True) is not None:
             continue
@@ -2990,13 +2893,13 @@ def _another_release_possible(mbid: str | None, *, browsed: bool) -> bool:
     a sibling — and the stored browse is not consulted to say otherwise, since
     a page that left a new release out would hide it here for good. After,
     whether that browse has a release not yet listed."""
-    if mbid is None or (group := _group_of(mbid)) is None:
+    if mbid is None or (group := caa_listings.group_of(mbid)) is None:
         return False
     if not browsed:
         return True
     return any(
         caa_cache.stored_listing("release", str(r["id"]), fresh=True) is None
-        for r in _other_releases(mbid, group)
+        for r in caa_listings.other_releases(mbid, group)
     )
 
 
@@ -3035,19 +2938,6 @@ def _tagging(request: Request, album: Album) -> TaggingChoices:
     return library_titles.choices(cfg.tagging.choices(), excluding=album.folders)
 
 
-def _in_hand(mbid: str | None, listing: cover_art.Candidate) -> cover_art.Front | None:
-    """A listed image's original, if it is already here (#659) — never the
-    network. Here once it was chosen, which fetched it under its id; or when
-    it is the release's own front, which the archive check downloads itself
-    and keeps under the release's id instead."""
-    if (front := cover_art.cached_candidate_image(listing.image_id)) is not None:
-        return front
-    caa = caa_cache.stored(mbid) if mbid else None
-    if mbid is not None and caa is not None and caa.image_url == listing.image_url:
-        return cover_art.cached_front(mbid)
-    return None
-
-
 def _measured(mbid: str | None, listing: cover_art.Candidate) -> str | None:
     """A listed image's facts line from a measurement, if one is here (#659) —
     never the network. The picker's own, made the first time it showed the
@@ -3081,12 +2971,12 @@ def _offered(
     """
     candidates: list[artwork.Candidate] = []
     picks: dict[str, formats.EmbeddedArt] = {}
-    for listed in _listings(mbid):
+    for listed in caa_listings.listings(mbid):
         listing = listed.listing
         # The group's front is very often one of the release's own images.
         if any(c.image_id == listing.image_id for c in candidates):
             continue
-        original = _in_hand(mbid, listing)
+        original = caa_listings.in_hand(mbid, listing)
         image = formats.EmbeddedArt.of(original.data, original.mime) if original else None
         if image is not None:
             picks[listing.image_id] = image
@@ -3101,101 +2991,9 @@ def _offered(
                 measured=None if image is not None else _measured(mbid, listing),
             )
         )
-    for image_id, front in _picked_originals(mbid, choices or {}).items():
+    for image_id, front in caa_listings.picked_originals(mbid, choices or {}).items():
         picks.setdefault(image_id, formats.EmbeddedArt.of(front.data, front.mime))
     return tuple(candidates), picks
-
-
-def _has_own_front(mbid: str) -> bool:
-    """Whether the release has a front of its own on the archive, as far as
-    what is stored says (#663) — its own listing names one, or the archive
-    check's answer came from the release rather than its group."""
-    if any(c.front for c in caa_cache.stored_listing("release", mbid) or []):
-        return True
-    caa = caa_cache.stored(mbid)
-    return caa is not None and caa.image_url is not None and not caa.from_release_group
-
-
-def _borrowable(mbid: str) -> dict[str, BorrowedArtwork]:
-    """The archive images in hand that would be stand-ins if written now (#663):
-    the release group's and other releases', by digest, as their record would
-    read. The release's own images are not, and neither is anything not in hand
-    — an image is written only once its original is.
-    """
-    found: dict[str, BorrowedArtwork] = {}
-    for listed in _listings(mbid):
-        if listed.origin == artwork.Candidate.RELEASE:
-            continue
-        original = _in_hand(mbid, listed.listing)
-        if original is None:
-            continue
-        found.setdefault(
-            images.digest(original.data),
-            BorrowedArtwork(
-                digest=images.digest(original.data),
-                source="release-group"
-                if listed.origin == artwork.Candidate.RELEASE_GROUP
-                else "release",
-                source_mbid=listed.source,
-                release=mbid,
-                image_id=listed.listing.image_id,
-            ),
-        )
-    # The archive check's own answer when it came from the group: the fallback
-    # a tagging has written since #434, measured before any listing was kept.
-    caa = caa_cache.stored(mbid)
-    group = _group_of(mbid)
-    if (
-        caa is not None
-        and caa.from_release_group
-        and group is not None
-        and (front := cover_art.cached_front(mbid)) is not None
-    ):
-        digest = images.digest(front.data)
-        found.setdefault(digest, BorrowedArtwork(digest, "release-group", group, mbid))
-    return found
-
-
-def _stand_ins_after(
-    album_path: Path,
-    files: Sequence[Path],
-    mbid: str,
-    recorded: Sequence[BorrowedArtwork],
-    written: Sequence[str],
-) -> tuple[BorrowedArtwork, ...]:
-    """The album's stand-in covers once an action has written `written` (#663).
-
-    Kept: what was recorded for this release that the album still carries —
-    so a rematch lapses the record, and replacing a stand-in (with the
-    release's own front, or anything else) clears it. Added: a written image
-    borrowed from another listing, but only while the release has no front of
-    its own; one chosen over the release's own front is a choice, not a
-    stand-in, and is never offered back.
-
-    Reads the album's images only when something was written: an action that
-    wrote none changed nothing they carry.
-    """
-    current = tuple(b for b in recorded if b.release == mbid)
-    if not written:
-        return current
-    try:
-        carried = {
-            images.digest(art[0]) for f in files if (art := formats.read_cover(f)) is not None
-        }
-        if (cover := cover_art.cached_cover(album_path)) is not None:
-            carried.add(images.digest(cover.read_bytes()))
-    except formats.READ_ERRORS:
-        # Could not tell what the album carries now, so nothing recorded is
-        # dropped on the strength of it; it lapses on the next write instead.
-        log.warning("could not read %s's artwork after writing it", album_path, exc_info=True)
-        kept = list(current)
-    else:
-        kept = [b for b in current if b.digest in carried]
-    if not _has_own_front(mbid):
-        borrowable = _borrowable(mbid)
-        held = {b.digest for b in kept}
-        kept += [borrowable[d] for d in written if d in borrowable and d not in held]
-    return tuple(kept)
 
 
 def _settle_own_front(album: Album, mbid: str) -> bool:
@@ -4176,7 +3974,7 @@ def _apply_best_match(
     Returns (status, message) where status is
     'tagged' | 'needs_confirmation' | 'ambiguous' | 'no_match'.
     """
-    # Cached: this is assessment, not action. `_tag_with_release` below re-reads
+    # Cached: this is assessment, not action. `retag.tag_with_release` below re-reads
     # the chosen release fresh before it writes anything (#127).
     releases = [mb_cache.fetch_release(m) for m in mbids]
     ranking = match_releases(album_path, releases)
@@ -4204,7 +4002,7 @@ def _apply_best_match(
         and candidate.confidence == "exact"
         and not _reassigns_release(album_files.audio_files(album_path), candidate.mb_release_id)
     ):
-        _tag_with_release(album_path, candidate.mb_release_id, cfg, tagger)
+        retag_mod.tag_with_release(album_path, candidate.mb_release_id, cfg, tagger)
         return "tagged", "Match exact — files tagged."
 
     existing = sidecar_mod.read(album_path)
@@ -4247,106 +4045,8 @@ def _settle_by_media(ranking: Ranking, releases: list[Release]) -> Ranking:
     return Ranking(tuple(c for c in ranking.candidates if c.mb_release_id not in ruled_out))
 
 
-def _claim_pending_by_store_url(store_url: str | None) -> None:
-    """Drop any potential download whose Bandcamp slug matches `store_url` — the
-    purchase is now represented on disk (just tagged), so it mustn't linger as a
-    pending download. Subdomain-insensitive via `album_slug`. Covers confirming a
-    mis-tag (store_url set to the owned edition's URL) and any tag that resolves a
-    pending purchase."""
-    if not store_url:
-        return
-    slug = album_slug(store_url)
-    if not slug:
-        return
-    for p in pending_downloads.all_pending():
-        if album_slug(p.url) == slug:
-            pending_downloads.remove(p.item_id)
-
-
-def _record_merge(album_path: Path, old_mbid: str, new_mbid: str, label: str) -> None:
-    """Say that MusicBrainz merged one release into another (#268).
-
-    Called AFTER the sidecar write, for two reasons. The album's id has just
-    moved with it, and an entry stamped with the pre-write id would hang off a
-    release the sidecar no longer names (#65). And the entry is a report of
-    something that happened, not of something attempted — a tagging that threw
-    part-way should not leave a line claiming the identity moved.
-
-    The alias that keeps the album's pre-merge history reachable is NOT recorded
-    here: `sidecar.write()` already records one whenever the canonical id
-    changes, and this is one of those. Adding a call would duplicate it at one
-    call site while leaving every other identity change relying on the write —
-    the shape the event-recording skill warns about.
-
-    Both sinks, because they answer different questions. The activity entry is
-    the outcome in the user's language, and the audit line is the pair of ids —
-    which is forensics, and doesn't belong in prose the feed renders next to an
-    album name it already shows in its own column.
-
-    `label` is passed IN rather than built here, and it is the same string the
-    tagging's own entry carries — `tagger.album_label`, off the release this
-    press wrote (#571). It used to be `album_path.name`, which is the album's
-    FOLDER: one press then wrote two adjacent feed rows about one album, naming
-    it "Artist — Title" on the tagging and the bare directory on the merge, with
-    both names rendered as links. Deriving it here from the path again is how
-    that comes back, so the caller hands over the name it has already settled on.
-    """
-    album_id = sidecar_mod.album_id_for(album_path)
-    audit.record(
-        "release.merged",
-        album_id=album_id,
-        album=album_path,
-        old=old_mbid,
-        new=new_mbid,
-    )
-    activity.record(
-        "MusicBrainz merged the release this album named into another one — "
-        "it now follows the surviving release",
-        album_id=album_id,
-        album_label=label,
-    )
-
-
-class _ConfirmationChanged(Exception):
-    """The selected release no longer describes the confirmation preview."""
-
-
 class _ReplacementUnavailable(Exception):
     """A page-local replacement cannot safely continue its review."""
-
-
-def _release_fingerprint(
-    release: Release, requested_mbid: str, tagging: TaggingChoices = NO_CHOICES
-) -> str:
-    # Bind the selected candidate to the canonical snapshot. A merge stores
-    # only the surviving ID; continuing review must find that same row locally.
-    digest = hashlib.sha256(
-        json.dumps([requested_mbid, release], sort_keys=True).encode()
-    ).hexdigest()
-    title = album_title(release, tagging.transforms, tagging.library_releases)
-    title_digest = hashlib.sha256(title.encode()).hexdigest()
-    return f"{release['id']}:{digest}:{title_digest}"
-
-
-def _reviewed_release(mbid: str, fingerprint: str, tagging: TaggingChoices = NO_CHOICES) -> Release:
-    """Resolve a reviewed snapshot locally; never substitute a different one."""
-    canonical, separator, _ = fingerprint.partition(":")
-    release = mb_cache.stored_release(canonical) if separator else None
-    if release is None:
-        raise _ConfirmationChanged(
-            "The reviewed release is no longer available. Refresh MusicBrainz and review again."
-        )
-    current = _release_fingerprint(release, mbid, tagging)
-    if current != fingerprint:
-        what = (
-            "MusicBrainz"
-            if current.split(":")[1] != fingerprint.split(":")[1]
-            else "The title choice"
-        )
-        raise _ConfirmationChanged(
-            f"{what} changed since the preview. Refresh the comparison and review again."
-        )
-    return release
 
 
 def _album_location(request: Request, album_id: str, *, edit_assignments: bool = False) -> str:
@@ -4359,306 +4059,6 @@ def _album_location(request: Request, album_id: str, *, edit_assignments: bool =
     if context:
         location += "?" + urlencode(context)
     return location + ("#album-tracks" if edit_assignments else "")
-
-
-def _accepted_after_tagging(
-    accepted: str | None, requested: str, tagged: str, *, accept: bool
-) -> str | None:
-    """The release the user bought, after tagging `requested` came back as `tagged` (#618).
-
-    A re-tag of the accepted release keeps it, and a merge (`tagged` differing
-    from `requested`) renames that release rather than replacing it, so
-    acceptance follows the id. Any other rematch clears it: kept, it would
-    silently return if the album were ever matched back.
-    """
-    return tagged if accept or accepted == requested else None
-
-
-def _tag_with_release(
-    album_path: Path,
-    mbid: str,
-    cfg: config_mod.Config,
-    tagger: Tagger,
-    *,
-    incomplete: bool = False,
-    store_url_override: str | None = None,
-    overwrite_art: bool = False,
-    paths: Sequence[Path] | None = None,
-    expected_artwork: str | None = None,
-    artwork_included: bool = True,
-    scope: artwork.Scope | None = None,
-    chosen: artwork.Source | None = None,
-    choices: artwork.Choices | None = None,
-    expected_release: str | None = None,
-    assignment_draft: track_assignment.Draft | None = None,
-    release_artwork_only: bool = False,
-    accept_release: bool = False,
-) -> tagger_mod.TaggingOutcome:
-    """Fetch MB release, fetch cover, write tags, update sidecar.
-
-    `accept_release` records the release as the one the user bought (#618):
-    choosing it from the mismatch review's candidates and confirming its track
-    review already said so, and asking again would be a second confirmation.
-
-    Returns what the tagging actually DID, in its two halves (#482). It used to
-    return None, which left `TaggingOutcome.artwork_withheld` with no reader
-    anywhere: a re-tag that tagged the album and refused its artwork said only
-    "Re-tagged", and the reason reached the user only if they went looking in
-    the feed. Callers with nothing to report are free to ignore it.
-
-    `expected_artwork` is the fingerprint of the artwork the album page showed,
-    when a page is who asked (#469). A tagging whose plan no longer matches it
-    writes the tags and no artwork, and says so in the outcome.
-
-    `artwork_included=False` leaves the artwork half out altogether — what the
-    album page's artwork checkbox posts when unticked (#482). Distinct from a
-    fingerprint that failed to match: that is a stale preview the user is owed a
-    warning about, this is a choice they just made.
-
-    `expected_release` binds confirmation to the stored release shown in its
-    review (#532). Apply that snapshot without a request, whatever its age.
-    A missing or changed snapshot requires review before any writes. Artwork
-    is already cached by the review; do not fetch a different image.
-
-    `scope` is how much of the plan to write, and must agree with the scope
-    `expected_artwork` was taken at or the comparison mismatches on every press.
-    None keeps the tagger's own derivation, which is what every caller without a
-    page in front of it wants.
-
-    `mbid` is what to ask MusicBrainz for, not necessarily what the album ends
-    up tagged as: a merged release redirects, and this follows the release it
-    actually got (#268). See the rebinding below.
-
-    `incomplete=True` runs the tagger in incomplete mode (file_count <
-    MB track count allowed). Nothing is persisted about the count: the tagging
-    writes the release's own totals into every file, and that is what the
-    scanner derives INCOMPLETE from afterwards (#195).
-
-    `store_url_override` replaces the sidecar's store_url. Used when confirming
-    a mis-tag: the album is actually the *owned* edition, so its store_url must
-    become the URL where the user purchased it (the candidate's
-    `mistag_owned_url`) — otherwise the old (wrong-edition) URL matches no
-    purchase and the album can never link, falling through to surrender.
-    """
-    # Reviewed actions apply what the user saw. Unreviewed tagging still asks
-    # fresh; the exception must not silently spread to automatic operations.
-    if expected_release is not None:
-        tagging = library_titles.choices(cfg.tagging.choices(), excluding=paths or [album_path])
-        release = _reviewed_release(mbid, expected_release, tagging)
-    else:
-        release = mb_cache.fetch_release(mbid, max_age=mb_cache.FRESH)
-        tagging = library_titles.choices(cfg.tagging.choices(), excluding=paths or [album_path])
-    assignment = None
-    pregap_decisions = None
-    if assignment_draft is not None:
-        current_sidecar = sidecar_mod.read(album_path)
-        panel = track_assignment.panel(
-            album_files.for_paths(paths or [album_path]),
-            release,
-            assignment_draft,
-            confirmed=bool(current_sidecar and current_sidecar.mb_release_id == release["id"]),
-        )
-        assignment = panel.mapping()
-        pregap_decisions = panel.pregap_decisions()
-    else:
-        # Refuse before artwork lookup or any write, including callers that
-        # supply their own Tagger. The tagger itself enforces the same guard.
-        files = album_files.for_paths(paths or [album_path])
-        review = tagger_mod.assignment_review(release, [formats.read_tags(f) for f in files])
-        if review.required:
-            raise tagger_mod.TrackAssignmentRequired(
-                files=len(files),
-                tracks=len(match.mb_track_lengths(release)),
-                unassigned=review.unassigned,
-            )
-    # MusicBrainz REDIRECTS a merged MBID, so the release that comes back can
-    # carry a different id from the one asked for. That difference IS the merge
-    # notification — cheap, exact, and the only one there is (#268). Everything
-    # downstream follows the id the release actually has, because the tagger
-    # writes `release["id"]` into the files either way: disagreeing with it left
-    # the sidecar naming a release that no longer exists, the album deriving
-    # TAGGING off its own files, and reconcile rewriting the identity through a
-    # path meant for "the user re-tagged in Picard".
-    #
-    # `mbid` is REBOUND rather than a second name being introduced, so the
-    # correction holds by construction: a line added below that reaches for the
-    # album's release gets the one it was tagged as, not the one that was asked
-    # for. Only the merge check itself wants the original.
-    #
-    # Unconditional, and it stays unconditional under #32's unattended pass:
-    # there is nothing to authorise, because the merge has already happened on
-    # MusicBrainz and this is only noticing it. Undo is the escape hatch, as it
-    # is for any tagging. Not the significance classifier's business (#267) —
-    # that decides which TAG changes may auto-apply, and this is an identity
-    # fact arriving beside them.
-    requested_mbid, mbid = mbid, release["id"]
-    rg = release.get("release-group") or {}
-    cover_path = cover_art.cached_cover(album_path) if artwork_included else None
-    archive: cover_art.Front | None = None
-    if artwork_included and release_artwork_only:
-        # Pin the validated bytes before tagging. Passing None would let the
-        # tagger independently reuse a group image from the shared cache.
-        archive = cover_art.cached_front(mbid, release_only=True)
-        if archive is None:
-            raise _ConfirmationChanged(
-                "Artwork changed since the review. Go back and review the artwork again."
-            )
-    try:
-        # Asked only when the album has no folder cover — the one case a
-        # tagging has always spent a request on, and the one where the archive
-        # may be what the cover is created from. The answer is a CANDIDATE: the
-        # tagger's plan decides whether it wins (#469). An album whose folder
-        # cover already exists weighs the archive only from the cache, which
-        # the album page's own check fills.
-        if (
-            artwork_included
-            and not release_artwork_only
-            and cover_path is None
-            and expected_release is None
-        ):
-            archive = cover_art.front_image(release["id"], rg.get("id"))
-    except cover_art.CoverArtError:
-        # Tagging is the work; the cover is a side effect of it (#458). Design
-        # §"Cover art (mandatory)" already rules that an album with no cover
-        # available is tagged anyway — so an archive that could not ANSWER must
-        # not produce a worse outcome than one that answered "there is none".
-        # Losing a whole re-tag to a transient 503 is exactly that inversion.
-        #
-        # `archive=None` is a value the tagger already handles: the plan weighs
-        # what the album has, and a folder cover may still be created from the
-        # album's own artwork.
-        #
-        # Loud in both channels, because the two readers are different: the log
-        # is all there is at 3am, and the activity line is how someone who
-        # pressed a button finds out their album is now tagged without the cover
-        # it should have. Neither is a failure of the tagging, so neither claims
-        # to be one.
-        #
-        # `_LOG_ONLY` because `_ActivityLogHandler` mirrors every WARNING+ record
-        # on the `harmonist` logger into the feed, so without it this line lands
-        # there too and the album gets the same news twice (#461). The mirror is
-        # the copy worth losing: it carries this raw absolute path — a container
-        # path under Docker, which is why audit records are relativised — and no
-        # album id, so it floats attributed to nothing.
-        log.exception(
-            "Cover Art Archive unavailable for %s — tagging without it",
-            album_path,
-            extra=_LOG_ONLY,
-        )
-        activity.warning(
-            "Cover Art Archive unavailable — tagged without its artwork",
-            album_id=sidecar_mod.album_id_for(album_path),
-            album_label=tagger_mod.album_label(release, album_path),
-        )
-    outcome = tagger.tag_and_artwork(
-        album_path,
-        release,
-        cover_path=cover_path,
-        incomplete=incomplete,
-        overwrite_art=overwrite_art,
-        # An album can span several directories (#197); `album_path` is only its
-        # primary one, so tagging what is under that alone would leave the rest
-        # of the album on its old tags.
-        files=album_files.for_paths(paths) if paths else None,
-        archive=archive,
-        expected_artwork=expected_artwork,
-        artwork_included=artwork_included,
-        scope=scope,
-        # The candidate the user chose, so the plan rebuilt at write time is the
-        # one they were shown rather than the one the size rule prefers (#488) —
-        # and the ones chosen row by row, for the same reason (#659).
-        chosen=chosen,
-        choices=choices,
-        picks=_picked_originals(mbid, choices or {}),
-        assignment=assignment,
-        # The album page built its preview under this same policy, so the plan
-        # rebuilt at write time is the one the fingerprint was taken of (#516).
-        folder_cover=cfg.tagging.folder_cover,
-        # …and under these spelling settings, so what this writes is what the
-        # page's MusicBrainz column showed (#544).
-        tagging=tagging,
-    )
-
-    sc = sidecar_mod.read(album_path)
-    store_url = store_url_override or (sc.store_url if sc else None)
-    if store_url is None:
-        # No store_url yet (e.g. a manual download assigned an MBID directly).
-        # Derive the Bandcamp store URL so a purchase lands in Needs Linking rather
-        # than Complete: embedded ©cmt URL → MB url-rel → artist-root placeholder,
-        # all gated by ©cmt Bandcamp evidence. Best-effort — never blocks tagging.
-        try:
-            store_url = reconcile.store_url_for_tagging(
-                album_path,
-                mbid,
-                fetch_urls=mb_cache.stored_release_urls
-                if expected_release is not None
-                else mb_cache.fetch_release_urls,
-            )
-        except Exception:
-            log.exception("store_url derivation during tagging failed")
-    # `replace`, not a fresh `Sidecar(...)` — anything not named here carries
-    # through BY CONSTRUCTION (#239). Listing the fields to keep meant every
-    # field left off the list was silently reset to its default on every
-    # re-tag: `video_media` (so an album with a bonus DVD went Incomplete until
-    # a later pass spent a MusicBrainz request re-learning it), and the
-    # `purchase_unavailable` / `tracks_unavailable` surrenders, whose whole
-    # purpose is to be permanent. A field added to the model later would have
-    # joined them, silently, with no test to notice.
-    tagged_at = datetime.now(UTC)
-    tagged_files = album_files.for_paths(paths or [album_path])
-    video_media = mb_lookup.video_media_of(release)
-    for folder in paths or [album_path]:
-        # All tagged folders must follow the release, not just the primary
-        # one (#730). Preserve each sidecar's own provenance and decisions;
-        # copying the primary sidecar would silently replace the other parts'.
-        base = (sc if folder == album_path else sidecar_mod.read(folder)) or Sidecar()
-        new = replace(
-            base,
-            store_url=store_url if folder == album_path else store_url_override or base.store_url,
-            added_at=base.added_at or tagged_at,
-            mb_release_id=mbid,
-            mb_match_candidate=None,  # cleared on tag — a suggestion, now acted on
-            tagged_at=tagged_at if outcome.tags_changed else base.tagged_at or tagged_at,
-            included_pregaps=pregap_decisions
-            if pregap_decisions is not None
-            else base.included_pregaps,
-            # Read off the release this tagging used, so the one fact the files
-            # cannot carry (#206) is recorded at the moment it is known rather than
-            # left for a reconcile pass to fetch again. Pure — no request (#237).
-            video_media=video_media,
-            accepted_release_id=_accepted_after_tagging(
-                base.accepted_release_id, requested_mbid, mbid, accept=accept_release
-            ),
-            # Folded into the same write rather than a second one after it (#663).
-            borrowed_artwork=_stand_ins_after(
-                album_path,
-                tagged_files,
-                mbid,
-                base.borrowed_artwork,
-                outcome.artwork.written,
-            ),
-            artwork_watch=(
-                None
-                if outcome.artwork.written
-                and not (outcome.artwork.stale or outcome.artwork.unkept or outcome.artwork.failed)
-                else base.artwork_watch
-            ),
-        )
-        sidecar_mod.write(folder, new)
-    # The files now carry what MusicBrainz says, so there is nothing left to be
-    # waiting for and an Ignore has nothing to mute (#271). Left behind, it would
-    # mute the NEXT divergence on this album if MusicBrainz happened not to have
-    # moved in between — an external re-tag in Picard is the way that happens.
-    #
-    # Under BOTH ids, because a merge moves the album's identity right here: the
-    # bookmark was written under the id the user was looking at, which is the one
-    # that was requested rather than the one that came back.
-    activity_store.unignore_update(mbid)
-    if mbid != requested_mbid:
-        activity_store.unignore_update(requested_mbid)
-        _record_merge(album_path, requested_mbid, mbid, tagger_mod.album_label(release, album_path))
-    _claim_pending_by_store_url(store_url)
-    return outcome
 
 
 def _tag_as_redownloaded(
@@ -4702,7 +4102,7 @@ def _tag_as_redownloaded(
         # short keeps being taggable while short — refusing would cost it its
         # tags over a shortfall it had before the user pressed anything. One that
         # was COMPLETE gets the strict guard, so a truncated download is caught.
-        _tag_with_release(album_path, mbid, cfg, tagger, incomplete=carried.incomplete)
+        retag_mod.tag_with_release(album_path, mbid, cfg, tagger, incomplete=carried.incomplete)
     except tagger_mod.TagMismatchError as e:
         # The replacement doesn't fit the release the old copy was. Genuinely
         # possible and worth seeing: MusicBrainz may not have caught up with a
@@ -6416,7 +5816,7 @@ def _register_routes(app: FastAPI) -> None:
                 status.HTTP_400_BAD_REQUEST, "no mb_release_id on sidecar to re-tag from"
             )
         try:
-            outcome = _tag_with_release(
+            outcome = retag_mod.tag_with_release(
                 album.path,
                 sc.mb_release_id,
                 request.app.state.cfg,
@@ -6429,7 +5829,7 @@ def _register_routes(app: FastAPI) -> None:
                 # Keyed on the album's DERIVED state (#195), which is the honest
                 # form of what this always meant. It used to test
                 # `track_count_expected is not None` and call that "the persisted
-                # confirmation" — but `_tag_with_release` wrote that field on
+                # confirmation" — but `retag.tag_with_release` wrote that field on
                 # every tag, incomplete or not, so the test was true for every
                 # album Harmonist had ever tagged and distinguished nothing. The
                 # state does distinguish: a COMPLETE album still gets
@@ -7207,7 +6607,7 @@ def _register_routes(app: FastAPI) -> None:
             try:
                 # Fetched only if it is not here already — the release's own
                 # front usually is, downloaded by the archive check.
-                if _in_hand(mbid, listed) is None:
+                if caa_listings.in_hand(mbid, listed) is None:
                     cover_art.candidate_image(listed)
             except cover_art.CoverArtError as e:
                 # Loud: somebody pressed this and is waiting for a picture.
@@ -7401,7 +6801,7 @@ def _register_routes(app: FastAPI) -> None:
                 files=files,
                 cover_path=album.cover_path,
                 archive=cover_art.cached_front(mbid) if mbid else None,
-                picks=_picked_originals(mbid, view.choices),
+                picks=caa_listings.picked_originals(mbid, view.choices),
             )
         except tagger_mod.ArtworkChangedError:
             log.info("the winning image for %s moved before it was written", album.path)
@@ -7410,7 +6810,7 @@ def _register_routes(app: FastAPI) -> None:
         # rather than the scan's copy, and written only if that changed.
         sc = sidecar_mod.read(album.path) if mbid else None
         if mbid and sc is not None and sc.mb_release_id == mbid:
-            stand_ins = _stand_ins_after(
+            stand_ins = caa_listings.stand_ins_after(
                 album.path, files, mbid, sc.borrowed_artwork, outcome.written
             )
             if stand_ins != sc.borrowed_artwork:
@@ -7501,7 +6901,7 @@ def _register_routes(app: FastAPI) -> None:
         if listed is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
         try:
-            original = _in_hand(mbid, listed) or cover_art.candidate_image(listed)
+            original = caa_listings.in_hand(mbid, listed) or cover_art.candidate_image(listed)
         except cover_art.CoverArtError as e:
             # The viewer's broken image is the visible signal; the log has why.
             log.warning(
@@ -7590,7 +6990,7 @@ def _register_routes(app: FastAPI) -> None:
             return Response(content=cached.data, media_type=cached.mime, headers=_IMMUTABLE)
         # A picker selection is cached by upload ID, separately from the default
         # front. Resolve only originals in this release's known listings (#742).
-        for listed in _listings(mbid):
+        for listed in caa_listings.listings(mbid):
             original = cover_art.cached_candidate_image(listed.listing.image_id)
             if original is not None and images.digest(original.data) == digest:
                 return Response(content=original.data, media_type=original.mime, headers=_IMMUTABLE)
@@ -7744,14 +7144,14 @@ def _register_routes(app: FastAPI) -> None:
         if release is not None or not cancel or reread:
             try:
                 if draft:
-                    release = _reviewed_release(
+                    release = retag_mod.reviewed_release(
                         candidate.mb_release_id, release_fingerprint, tagging
                     )
                 elif (reread and not request.query_params.get("replacement")) or release is None:
                     release = mb_cache.fetch_release(
                         candidate.mb_release_id, max_age=mb_cache.FRESH if reread else None
                     )
-                current = _release_fingerprint(release, candidate.mb_release_id, tagging)
+                current = retag_mod.release_fingerprint(release, candidate.mb_release_id, tagging)
                 checked_at = mb_cache.fetched_at(release["id"])
                 if draft and current != release_fingerprint:
                     raise track_assignment.AssignmentChanged(
@@ -7778,7 +7178,7 @@ def _register_routes(app: FastAPI) -> None:
                 error = (
                     "This release is no longer on MusicBrainz. Cancel and choose another release."
                 )
-            except (_ConfirmationChanged, ValueError, OSError, mb_lookup.MBError) as e:
+            except (retag_mod.ConfirmationChanged, ValueError, OSError, mb_lookup.MBError) as e:
                 # A failed read is not an empty tracklist. Keep the failure
                 # visible and offer a fresh editor, never an automatic write.
                 log.warning("could not build track assignments: %s", e, extra=_LOG_ONLY)
@@ -7927,7 +7327,7 @@ def _register_routes(app: FastAPI) -> None:
         archive_image = None
         release_only = bool(request.query_params.get("replacement"))
         try:
-            release = _reviewed_release(
+            release = retag_mod.reviewed_release(
                 candidate.mb_release_id, release_fingerprint, _tagging(request, album)
             )
             answer = caa_cache.front(
@@ -7946,7 +7346,7 @@ def _register_routes(app: FastAPI) -> None:
                 chosen=artwork.Source.ARCHIVE,
                 folder_cover=_folder_cover_policy(request),
             )
-        except _ConfirmationChanged as e:
+        except retag_mod.ConfirmationChanged as e:
             error = str(e)
         except cover_art.CoverArtError:
             log.exception("could not load assignment artwork", extra=_LOG_ONLY)
@@ -8042,11 +7442,11 @@ def _register_routes(app: FastAPI) -> None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "review assignments before applying")
         try:
             if candidate_mbid and candidate_mbid != candidate.mb_release_id:
-                raise _ConfirmationChanged(
+                raise retag_mod.ConfirmationChanged(
                     "The selected release changed. Review the new suggestion."
                 )
             if release_fingerprint and include_artwork:
-                reviewed = _reviewed_release(
+                reviewed = retag_mod.reviewed_release(
                     candidate.mb_release_id, release_fingerprint, _tagging(request, album)
                 )
                 release_only = bool(request.query_params.get("replacement"))
@@ -8058,10 +7458,10 @@ def _register_routes(app: FastAPI) -> None:
                     folder_cover=_folder_cover_policy(request),
                 )
                 if not art_plan or view.fingerprint != art_plan:
-                    raise _ConfirmationChanged(
+                    raise retag_mod.ConfirmationChanged(
                         "Artwork changed since the review. Go back and review the artwork again."
                     )
-            outcome = _tag_with_release(
+            outcome = retag_mod.tag_with_release(
                 album.path,
                 candidate.mb_release_id,
                 request.app.state.cfg,
@@ -8080,7 +7480,7 @@ def _register_routes(app: FastAPI) -> None:
                 accept_release=bool(request.query_params.get("replacement"))
                 or bool(album.has_tag_mbid and album.sidecar and not album.sidecar.mb_release_id),
             )
-        except (_ConfirmationChanged, track_assignment.AssignmentChanged) as e:
+        except (retag_mod.ConfirmationChanged, track_assignment.AssignmentChanged) as e:
             log.warning("could not apply reviewed changes: %s", e, extra=_LOG_ONLY)
             return _confirmation_error(request, str(e))
         except Exception as e:
