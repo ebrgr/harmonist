@@ -1126,6 +1126,18 @@ def test_pacing_can_be_switched_off_entirely(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _every_level_reviewed():
+    """Route every level to the Inbox, so the digest speaks for any update.
+
+    The digest names only updates bound for the Inbox (#273), and the shipped
+    level takes Structure alone. Under it, a test asserting the digest stayed
+    quiet would pass because of the threshold rather than the rule it is about.
+    `test_update_routing` covers the threshold itself.
+    """
+    gardener.configure_review(lambda: owned.Significance.SETTINGS)
+
+
+@pytest.fixture(autouse=True)
 def _forget_what_was_asked():
     """`gardener._asked` is module-level pacing state that outlives a test.
 
@@ -1277,10 +1289,7 @@ def test_a_pass_that_finds_more_than_it_can_name_leaves_one_summary(tmp_path, mo
 
     gardener.sweep(albums, limit=count)
 
-    expected = (
-        f"Update check: {count} albums now have an update available — "
-        "see the Library's Tag updates filter"
-    )
+    expected = f"Update check: {count} albums now have an update available — see the Inbox"
     assert _named_updates() == []
     assert _digest() == [expected]
 

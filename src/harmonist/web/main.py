@@ -234,10 +234,11 @@ def _is_actionable_incomplete(a: Album) -> bool:
     )
 
 
-# URL slugs are explicit; the order puts the widest-reaching updates first.
+# URL slugs are explicit; the order puts the widest-reaching updates first, by
+# `owned.ORDER`, which is the order the Inbox threshold is chosen on (#273).
 _LIBRARY_UPDATE_LEVELS = {
-    "update-identity": owned.Significance.IDENTITY,
     "update-structure": owned.Significance.STRUCTURE,
+    "update-identity": owned.Significance.IDENTITY,
     "update-enrichment": owned.Significance.ENRICHMENT,
     "update-cosmetic": owned.Significance.COSMETIC,
     "update-settings": owned.Significance.SETTINGS,
@@ -826,6 +827,8 @@ def create_app(
     templates = Jinja2Templates(directory=str(templates_dir))
     templates.env.globals["harmony_base"] = HARMONY_BASE
     templates.env.globals["AlbumState"] = AlbumState
+    # Widest-reaching first, as the Library's update menu lists them (#273).
+    templates.env.globals["update_levels"] = tuple(reversed(owned.ORDER))
     templates.env.globals["store_name"] = store_name
     templates.env.globals["display_path"] = _display_path
     templates.env.globals["rel_path"] = _rel_path
@@ -969,6 +972,7 @@ def create_app(
     # live config at the moment it looks, since Settings applies without a
     # restart.
     gardener.configure(lambda: library_titles.choices(app.state.cfg.tagging.choices()))
+    gardener.configure_review(lambda: app.state.cfg.gardener.review_from)
     artwork_updates.configure(lambda: app.state.cfg.tagging.folder_cover)
 
     def titles_changed(before: library_titles.Membership, after: library_titles.Membership) -> None:
@@ -3867,6 +3871,12 @@ def _inbox_albums(albums: list[Album]) -> list[Album]:
     return [a for a in albums if a.state not in _TERMINAL_STATES]
 
 
+def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
+    """Library albums whose update waits in the Inbox, by the live review level (#273)."""
+    cfg: config_mod.Config = request.app.state.cfg
+    return gardener.for_review(albums, _ignored_updates(), cfg.gardener.review_from)
+
+
 def _bandcamp_configured(cfg: config_mod.Config) -> bool:
     """True when a non-empty cookies file is present, i.e. Bandcamp sync
     has been set up. Drives the header's Sync vs Set-up button.
@@ -4259,6 +4269,7 @@ def _register_routes(app: FastAPI) -> None:
         ctx = _ctx(
             request,
             albums=_inbox_albums(albums),
+            updates=_review_updates(request, albums),
             total_albums=len(albums),
             sync_status=request.app.state.sync_runner.status(),
             deep_link_missing=deep_link_missing,
@@ -4322,6 +4333,7 @@ def _register_routes(app: FastAPI) -> None:
         ctx = _ctx(
             request,
             albums=_inbox_albums(albums),
+            updates=_review_updates(request, albums),
             total_albums=len(albums),
             pending=pending,
             redownloading=redownloads.all_pending(),
@@ -4530,6 +4542,7 @@ def _register_routes(app: FastAPI) -> None:
             download_formats=get_args(config_mod.DownloadFormat),
             # Per-album preference when the backup store exceeds its cap.
             keep_per_album=cfg.artwork_store.keep_per_album,
+            waiting_by_level=gardener.waiting_by_level(_albums(request), _ignored_updates()),
             **_update_check_ctx(request),
             **extra,
         )
@@ -4574,6 +4587,8 @@ def _register_routes(app: FastAPI) -> None:
         max_downloads_per_sync: int = Form(...),
         user_agent: str = Form(...),
         gardener_level: str = Form(...),
+        # Absent from a form that predates it, which keeps the saved level.
+        gardener_review_from: str | None = Form(None),
         folder_cover: str = Form(...),
         # Empty dropdown values and an omitted field both clear the list.
         transforms: list[str] = Form(default=[]),
@@ -4598,7 +4613,14 @@ def _register_routes(app: FastAPI) -> None:
             # model_validate (vs the constructor) keeps mypy happy about the
             # str→Literal narrowing while still validating the value at runtime.
             new_gardener = config_mod.GardenerConfig.model_validate(
-                {"level": gardener_level.strip()}
+                {
+                    "level": gardener_level.strip(),
+                    "review_from": (
+                        gardener_review_from.strip()
+                        if gardener_review_from is not None
+                        else cfg.gardener.review_from
+                    ),
+                }
             )
             new_tagging = config_mod.TaggingConfig.model_validate(
                 {
@@ -4629,6 +4651,8 @@ def _register_routes(app: FastAPI) -> None:
                 "bandcamp.max_downloads_per_sync": new_bandcamp.max_downloads_per_sync,
                 "musicbrainz.user_agent": new_mb.user_agent,
                 "gardener.level": new_gardener.level,
+                # A plain string for the reason `.value` is used below.
+                "gardener.review_from": str(new_gardener.review_from),
                 # `.value` so the file holds the plain string the loader
                 # parses, rather than relying on StrEnum's str-ness surviving
                 # tomlkit and every reader of the file after it.
@@ -4702,6 +4726,11 @@ def _register_routes(app: FastAPI) -> None:
         """Consolidated status — one poll instead of three. The status bar
         polls only this; the individual endpoints above remain for tests/curl."""
         state = request.app.state
+        counts = live_counts.to_status()
+        # The Inbox also holds the updates routed to it (#273). Derived on each
+        # poll from the snapshot's flags, which move without a state transition
+        # for live_counts to see.
+        counts["inbox"] += len(_review_updates(request, _albums(request)))
         return JSONResponse(
             {
                 "sync": state.sync_runner.status(),
@@ -4709,7 +4738,7 @@ def _register_routes(app: FastAPI) -> None:
                 "scan": state.scan_runner.status(),
                 # Single source of truth for the inbox/library counts — kept live
                 # by transitions (live_counts.move) and reset from each scan.
-                "counts": live_counts.to_status(),
+                "counts": counts,
                 # Potential downloads awaiting a decision (in-memory, from the last
                 # link-only sync). They need attention, so they count toward inbox.
                 "pending": pending_downloads.count(),

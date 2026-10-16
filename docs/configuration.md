@@ -81,6 +81,7 @@ release's own comment; missing or identical comments can leave titles identical.
 | Key | Env | Default | |
 |---|---|---|---|
 | `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks tags against MusicBrainz and artwork against the Cover Art Archive in the background and reports updates. It never writes to music files. On the Settings page as **Library updates**. |
+| `review_from` | `HARMONIST_GARDENER_REVIEW_FROM` | `"structure"` | The lowest significance whose updates wait in the Inbox: `settings`, `cosmetic`, `enrichment`, `identity`, `structure`, or `none`. Each level includes those after it in that list. On the Settings page as **Review in the Inbox**. |
 
 ## `[library]`
 

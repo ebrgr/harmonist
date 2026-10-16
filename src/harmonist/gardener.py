@@ -78,11 +78,14 @@ from . import (
     mb_lookup,
     tagger,
 )
+from .config import GardenerConfig, ReviewFrom
 from .formats import owned
 from .models import Album, AlbumState, Release
 from .transforms import TaggingChoices
 
 log = logging.getLogger(__name__)
+
+_LIBRARY_STATES = frozenset({AlbumState.COMPLETE, AlbumState.INCOMPLETE})
 
 # What fraction of the time the warm-up is allowed to be working. The rest of
 # each album's share is spent asleep, so the pass takes roughly 1/duty times as
@@ -110,8 +113,10 @@ _MAX_REST = timedelta(seconds=2)
 
 
 SettingsReader = Callable[[], TaggingChoices]
+ReviewReader = Callable[[], ReviewFrom]
 
 _settings: SettingsReader | None = None
+_review_from: ReviewReader | None = None
 
 
 def configure(settings: SettingsReader | None) -> None:
@@ -127,8 +132,19 @@ def configure(settings: SettingsReader | None) -> None:
     _settings = settings
 
 
+def configure_review(review_from: ReviewReader | None) -> None:
+    """Hand the check a reader of where the Inbox starts taking updates (#273),
+    live for the reason `configure`'s is. `None` means the shipped level."""
+    global _review_from
+    _review_from = review_from
+
+
 def _choices() -> TaggingChoices:
     return _settings() if _settings is not None else TaggingChoices()
+
+
+def _review_level() -> ReviewFrom:
+    return _review_from() if _review_from is not None else GardenerConfig().review_from
 
 
 # Held from reading the setting to recording the verdict, so a look that began
@@ -936,6 +952,10 @@ def _record_digest(result: PassResult) -> None:
     release at all — the same "narrating a state rather than a change" #272 took
     out of the tagger.
 
+    **Only updates bound for the Inbox** (#273). One below the review level is
+    the user's to look for through the Library's update filter, and naming it
+    here would be the notification they chose not to have.
+
     **Silence is a valid digest**, and the common one. Nothing else the pass can
     report belongs to the user:
 
@@ -951,11 +971,16 @@ def _record_digest(result: PassResult) -> None:
     revert. The album id is safe to read here because the pass writes nothing
     that could move it.
     """
-    albums = result.newly_flagged
+    review_from = _review_level()
+    albums = [
+        a
+        for a in result.newly_flagged
+        if a.update_significance is not None
+        and reviews(owned.Significance(a.update_significance), review_from)
+    ]
     if len(albums) > NAMED_UPDATES_MAX:
         activity.record(
-            f"Update check: {len(albums)} albums now have an update available — "
-            "see the Library's Tag updates filter"
+            f"Update check: {len(albums)} albums now have an update available — see the Inbox"
         )
         return
     for album in albums:
@@ -1032,6 +1057,61 @@ def is_ignored(album: Album, ignored: Mapping[str, activity_store.IgnoredUpdate]
         and entry.release_version == album.mb_version
         and album.update_significance != owned.Significance.SETTINGS
     )
+
+
+def reviews(significance: owned.Significance, review_from: ReviewFrom) -> bool:
+    """Whether an update reaching `significance` waits in the Inbox (#273).
+
+    The chosen level and everything ranked above it, by `owned.ORDER`.
+    """
+    return review_from != "none" and owned.ranked(significance) >= owned.ranked(review_from)
+
+
+def _waiting_at(
+    album: Album, ignored: Mapping[str, activity_store.IgnoredUpdate]
+) -> owned.Significance | None:
+    """How far the update of a Library album reaches, if it has one the user
+    has not ignored.
+
+    Library albums only: one still in an Inbox state is listed there under that
+    state, and its update is not the next thing to do about it.
+    """
+    if (
+        album.state not in _LIBRARY_STATES
+        or not album.update_available
+        or album.update_significance is None
+        or is_ignored(album, ignored)
+    ):
+        return None
+    return owned.Significance(album.update_significance)
+
+
+def for_review(
+    albums: Sequence[Album],
+    ignored: Mapping[str, activity_store.IgnoredUpdate],
+    review_from: ReviewFrom,
+) -> list[Album]:
+    """The albums whose update waits in the Inbox (#273)."""
+    return [
+        a
+        for a in albums
+        if (level := _waiting_at(a, ignored)) is not None and reviews(level, review_from)
+    ]
+
+
+def waiting_by_level(
+    albums: Sequence[Album], ignored: Mapping[str, activity_store.IgnoredUpdate]
+) -> dict[owned.Significance, int]:
+    """How many Library albums wait at each level, every level present.
+
+    What the Settings page counts beside each level, so a threshold is chosen
+    knowing how many albums it moves into or out of the Inbox.
+    """
+    counts = dict.fromkeys(owned.ORDER, 0)
+    for album in albums:
+        if (level := _waiting_at(album, ignored)) is not None:
+            counts[level] += 1
+    return counts
 
 
 def _last_look(mbid: str, times: dict[str, datetime]) -> datetime | None:

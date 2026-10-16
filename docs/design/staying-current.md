@@ -97,6 +97,26 @@ said about a background job running while nobody watches is that it can't damage
 the library. Letting a user trust some levels to apply themselves is the planned
 next step (#273).
 
+### Where an update waits
+
+**A threshold, not a choice per level.** The user picks the lowest level that
+waits in the Inbox; that level and everything above it do, and the rest are
+found through the Library's update filter. Five independent choices could send
+an identity change to the Library while its album's enrichment waited in the
+Inbox. The verdict is the album's furthest-reaching change, so that album would
+then never be reviewed at all.
+
+**Structure alone by default.** A changed tracklist can call the match itself
+into question, so it is the one level that cannot sensibly wait to be looked
+for. Everything else is a fact the Library already shows on demand.
+
+**Only what the Inbox takes is announced.** An update left to the filter is one
+the user chose not to be told about, and an Activity entry would tell them.
+
+**Library albums only.** An album still in an Inbox state is listed under that
+state, which is the next thing to do about it, and listing it twice would
+suggest two separate jobs.
+
 **The setting applies immediately, so the timer always runs.** It checks the
 current setting on each tick. A timer created only when the check was enabled at
 startup would leave the setting saved, looking applied, and doing nothing until

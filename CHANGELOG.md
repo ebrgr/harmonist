@@ -9,6 +9,12 @@ versions follow [semantic versioning](https://semver.org).
 ### Added
 
 - **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
+- **Tag updates can wait in the Inbox**, grouped by how far they reach. **Review in the Inbox** in Settings picks the lowest level that does, with each level's current album count; Structure by default (#273).
+
+### Changed
+
+- **The Activity feed only announces tag updates bound for the Inbox**; the rest stay in the **Tag updates** filter (#273).
+- **Structure now ranks above Identity**, in the severity badges and the Tag updates menu, matching how an album's update is judged (#273).
 
 ### Changed
 

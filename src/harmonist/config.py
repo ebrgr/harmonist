@@ -12,12 +12,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .artwork import FolderCoverPolicy
+from .formats.owned import Significance
 from .transforms import ArtistNames, TaggingChoices, TagTransform
 
 log = logging.getLogger(__name__)
 
 TestMode = Literal["fixture", "cassette", "live"]
 GardenerLevel = Literal["off", "review"]
+#: The lowest significance the Inbox takes an update at (#273), or "none" for an
+#: Inbox that takes no updates at all.
+ReviewFrom = Significance | Literal["none"]
 
 #: Bandcamp's download formats that arrive as files Harmonist can read and tag
 #: (#627). Bandcamp also offers WAV and AIFF, and an album downloaded as either
@@ -158,9 +162,19 @@ class GardenerConfig(BaseModel):
     pass spends a rate-limited request per album per cycle against a volunteer
     service, and starting to do that to somebody's install because they
     upgraded is not a decision this project gets to make for them.
+
+    `review_from` is where an update starts needing a person (#273): an album
+    whose update reaches that level or further waits in the Inbox, and one that
+    reaches less far is found through the Library's update filter only. A
+    threshold on `owned.ORDER` rather than a choice per level, so no level can
+    be handled less cautiously than one below it. Independent of `level`: an
+    update the album page found is routed the same whether the check runs or
+    not. Structure by default, because a changed tracklist can call the match
+    itself into question and the rest can wait to be looked for.
     """
 
     level: GardenerLevel = "off"
+    review_from: ReviewFrom = Significance.STRUCTURE
 
 
 class TaggingConfig(BaseModel):
@@ -363,6 +377,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         # that starts cleanly and does nothing, with no way to tell from the
         # outside which of the two they got.
         gardener["level"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_REVIEW_FROM"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["review_from"] = v.strip()
     if v := env.get("HARMONIST_TAGGING_FOLDER_COVER"):
         # Unvalidated, for the reason the gardener level is (above): a typo
         # should stop the container with the permitted values in the message,

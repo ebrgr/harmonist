@@ -47,7 +47,7 @@
 {# How far an update reaches, as one chip (#366).
 
    `owned.Significance` ranks five levels by how much of the album they call into
-   question — settings, cosmetic, enrichment, structure, identity. Artwork is not
+   question — settings, cosmetic, enrichment, identity, structure. Artwork is not
    among them: it has its own chip below (#468).
 
    Settings (#685) is the one level MusicBrainz did not cause: the user's own
@@ -88,8 +88,8 @@
     'settings':   ('Settings',   'sev--settings'),
     'cosmetic':   ('Cosmetic',   'sev--cosmetic'),
     'enrichment': ('Enrichment', 'sev--enrichment'),
-    'structure':  ('Structure',  'sev--structure'),
     'identity':   ('Identity',   'sev--identity'),
+    'structure':  ('Structure',  'sev--structure'),
 } %}
 {% if _s in _spec %}
 {% set label, cls = _spec[_s] %}

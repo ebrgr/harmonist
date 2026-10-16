@@ -91,6 +91,7 @@ def reset_gardener_settings():
 
     yield
     gardener.configure(None)
+    gardener.configure_review(None)
 
 
 @pytest.fixture(autouse=True)

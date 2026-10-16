@@ -41,6 +41,13 @@
 .settings-title:has(option[value="album_disambiguation_if_needed"]:checked) .settings-title-multiple .settings-title-plain,
 .settings-title[data-conditional="true"]:has(option[value="album_disambiguation_if_needed"]:checked) .transform-off-warning { display: none; }
 
+/* Where updates are reviewed follows the current choice the same way (#273):
+   the checked level and those listed above it go to the Inbox, and the rows
+   after the checked one are the levels left to the Library. */
+.update-routing__library { display: none; }
+.update-routing__row:has(input:checked) ~ .update-routing__row .update-routing__library { display: inline; }
+.update-routing__row:has(input:checked) ~ .update-routing__row .update-routing__inbox { display: none; }
+
 /* The artist examples follow the current controls the same way (#678): a
    variation is standardized by either standardizing choice, a former name only
    by "variations and name changes", and the artists list by that choice or by
@@ -366,11 +373,11 @@ button[disabled],
   background: #fff; color: var(--color-mb-purple);
   border-color: color-mix(in srgb, var(--color-mb-purple) 45%, transparent);
 }
-.sev--structure {
+.sev--identity {
   background: var(--color-mb-purple-soft); color: var(--color-mb-purple);
   border-color: color-mix(in srgb, var(--color-mb-purple) 50%, transparent);
 }
-.sev--identity { background: var(--color-mb-purple); color: #fff; border-color: var(--color-mb-purple); }
+.sev--structure { background: var(--color-mb-purple); color: #fff; border-color: var(--color-mb-purple); }
 /* The button fits its current label. The menu occupies the top layer, so opening
    it does not add a row or move the Library grid. */
 .library-update-button {

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'macros.html' import severity_chip %}
 
 {% macro storage_meter(label, path, used, cap) %}
 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -148,6 +149,37 @@
                 </select>
             </label>
             {% include 'partials/_update_check.html' %}
+            {# Where an update starts needing a person (#273): the checked level
+               and every level above it go to the Inbox. Widest first, so the
+               rows below the checked one are the levels left to the Library's
+               update filter; CSS previews that before saving. #}
+            <fieldset class="update-routing">
+                <legend class="block text-xs font-bold text-ink mb-1">Review in the Inbox</legend>
+                <ul class="divide-y divide-line border border-line rounded">
+                    <li class="update-routing__row">
+                        <label class="flex items-center gap-3 px-3 py-2 cursor-pointer">
+                            <input type="radio" name="gardener_review_from" value="none" class="cursor-pointer"
+                                   {{ 'checked' if cfg.gardener.review_from == 'none' }}>
+                            <span class="text-sm text-ink">None</span>
+                        </label>
+                    </li>
+                    {% for level in update_levels %}
+                    {% set n = waiting_by_level[level] %}
+                    <li class="update-routing__row" data-level="{{ level.value }}" data-count="{{ n }}">
+                        <label class="flex items-center gap-3 px-3 py-2 cursor-pointer">
+                            <input type="radio" name="gardener_review_from" value="{{ level.value }}" class="cursor-pointer"
+                                   {{ 'checked' if cfg.gardener.review_from == level }}>
+                            {{ severity_chip(level) }}
+                            <span class="text-xs text-muted">{{ n }} {{ 'album' if n == 1 else 'albums' }}</span>
+                            <span class="ml-auto text-xs font-semibold">
+                                <span class="update-routing__inbox text-mb-purple">Inbox</span>
+                                <span class="update-routing__library text-muted">Library only</span>
+                            </span>
+                        </label>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </fieldset>
         </section>
 
         <section aria-labelledby="bandcamp-heading" class="border-b border-line py-5 space-y-4">

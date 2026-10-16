@@ -117,7 +117,7 @@ marked "New".](images/library.png)
 | **Partially tagged** | have the matched release's MusicBrainz ID in some files but not others. |
 | **Artwork** | have no local artwork, tracks without embedded artwork, or different images across tracks. These are observations; different track images may be intentional. |
 | **Format** | contain a file of the selected codec, including mixed albums. **Mixed formats only** independently narrows to albums mixing codecs, such as one MP3 among FLACs; differing bitrates or sample rates alone do not make an album mixed. |
-| **Tag updates** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Identity**, **Structure**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
+| **Tag updates** | have tag changes waiting for review, including missing metadata and differences from MusicBrainz or the current tagging settings. Updates can be narrowed to **Structure**, **Identity**, **Enrichment**, **Cosmetic** or **Settings**; [keeping tags up to date](#keeping-tags-up-to-date) explains each. |
 | **Artwork updates** | have an **Addition** or **Replacement** waiting for review. An addition fills empty places; a replacement overwrites at least one existing image and may also fill gaps. |
 | **Possible mismatch** | may be matched to the wrong release. See [when the match might be wrong](#when-the-match-might-be-wrong). |
 | **MB contributions** | have a release that's missing something you could add. See [giving back to MusicBrainz](#giving-back-to-musicbrainz). |
@@ -180,10 +180,18 @@ Each update is labelled by how far it reaches:
 - **Cosmetic**: a title that differs only in capitalisation or spacing.
 - **Enrichment**: details added or corrected, such as a catalogue number or a
   more precise date.
-- **Structure**: tracks added, removed or renumbered. If Harmonist can't be sure
-  which file is now which track, it asks for the pairing to be checked.
 - **Identity**: the album now points at a different release, for instance
   after a merge on MusicBrainz.
+- **Structure**: tracks added, removed or renumbered. If Harmonist can't be sure
+  which file is now which track, it asks for the pairing to be checked.
+
+An album's update takes the label of its furthest-reaching change, in the order
+above. **Review in the Inbox** in Settings sets how far an update has to reach
+before it waits in the Inbox: the chosen level and every level after it in that
+list. By default that is Structure alone, since a changed tracklist can call the
+match itself into question. Updates below the chosen level stay in the **Tag
+updates** filter, and only updates bound for the Inbox are announced in the
+Activity feed.
 
 An update that looks wrong is a problem with the release on MusicBrainz, and
 [the correction belongs there](#musicbrainz-is-the-source-of-truth). An edit can
