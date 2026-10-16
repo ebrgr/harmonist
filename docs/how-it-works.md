@@ -186,12 +186,23 @@ Each update is labelled by how far it reaches:
   which file is now which track, it asks for the pairing to be checked.
 
 An album's update takes the label of its furthest-reaching change, in the order
-above. **Review in the Inbox** in Settings sets how far an update has to reach
-before it waits in the Inbox: the chosen level and every level after it in that
-list. By default that is Structure alone, since a changed tracklist can call the
-match itself into question. Updates below the chosen level stay in the **Tag
-updates** filter, and only updates bound for the Inbox are announced in the
-Activity feed.
+above. **Tag updates** in Settings decides what happens to each level, with
+the number of albums currently waiting at each:
+
+- **Apply**: the chosen level and every level before it in that list are written
+  without asking, never Structure. Nothing is, by default. Saving applies the
+  updates already waiting at once, and later ones are applied within about ten
+  minutes of being found. Each is recorded in the album's History, where **Undo
+  tag changes** reverses it; only tags are written, never artwork.
+- **Inbox**: the chosen level and every level after it wait in the Inbox. By
+  default that is Structure alone, since a changed tracklist can call the match
+  itself into question.
+- Anything in neither stays in the **Tag updates** filter.
+
+Where the two overlap, applying wins. An update Harmonist was trusted to apply
+but couldn't, such as one needing its track assignments reviewed or an album
+missing tracks, waits in the Inbox with the reason. Only updates bound for the
+Inbox are announced in the Activity feed.
 
 An update that looks wrong is a problem with the release on MusicBrainz, and
 [the correction belongs there](#musicbrainz-is-the-source-of-truth). An edit can

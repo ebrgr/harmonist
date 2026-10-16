@@ -41,12 +41,22 @@
 .settings-title:has(option[value="album_disambiguation_if_needed"]:checked) .settings-title-multiple .settings-title-plain,
 .settings-title[data-conditional="true"]:has(option[value="album_disambiguation_if_needed"]:checked) .transform-off-warning { display: none; }
 
-/* Where updates are reviewed follows the current choice the same way (#273):
+/* Where updates go follows the current choices the same way (#273). Review:
    the checked level and those listed above it go to the Inbox, and the rows
-   after the checked one are the levels left to the Library. */
-.update-routing__library { display: none; }
-.update-routing__row:has(input:checked) ~ .update-routing__row .update-routing__library { display: inline; }
-.update-routing__row:has(input:checked) ~ .update-routing__row .update-routing__inbox { display: none; }
+   after it are left to the Library. Apply: the checked level and the rows after
+   it are applied, and win over both, which is why those rules are prefixed with
+   the fieldset (one more class) and come last. */
+.update-routing__choice { flex: none; width: 2.75rem; text-align: center; }
+.update-routing__library,
+.update-routing__applied { display: none; }
+.update-routing__row:has(.update-routing__review:checked) ~ .update-routing__row .update-routing__library { display: inline; }
+.update-routing__row:has(.update-routing__review:checked) ~ .update-routing__row .update-routing__inbox { display: none; }
+.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__applied,
+.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__applied { display: inline; }
+.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__inbox,
+.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__library,
+.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__inbox,
+.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__library { display: none; }
 
 /* The artist examples follow the current controls the same way (#678): a
    variation is standardized by either standardizing choice, a former name only

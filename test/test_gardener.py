@@ -26,6 +26,7 @@ from mutagen.mp4 import MP4
 
 from harmonist import activity_store, gardener, mb_cache, mb_lookup, scanner, tagger
 from harmonist import sidecar as sc
+from harmonist.config import GardenerConfig
 from harmonist.formats import owned
 from harmonist.models import Album, Sidecar
 from harmonist.transforms import ArtistNames, TaggingChoices, TagTransform
@@ -1191,7 +1192,7 @@ def _every_level_reviewed():
     quiet would pass because of the threshold rather than the rule it is about.
     `test_update_routing` covers the threshold itself.
     """
-    gardener.configure_review(lambda: owned.Significance.SETTINGS)
+    gardener.configure_routing(lambda: GardenerConfig(review_from=owned.Significance.SETTINGS))
 
 
 @pytest.fixture(autouse=True)

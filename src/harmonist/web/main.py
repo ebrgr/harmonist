@@ -50,6 +50,7 @@ from harmonist import (
     artwork_updates,
     artwork_watch,
     audit,
+    auto_apply,
     caa_cache,
     caa_listings,
     compare,
@@ -831,6 +832,7 @@ def create_app(
     templates.env.globals["AlbumState"] = AlbumState
     # Widest-reaching first, as the Library's update menu lists them (#273).
     templates.env.globals["update_levels"] = tuple(reversed(owned.ORDER))
+    templates.env.globals["held_reason"] = auto_apply.held_reason
     templates.env.globals["store_name"] = store_name
     templates.env.globals["display_path"] = _display_path
     templates.env.globals["rel_path"] = _rel_path
@@ -941,6 +943,17 @@ def create_app(
                 on_schedule=gardener.note_next_pass,
             )
         )
+        # And write what the user trusts Harmonist with (#273): on its own tick,
+        # since it spends no MusicBrainz budget and so does not wait on the
+        # update check's level. Reads the threshold per tick, like the check.
+        apply_task = asyncio.create_task(
+            periodic.run_periodically(
+                gardener.SWEEP_TICK,
+                lambda: _auto_apply_if_idle(_app, sync_runner, reconcile_runner, scan_runner),
+                name="auto-apply",
+                stop_event=watch_stop,
+            )
+        )
         artwork_task = asyncio.create_task(
             periodic.run_periodically(
                 artwork_updates.TICK,
@@ -956,6 +969,7 @@ def create_app(
             watch_task.cancel()
             rescan_task.cancel()
             check_task.cancel()
+            apply_task.cancel()
             artwork_task.cancel()
             with suppress(asyncio.CancelledError):
                 await watch_task
@@ -963,6 +977,8 @@ def create_app(
                 await rescan_task
             with suppress(asyncio.CancelledError):
                 await check_task
+            with suppress(asyncio.CancelledError):
+                await apply_task
             with suppress(asyncio.CancelledError):
                 await artwork_task
 
@@ -974,7 +990,7 @@ def create_app(
     # live config at the moment it looks, since Settings applies without a
     # restart.
     gardener.configure(lambda: library_titles.choices(app.state.cfg.tagging.choices()))
-    gardener.configure_review(lambda: app.state.cfg.gardener.review_from)
+    gardener.configure_routing(lambda: app.state.cfg.gardener)
     artwork_updates.configure(lambda: app.state.cfg.tagging.folder_cover)
 
     def titles_changed(before: library_titles.Membership, after: library_titles.Membership) -> None:
@@ -3347,6 +3363,49 @@ def _update_check_if_idle(
     return None
 
 
+def _auto_apply_if_idle(
+    app: FastAPI,
+    sync_runner: SyncRunner,
+    reconcile_runner: ReconcileRunner,
+    scan_runner: ScanRunner,
+) -> str | None:
+    """Write the waiting updates the user trusts Harmonist with (#273), unless
+    something with a better claim is running. `None` when a pass was started,
+    otherwise the reason it wasn't, as for `_update_check_if_idle`.
+
+    Independent of the update check's level: that switch guards the MusicBrainz
+    budget, and applying writes from stored releases, spending none of it. An
+    update found by an album page or a Settings re-check is applied as one the
+    check found is.
+
+    Stands aside for a sync or a reconcile pass, which are rewriting sidecars and
+    moving albums between states, and until the first scan: there is no library
+    to apply to before it. The next tick, ten minutes on, is soon enough.
+    """
+    if app.state.cfg.gardener.apply_up_to == "none":
+        return "nothing is set to apply automatically"
+    if sync_runner.is_running or reconcile_runner.is_running:
+        log.debug("Skipping auto-apply: sync or reconcile in progress")
+        return "a sync or reconcile is running"
+    if not scan_runner.has_completed():
+        log.debug("Skipping auto-apply: the library has not been scanned yet")
+        return "the library hasn't finished scanning yet"
+
+    def _run() -> None:
+        try:
+            auto_apply.apply_due(
+                scan_runner.albums(), app.state.cfg, app.state.tagger, _ignored_updates()
+            )
+        except Exception:
+            # Boundary catch: the pass holds the albums it cannot write, so
+            # anything arriving here is a defect. Loud every time, since the
+            # log is the only channel for a pass nobody is watching.
+            log.exception("auto-apply pass failed")
+
+    threading.Thread(target=_run, name="harmonist-auto-apply", daemon=True).start()
+    return None
+
+
 def _start_flag_warm_up(scan_runner: ScanRunner) -> None:
     """Rebuild the update-available flags once the library snapshot exists (#287).
 
@@ -3401,7 +3460,10 @@ def _start_rebuilt_recheck(albums: list[Album]) -> None:
 
 
 def _start_settings_recheck(
-    scan_runner: ScanRunner, before: TaggingChoices, after: TaggingChoices
+    scan_runner: ScanRunner,
+    before: TaggingChoices,
+    after: TaggingChoices,
+    then: Callable[[], object] | None = None,
 ) -> None:
     """Re-judge the albums a change to the spelling settings can move (#685, #678).
 
@@ -3410,10 +3472,17 @@ def _start_settings_recheck(
     it no longer would loses it. Its own thread, as the warm-up is and for the
     same reasons — file reads, nothing to await, nothing persisted.
 
+    `then` runs once the re-check is done, so the updates it found can be
+    applied straight away when the user trusts Harmonist with them (#273).
+
     Not before the first scan has finished: there are no albums to re-judge
     yet, and the warm-up that scan triggers already reads the new setting.
+    `then` still runs, since it was not waiting on this re-check alone and can
+    judge for itself whether there is anything to do.
     """
     if not scan_runner.has_completed():
+        if then is not None:
+            then()
         return
 
     def _run() -> None:
@@ -3424,6 +3493,9 @@ def _start_settings_recheck(
             # silently, and the symptom would otherwise be a filter that still
             # describes the setting the user just changed.
             log.exception("update-available re-check after a settings change failed")
+            return
+        if then is not None:
+            then()
 
     threading.Thread(target=_run, name="harmonist-flag-recheck", daemon=True).start()
 
@@ -3895,9 +3967,10 @@ def _inbox_albums(albums: list[Album]) -> list[Album]:
 
 
 def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
-    """Library albums whose update waits in the Inbox, by the live review level (#273)."""
+    """Library albums whose update waits in the Inbox, by the live routing (#273):
+    those reaching the review level, and those auto-apply had to hold back."""
     cfg: config_mod.Config = request.app.state.cfg
-    return gardener.for_review(albums, _ignored_updates(), cfg.gardener.review_from)
+    return gardener.for_review(albums, _ignored_updates(), cfg.gardener, held=auto_apply.is_held)
 
 
 def _bandcamp_configured(cfg: config_mod.Config) -> bool:
@@ -4612,6 +4685,7 @@ def _register_routes(app: FastAPI) -> None:
         gardener_level: str = Form(...),
         # Absent from a form that predates it, which keeps the saved level.
         gardener_review_from: str | None = Form(None),
+        gardener_apply_up_to: str | None = Form(None),
         folder_cover: str = Form(...),
         # Empty dropdown values and an omitted field both clear the list.
         transforms: list[str] = Form(default=[]),
@@ -4642,6 +4716,11 @@ def _register_routes(app: FastAPI) -> None:
                         gardener_review_from.strip()
                         if gardener_review_from is not None
                         else cfg.gardener.review_from
+                    ),
+                    "apply_up_to": (
+                        gardener_apply_up_to.strip()
+                        if gardener_apply_up_to is not None
+                        else cfg.gardener.apply_up_to
                     ),
                 }
             )
@@ -4676,6 +4755,7 @@ def _register_routes(app: FastAPI) -> None:
                 "gardener.level": new_gardener.level,
                 # A plain string for the reason `.value` is used below.
                 "gardener.review_from": str(new_gardener.review_from),
+                "gardener.apply_up_to": str(new_gardener.apply_up_to),
                 # `.value` so the file holds the plain string the loader
                 # parses, rather than relying on StrEnum's str-ness surviving
                 # tomlkit and every reader of the file after it.
@@ -4708,8 +4788,21 @@ def _register_routes(app: FastAPI) -> None:
         mb_lookup.configure(new_cfg.musicbrainz.user_agent)
         before = library_titles.choices(cfg.tagging.choices())
         after = library_titles.choices(new_tagging.choices())
+        # Applied as soon as the save lands (#273): the user just chose what
+        # Harmonist may write, with each level's count in front of them. After
+        # the re-check when there is one, so the updates a new spelling setting
+        # creates are among those applied.
+        state = request.app.state
+
+        def _apply() -> object:
+            return _auto_apply_if_idle(
+                request.app, state.sync_runner, state.reconcile_runner, state.scan_runner
+            )
+
         if before != after:
-            _start_settings_recheck(request.app.state.scan_runner, before, after)
+            _start_settings_recheck(state.scan_runner, before, after, then=_apply)
+        else:
+            _apply()
         activity.info("Settings updated")
 
         return _templates(request).TemplateResponse(

@@ -94,11 +94,46 @@ go quiet about real edits for as long as it waited.
 the library; it's protecting MusicBrainz, a volunteer service, from load an
 upgrade started without anyone deciding to.
 
-**It only reports.** Every significance level currently needs review (see
-[tagging](tagging.md#how-significant-a-change-is)), so the one thing that can be
-said about a background job running while nobody watches is that it can't damage
-the library. Letting a user trust some levels to apply themselves is the planned
-next step (#273).
+**It only reports.** Finding updates and writing them are separate jobs, so the
+check itself can't damage the library whatever it finds. Writing is the apply
+pass's (below), and only for the levels the user has trusted.
+
+### Applying without asking
+
+**Two thresholds on one scale.** Apply takes the chosen level and those below
+it, Inbox the chosen level and those above, so neither can treat a level more
+cautiously than one further along. Applying wins where they overlap: reviewing
+an update that is about to be written would be asking twice.
+
+**Never Structure.** A changed tracklist can need its track assignments
+reviewed, which has no unattended answer, and can call the match itself into
+question.
+
+**Written from the stored release.** The album was judged against the cached
+payload, so that is what gets written, as a reviewed confirmation writes what
+its review showed. Fetching afresh could write a release nobody had judged, and
+would spend a MusicBrainz request per album. Each album is re-judged at write
+time, and one whose update now reaches further than the user trusts is held
+rather than written.
+
+**Tags only.** Artwork replacement needs a backup before it overwrites, and
+nobody asked for this write, so artwork waits for its own setting.
+
+**Its own tick, independent of the update check.** The check's switch guards
+the MusicBrainz budget, and applying spends none of it, so an update found by
+an album page or a Settings re-check is applied all the same. Never by the page
+visit itself: an album changing because someone looked at it would be
+surprising, and its page already offers the update.
+
+**What can't be written waits in the Inbox, with the reason.** An album missing
+tracks (whose re-tag is a decision about that album), one needing track
+assignments reviewed, one whose write failed. The hold is kept in memory against
+the MusicBrainz version it was held at, like the flag it qualifies, so a failure
+isn't retried every ten minutes, and is retried once MusicBrainz moves or
+Harmonist restarts.
+
+**One action per album.** Each write opens its own action scope, so its History
+entry carries its own tag changes and its own Undo.
 
 ### Where an update waits
 

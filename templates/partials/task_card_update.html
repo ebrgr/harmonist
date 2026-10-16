@@ -1,7 +1,13 @@
 {# A Library album whose update waits in the Inbox (#273). The heading of its
    group says how far the update reaches; the album's title links to its page,
-   which shows the update and applies or ignores it. #}
-{# pb-1: the header keeps its own bottom margin, so the card ends as evenly as it starts. #}
+   which shows the update and applies or ignores it. An update Harmonist was
+   trusted to apply and could not says why, since that is what to look at. #}
+{# pb-1: the header and the reason keep their own bottom margin, so the card
+   ends as evenly as it starts. #}
+{% set why = held_reason(album) %}
 <div id="task-{{ album.id }}" class="px-4 pt-4 pb-1 rounded-lg bg-white border border-mb-purple/40">
     {% include 'partials/_album_header.html' %}
+    {% if why %}
+    <p class="mb-3 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
+    {% endif %}
 </div>

@@ -115,10 +115,10 @@ _MAX_REST = timedelta(seconds=2)
 
 
 SettingsReader = Callable[[], TaggingChoices]
-ReviewReader = Callable[[], ReviewFrom]
+RoutingReader = Callable[[], GardenerConfig]
 
 _settings: SettingsReader | None = None
-_review_from: ReviewReader | None = None
+_routing: RoutingReader | None = None
 
 
 def configure(settings: SettingsReader | None) -> None:
@@ -134,19 +134,20 @@ def configure(settings: SettingsReader | None) -> None:
     _settings = settings
 
 
-def configure_review(review_from: ReviewReader | None) -> None:
-    """Hand the check a reader of where the Inbox starts taking updates (#273),
-    live for the reason `configure`'s is. `None` means the shipped level."""
-    global _review_from
-    _review_from = review_from
+def configure_routing(routing: RoutingReader | None) -> None:
+    """Hand the check a reader of where updates go (#273): which are applied
+    and which wait in the Inbox. Live for the reason `configure`'s reader is.
+    `None` means the shipped levels."""
+    global _routing
+    _routing = routing
 
 
 def _choices() -> TaggingChoices:
     return _settings() if _settings is not None else TaggingChoices()
 
 
-def _review_level() -> ReviewFrom:
-    return _review_from() if _review_from is not None else GardenerConfig().review_from
+def _routing_now() -> GardenerConfig:
+    return _routing() if _routing is not None else GardenerConfig()
 
 
 # Held from reading the setting to recording the verdict, so a look that began
@@ -1024,7 +1025,8 @@ def _record_digest(result: PassResult) -> None:
 
     **Only updates bound for the Inbox** (#273). One below the review level is
     the user's to look for through the Library's update filter, and naming it
-    here would be the notification they chose not to have.
+    here would be the notification they chose not to have. One in the apply range
+    is about to be written, and the write records itself.
 
     **Silence is a valid digest**, and the common one. Nothing else the pass can
     report belongs to the user:
@@ -1041,12 +1043,12 @@ def _record_digest(result: PassResult) -> None:
     revert. The album id is safe to read here because the pass writes nothing
     that could move it.
     """
-    review_from = _review_level()
+    routing = _routing_now()
     albums = [
         a
         for a in result.newly_flagged
         if a.update_significance is not None
-        and reviews(owned.Significance(a.update_significance), review_from)
+        and _bound_for_review(owned.Significance(a.update_significance), routing)
     ]
     if len(albums) > NAMED_UPDATES_MAX:
         activity.record(
@@ -1137,7 +1139,29 @@ def reviews(significance: owned.Significance, review_from: ReviewFrom) -> bool:
     return review_from != "none" and owned.ranked(significance) >= owned.ranked(review_from)
 
 
-def _waiting_at(
+def applies(significance: owned.Significance, apply_up_to: ReviewFrom) -> bool:
+    """Whether an update reaching `significance` is written without asking (#273).
+
+    The chosen level and everything ranked below it, never Structure: the config
+    refuses it as a threshold, and this refuses it as a level, so a Structure
+    update is never applied whatever the threshold says.
+    """
+    return (
+        apply_up_to != "none"
+        and significance != owned.Significance.STRUCTURE
+        and owned.ranked(significance) <= owned.ranked(apply_up_to)
+    )
+
+
+def _bound_for_review(significance: owned.Significance, routing: GardenerConfig) -> bool:
+    """Reviewed and not applied: applying wins where the two ranges overlap,
+    because asking about an update that is about to be written is asking twice."""
+    return reviews(significance, routing.review_from) and not applies(
+        significance, routing.apply_up_to
+    )
+
+
+def waiting_at(
     album: Album, ignored: Mapping[str, activity_store.IgnoredUpdate]
 ) -> owned.Significance | None:
     """How far the update of a Library album reaches, if it has one the user
@@ -1159,14 +1183,26 @@ def _waiting_at(
 def for_review(
     albums: Sequence[Album],
     ignored: Mapping[str, activity_store.IgnoredUpdate],
-    review_from: ReviewFrom,
+    routing: GardenerConfig,
+    held: Callable[[Album], bool] = lambda _: False,
 ) -> list[Album]:
-    """The albums whose update waits in the Inbox (#273)."""
-    return [
-        a
-        for a in albums
-        if (level := _waiting_at(a, ignored)) is not None and reviews(level, review_from)
-    ]
+    """The albums whose update waits in the Inbox (#273).
+
+    Those reaching the review level, less those about to be applied, plus those
+    in the apply range that `held` says could not be: the Inbox is where an
+    update Harmonist was trusted with and could not write turns up.
+    """
+    routed = []
+    for album in albums:
+        level = waiting_at(album, ignored)
+        if level is None:
+            continue
+        if applies(level, routing.apply_up_to):
+            if held(album):
+                routed.append(album)
+        elif reviews(level, routing.review_from):
+            routed.append(album)
+    return routed
 
 
 def waiting_by_level(
@@ -1179,7 +1215,7 @@ def waiting_by_level(
     """
     counts = dict.fromkeys(owned.ORDER, 0)
     for album in albums:
-        if (level := _waiting_at(album, ignored)) is not None:
+        if (level := waiting_at(album, ignored)) is not None:
             counts[level] += 1
     return counts
 

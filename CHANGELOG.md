@@ -11,7 +11,8 @@ versions follow [semantic versioning](https://semver.org).
 - **Docker images support 64-bit ARM**, including Raspberry Pi with a 64-bit OS (#766).
 - **The main track listing can switch between titles and filenames** (#762).
 - **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
-- **Tag updates can wait in the Inbox**, grouped by how far they reach. **Review in the Inbox** in Settings picks the lowest level that does, with each level's current album count; Structure by default (#273).
+- **Tag updates can wait in the Inbox**, grouped by how far they reach. **Tag updates** in Settings picks the lowest level that does, with each level's current album count; Structure by default (#273).
+- **Tag updates can apply themselves**: the same setting picks the highest level Harmonist writes without asking, never Structure. Saving applies what is already waiting; each write is recorded in History with Undo, and anything that can't be written unattended waits in the Inbox with the reason (#273).
 - **The status bar shows the startup update check, the Settings re-check and the first artwork read while they run**, then what each found (#757).
 
 ### Changed

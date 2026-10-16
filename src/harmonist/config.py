@@ -171,10 +171,27 @@ class GardenerConfig(BaseModel):
     update the album page found is routed the same whether the check runs or
     not. Structure by default, because a changed tracklist can call the match
     itself into question and the rest can wait to be looked for.
+
+    `apply_up_to` is the other end of the same scale: an update reaching that
+    level or less far is written without asking, which wins over reviewing it.
+    Nothing by default, since applying writes to somebody's files. Never
+    Structure: a changed tracklist needs a person by definition, and the track
+    assignment it can call for has no unattended answer.
     """
 
     level: GardenerLevel = "off"
     review_from: ReviewFrom = Significance.STRUCTURE
+    apply_up_to: ReviewFrom = "none"
+
+    @field_validator("apply_up_to")
+    @classmethod
+    def _never_structure(cls, value: ReviewFrom) -> ReviewFrom:
+        if value == Significance.STRUCTURE:
+            raise ValueError(
+                "structure updates are never applied automatically; choose settings, "
+                "cosmetic, enrichment, identity or none"
+            )
+        return value
 
 
 class TaggingConfig(BaseModel):
@@ -380,6 +397,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     if v := env.get("HARMONIST_GARDENER_REVIEW_FROM"):
         # Unvalidated, for the reason the level is (above).
         gardener["review_from"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_APPLY_UP_TO"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["apply_up_to"] = v.strip()
     if v := env.get("HARMONIST_TAGGING_FOLDER_COVER"):
         # Unvalidated, for the reason the gardener level is (above): a typo
         # should stop the container with the permitted values in the message,
