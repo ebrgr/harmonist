@@ -12,6 +12,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).
 - **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).
 - **Required track-assignment reviews show the numbering or total-count difference that triggered them** (#750).
 

@@ -296,6 +296,9 @@
                         actually says is that this is a different master. -#}
                     {%- with runs = none if f.advisory else f.disk_runs, value = f.disk, entity = f.entity, credit = f.credit %}{% include 'partials/_field_value.html' %}{% endwith -%}
                     {%- endif -%}
+                    {% if f.label == 'Title' and t.pregap_note %}
+                    <div class="text-xs text-muted mt-1" data-pregap-note>{{ t.pregap_note }}</div>
+                    {% endif %}
                 </td>
                 {% endfor %}
             </tr>
@@ -325,14 +328,12 @@
                its own and has to carry the meaning itself. #}
             <tr>
                 <td class="track-diff__num">
-                    {% if not t.included_in_first_track %}
                     <span class="track-diff__missing"><svg
                         viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true"
                         ><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3.4"/></svg></span>
-                    {% endif %}
                 </td>
                 <td colspan="{{ tracklist.columns|length - 1 }}" class="track-diff__absent">
-                    {{ 'Included in track 1' if t.included_in_first_track else 'Not in your files' }}
+                    Not in your files
                 </td>
             </tr>
             {% endif %}

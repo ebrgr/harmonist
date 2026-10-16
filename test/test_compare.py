@@ -1444,6 +1444,46 @@ def test_identifier_columns_are_off_the_cap_and_named_by_their_control():
     assert tl.identifier_summary == "ISRC, Recording and Release track differ here."
 
 
+def test_included_pregap_is_content_of_track_one_without_masking_other_differences():
+    files = [
+        _file(1, "Nightcall", length=240_000, mb_release_track_id="first"),
+        _file(2, "Odd Look", mb_release_track_id="second"),
+    ]
+    mb = [
+        _mb_track(0, "Prelude", length=60_000, mb_release_track_id="gap"),
+        _mb_track(1, "Nightcall", mb_release_track_id="first"),
+        _mb_track(2, "Odd Look", mb_release_track_id="second"),
+    ]
+    accepted = tracklist(files, mb, included_pregaps={"gap": "first"})
+    assert len(accepted.tracks) == 2
+    assert accepted.tracks[0].pregap_note == "Includes pregap: Prelude · 1:00"
+    assert accepted.summary == "All 2 tracks match"
+    assert accepted.length_note is None
+    assert not any(c.advisory for c in accepted.columns)
+    assert accepted.identifier_summary == ""
+    assert not any(t.shows_mb for t in accepted.tracks)
+
+    # Accepting the layout does not accept changed titles, IDs or another
+    # track's length. Its advisory column must leave track one's cell blank.
+    changed = [
+        mb[0],
+        replace(mb[1], tags=replace(mb[1].tags, title="Nightcall (new title)")),
+        replace(mb[2], tags=replace(mb[2].tags, mb_track_id="new-recording"), length_ms=190_000),
+    ]
+    review = tracklist(files, changed, included_pregaps={"gap": "first"})
+    assert review.tracks[0].shows_mb
+    assert review.tracks[1].shows_mb
+    assert review.identifier_summary == "Recording differs here."
+    assert review.length_note.startswith("One track is a different length")
+    assert review.tracks[0].fields[-1].disk is None
+    assert review.tracks[1].fields[-1].disk == "3:10"
+
+    absent = tracklist(files, mb)
+    assert absent.tracks[0].state is TrackState.MISSING
+    assert "not in your files" in absent.summary
+    assert absent.length_note.startswith("One track is a different length")
+
+
 def test_a_row_whose_only_difference_is_hidden_hides_its_musicbrainz_line_too():
     """`shows_mb` exists to stop a row being given "an empty purple row carrying
     only a hexagon — a difference marked against nothing". Hiding the identifier

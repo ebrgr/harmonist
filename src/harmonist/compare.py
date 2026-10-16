@@ -1054,8 +1054,9 @@ class ComparedTrack:
     #: instead of a change to `shows_mb`: there is a line worth drawing here, and
     #: it is drawn the moment the identifiers are revealed.
     mb_only_identifiers: bool = False
-    included_in_first_track: bool = False
-    contains_pregap: bool = False
+    #: Accepted combined audio belongs to this file, not a missing-track row.
+    #: Derived from the reviewed release; no tags or sidecar values are changed.
+    pregap_note: str | None = None
 
     @property
     def differs(self) -> bool:
@@ -1066,9 +1067,7 @@ class ComparedTrack:
         how the Bandcamp comment stays quiet), but a whole track MusicBrainz has
         never heard of is one.
         """
-        return not self.included_in_first_track and (
-            self.state is not TrackState.PRESENT or any(f.differs for f in self.fields)
-        )
+        return self.state is not TrackState.PRESENT or any(f.differs for f in self.fields)
 
     @property
     def shows_mb(self) -> bool:
@@ -1380,13 +1379,15 @@ class TracklistComparison:
     def identifier_summary(self) -> str:
         """What sits beside that control, naming what is behind it.
 
-        Named rather than counted, and for the same reason the collapsed line is
-        (#112): a hidden column must not read as one nobody checked. Every column
-        in the table earned its place, so these are tags with something to show —
-        and the sentence says so, rather than leaving "3 columns hidden" to be
-        read as housekeeping.
+        Only actual differences, not columns earned by values varying between
+        tracks. Different recording IDs on different tracks can all agree with
+        MusicBrainz; their presence alone must not claim a mismatch.
         """
-        labels = [c.label for c in self.identifier_columns]
+        labels = [
+            c.label
+            for i, c in enumerate(self.columns)
+            if c.identifier and any(t.fields[i].differs for t in self.tracks)
+        ]
         if not labels:
             return ""
         return f"{_and_list(labels)} {'differs' if len(labels) == 1 else 'differ'} here."
@@ -1499,9 +1500,7 @@ class TracklistComparison:
         prose wants it wrapped to three short lines and read as a warning notice
         rather than as a footnote.
         """
-        n = sum(
-            1 for t in self.tracks if not t.contains_pregap and any(f.advisory for f in t.fields)
-        )
+        n = sum(1 for t in self.tracks if any(f.advisory for f in t.fields))
         if not n:
             return None
         count = "One track is" if n == 1 else f"{n} tracks are"
@@ -1595,7 +1594,7 @@ class TracklistComparison:
             (TrackState.UNREADABLE, "unreadable"),
             (TrackState.EXTRA, "not in MusicBrainz"),
         ):
-            count = sum(1 for t in counted if t.state is state and not t.included_in_first_track)
+            count = sum(1 for t in counted if t.state is state)
             if count:
                 clauses.append(f"{count} {phrase}")
         return " · ".join(clauses)
@@ -2412,6 +2411,17 @@ def tracklist(
     the files' images.
     """
     assigned, extras = _assign(tracks, mb, confirmed_mbid=confirmed_mbid)
+    # The caller supplies effective, release-scoped decisions. An included
+    # pregap describes the first file's contents; it has no file of its own to
+    # compare. Keep its title/length as a note without manufacturing tag or ID
+    # differences for a missing row. Separately present pregaps stay ordinary rows.
+    combined = {
+        included_pregaps[pregap_id]: t
+        for i, t in enumerate(mb)
+        if i not in assigned
+        and (pregap_id := t.tags.mb_release_track_id) is not None
+        and pregap_id in included_pregaps
+    }
     # The EXTRAS count towards this too (#402). A disc the release doesn't have
     # is one only its files know about, so a release with a single medium plus a
     # separately ripped Blu-ray still shows two discs — and "2-1" is what a row
@@ -2464,18 +2474,19 @@ def tracklist(
 
     rows: list[ComparedTrack] = []
     for i, mb_track in enumerate(mb):
-        # From MusicBrainz, never from the file: a row exists for every track the
-        # RELEASE has, including ones with no file at all, and a missing track
-        # has no tags to ask.
+        # From MusicBrainz, never from the file: missing tracks have no tags to
+        # ask. Accepted included pregaps are the exception to one row per release
+        # track; their contents are described on the file that carries them.
         disc = mb_track.tags.disc_num or 1
         entry = assigned.get(i)
         if entry is None:
+            if mb_track.tags.mb_release_track_id in included_pregaps:
+                continue
             rows.append(
                 ComparedTrack(
                     TrackState.MISSING,
                     _track_fields(None, mb_track, multi_disc, kept),
                     disc=disc,
-                    included_in_first_track=mb_track.tags.mb_release_track_id in included_pregaps,
                 )
             )
             continue
@@ -2512,13 +2523,19 @@ def tracklist(
                 )
             )
             continue
+        pregap = combined.get(mb_track.tags.mb_release_track_id or "")
+        pregap_note = None
+        if pregap is not None:
+            pregap_note = f"Includes pregap: {pregap.tags.title}"
+            if length := _mmss(pregap.length_ms):
+                pregap_note += f" · {length}"
         rows.append(
             ComparedTrack(
                 TrackState.PRESENT,
-                _track_fields(tags, mb_track, multi_disc, kept),
+                _track_fields(tags, mb_track, multi_disc, kept, compare_length=pregap is None),
                 file_name=name,
                 disc=disc,
-                contains_pregap=mb_track.tags.mb_release_track_id in included_pregaps.values(),
+                pregap_note=pregap_note,
             )
         )
 
@@ -2908,6 +2925,7 @@ def _track_fields(
     kept: Sequence[_Candidate],
     *,
     unreadable: bool = False,
+    compare_length: bool = True,
 ) -> tuple[FieldComparison, ...]:
     """The compared fields of one row, always in `_columns` order.
 
@@ -2953,7 +2971,9 @@ def _track_fields(
     fields.append(
         _length_field(
             tags.duration_ms if tags else None,
-            mb.length_ms if mb else None,
+            # An accepted combined rip has no separate track-one duration to
+            # compare. Show the file's actual length without an advisory.
+            mb.length_ms if mb and compare_length else None,
             unreadable=unreadable,
         )
     )

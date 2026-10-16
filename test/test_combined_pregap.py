@@ -106,7 +106,16 @@ def test_accept_and_reverse_only_changes_completeness(client, cfg, combined_albu
     assert all(formats.read_tags(f).owned["track_total"] == 3 for f in files)
     assert any("included_pregaps" in e.message for e in activity_store.recent(100))
     comparison = client.get(f"/library/{aid}/compare")
-    assert "Included in track 1" in comparison.text
+    soup = BeautifulSoup(comparison.text, "html.parser")
+    rows = soup.select("#album-track-view tbody.track-diff__track")
+    assert len(rows) == 2
+    note = rows[0].select_one("[data-pregap-note]")
+    assert note.get_text(strip=True) == "Includes pregap: Everything Is Brand New · 0:10"
+    assert note.find_parent("details") is None
+    assert rows[0].select_one(".track-diff__len").get_text(strip=True) == "0:30"
+    assert not soup.select("#album-track-view .track-diff__advisory")
+    assert not soup.select("#album-track-view .track-diff__mb")
+    assert "differ here" not in soup.select_one("#album-track-view").get_text()
     assert "Not in your files" not in comparison.text
     assert not gardener.plan_for(scanner.scan(cfg.paths.music_dir)[0], combined_album[1]).changes
     # Reopening and accepting again is a no-op for the persisted decision.

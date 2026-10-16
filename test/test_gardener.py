@@ -1003,10 +1003,10 @@ def test_identifiers_are_rendered_short_and_start_hidden(engaged, monkeypatch):
     # class that hides them until asked for.
     assert re.search(r"<th [^>]*track-diff__id[^>]*>\s*Recording\s*</th>", body)
     assert re.search(r"<td [^>]*track-diff__id[^>]*>", body)
-    # The control that reveals them, naming what is behind it rather than
-    # counting it — a hidden column must not read as one nobody checked (#112).
+    # Name the actual mismatches. The release-track IDs vary between tracks
+    # but agree with MusicBrainz, so their column must not claim a difference.
     assert "Show identifiers" in body
-    assert "ISRC, Artist IDs, Recording and Release track differ here." in body
+    assert "ISRC, Artist IDs and Recording differ here." in body
     # Trimmed to eight characters, with the whole id still in the link and the
     # tooltip. `rec-moved-1` is 11 characters, so a full render would show it.
     assert "rec-move…" in body
