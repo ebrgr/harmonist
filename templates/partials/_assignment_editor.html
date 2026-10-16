@@ -2,13 +2,15 @@
 {% macro duration(ms) -%}
     {{ '%d:%02d' | format(ms // 60000, (ms // 1000) % 60) if ms is not none else '—' }}
 {%- endmacro %}
-{% macro arrows(side, index, token, count) %}
+{% macro arrows(side, index, token, count, folded_slots) %}
     {% for direction, symbol in [('up', '↑'), ('down', '↓')] %}
+    {% set neighbor = index + (-1 if direction == 'up' else 1) %}
+    {% set folded = panel.mb_order[index] in folded_slots or (neighbor >= 0 and neighbor < count and panel.mb_order[neighbor] in folded_slots) %}
     <button type="submit" name="move" value="{{ side }}:{{ index }}:{{ direction }}"
             id="move-{{ album.id }}-{{ side }}-{{ token }}-{{ direction }}"
             aria-label="Move {{ 'on-disk' if side == 'disk' else 'MusicBrainz' }} entry {{ direction }}"
-            title="Swap this entry, or gap, with the one {{ 'above' if direction == 'up' else 'below' }}"
-            {% if (direction == 'up' and index == 0) or (direction == 'down' and index == count - 1) %}disabled{% endif %}
+            title="{{ 'Untick the pregap checkbox to move these entries' if folded else 'Swap this entry, or gap, with the one ' ~ ('above' if direction == 'up' else 'below') }}"
+            {% if folded or neighbor < 0 or neighbor >= count %}disabled{% endif %}
             class="px-2 py-1 border border-line rounded disabled:opacity-30">{{ symbol }}</button>
     {% endfor %}
 {% endmacro %}
@@ -40,6 +42,9 @@
         </ul>
         {% endif %}
         {% set counts = namespace(unassigned=0, multidisc=false) %}
+        {% set folded = panel.available_pregaps|selectattr('decision.pregap', 'in', panel.included_pregaps)|list %}
+        {% set hidden_slots = folded|map(attribute='pregap_slot')|list %}
+        {% set folded_slots = hidden_slots + (folded|map(attribute='first_slot')|list) %}
         {% for disk, mb in panel.rows %}
             {% if disk and not mb %}{% set counts.unassigned = counts.unassigned + 1 %}{% endif %}
         {% endfor %}
@@ -47,7 +52,8 @@
             {% if entry.number.split('.')[0] not in ['?', '1'] %}{% set counts.multidisc = true %}{% endif %}
         {% endfor %}
         <form hx-post="{{ review_url('/assignments/' ~ album.id, replacement) }}" hx-target="closest .assignment-content"
-              hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button" class="space-y-2">
+              hx-trigger="submit, change target:input[name='included_pregaps']"
+              hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button, find input[name='included_pregaps']" class="space-y-2">
             <input type="hidden" name="disk_order" value="{{ panel.draft.disk_order }}">
             <input type="hidden" name="mb_order" value="{{ panel.draft.mb_order }}">
             <input type="hidden" name="disk_fingerprint" value="{{ panel.draft.disk_fingerprint }}">
@@ -105,9 +111,24 @@
                         {% set previous = namespace(disk='', mb='') %}
                         {% for disk, mb in panel.rows %}
                         {% set row = loop.index0 %}
+                        {% for offer in panel.available_pregaps if panel.mb_order[row] == offer.pregap_slot %}
+                        <tr data-pregap-choice class="border-b border-line">
+                            <td colspan="6" class="p-2">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}"
+                                           id="included-pregap-{{ album.id }}-{{ offer.decision.pregap }}"
+                                           {% if offer.decision.pregap in panel.included_pregaps %}checked{% endif %}>
+                                    {{ 'Disc ' ~ offer.disc ~ ', track' if counts.multidisc else 'Track' }} 1 includes the pregap
+                                </label>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if panel.mb_order[row] not in hidden_slots %}
+                        {% set included = folded|selectattr('first_slot', 'equalto', panel.mb_order[row])|first %}
+                        {% set mb_length = included.pregap_length + included.first_length if included else mb.length if mb else none %}
                         {% set renumbered = disk and mb and (disk.number.split('.')[1] != mb.number.split('.')[1] or (disk.number.split('.')[0] != '?' and disk.number.split('.')[0] != mb.number.split('.')[0])) %}
-                        <tr class="border-b border-line {{ 'bg-amber-50' if (disk and not mb) or (mb and not disk) or renumbered else '' }}" data-assignment-row="{{ row }}">
-                            <td class="p-2 align-top">
+                        <tr class="{{ '' if included else 'border-b' }} border-line {{ 'bg-amber-50' if (disk and not mb) or (mb and not disk) or renumbered else '' }}" data-assignment-row="{{ row }}">
+                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top {{ 'border-b border-line' if included else '' }}">
                                 {% if disk %}
                                     {% set disc = disk.number.split('.')[0] %}
                                     {% if counts.multidisc and disc != previous.disk %}<div class="text-2xs text-muted whitespace-nowrap">Disc {{ disc if disc != '?' else 'unknown' }}</div>{% endif %}
@@ -116,23 +137,23 @@
                                     {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
                                 {% else %}—{% endif %}
                             </td>
-                            <td class="p-2 align-top">
+                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top {{ 'border-b border-line' if included else '' }}">
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
                                         {% if disk %}<span class="assignment-title" title="{{ disk.path }}">{{ disk.title }}</span>
                                         <span class="assignment-filename break-all" title="{{ disk.path }}">{{ disk.path }}</span>
                                         {% else %}<span class="text-muted italic">Missing on disk</span>{% endif %}
                                     </div>
-                                    {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('disk', row, panel.disk_order[row] if disk else 'gap-' ~ (panel.disk_order[:row]|select('none')|list|length), panel.rows|length) }}</div>{% endif %}
+                                    {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('disk', row, panel.disk_order[row] if disk else 'gap-' ~ (panel.disk_order[:row]|select('none')|list|length), panel.rows|length, folded_slots) }}</div>{% endif %}
                                 </div>
                             </td>
-                            <td class="p-2 font-mono align-top">{{ duration(disk.length) if disk else '—' }}</td>
-                            <td class="p-2 align-top border-l border-line text-mb-purple">
+                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 font-mono align-top {{ 'border-b border-line' if included else '' }}">{{ duration(disk.length) if disk else '—' }}</td>
+                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top border-l border-line text-mb-purple {{ 'border-b' if included else '' }}">
                                 {% if mb %}
                                     {% set disc = mb.number.split('.')[0] %}
                                     {% if counts.multidisc and disc != previous.mb %}<div class="text-2xs text-muted whitespace-nowrap">Disc {{ disc }}</div>{% endif %}
                                     {% set previous.mb = disc %}
-                                    <span class="font-mono" title="MusicBrainz track number">{{ mb.number.split('.')[1] }}</span>
+                                    <span class="font-mono" title="MusicBrainz track number">{{ '0+1' if included else mb.number.split('.')[1] }}</span>
                                 {% else %}—{% endif %}
                             </td>
                             <td class="p-2 align-top text-mb-purple">
@@ -141,36 +162,31 @@
                                         <span class="{{ 'text-amber-700' if disk and not mb else '' }}">{{ mb.title if mb else 'Unassigned' if disk else '—' }}</span>
                                         {% if (panel.disk_order[row], panel.mb_order[row]) in panel.proposed %}<div class="text-2xs text-amber-700" data-proposed-pair>Proposed assignment</div>{% endif %}
                                     </div>
-                                    {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('mb', row, panel.mb_order[row] if mb else 'gap-' ~ (panel.mb_order[:row]|select('none')|list|length), panel.rows|length) }}</div>{% endif %}
+                                    {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('mb', row, panel.mb_order[row] if mb else 'gap-' ~ (panel.mb_order[:row]|select('none')|list|length), panel.rows|length, folded_slots) }}</div>{% endif %}
                                 </div>
                             </td>
                             <td class="p-2 font-mono align-top text-mb-purple whitespace-nowrap">
-                                {{ duration(mb.length) if mb else '—' }}
-                                {% if disk and mb and disk.length is not none and mb.length is not none %}
-                                    {% set delta = (disk.length - mb.length)|abs %}
+                                {{ duration(mb_length) if mb else '—' }}
+                                {% if not included and disk and mb and disk.length is not none and mb_length is not none %}
+                                    {% set delta = (disk.length - mb_length)|abs %}
                                     {% if (delta / 1000)|round|int > 0 %}<span class="text-2xs whitespace-nowrap {{ 'text-amber-700 font-bold' if delta > 4000 else 'text-muted' }}" title="Duration difference"> · Δ {{ (delta / 1000)|round|int }}s</span>{% endif %}
                                 {% endif %}
                             </td>
                         </tr>
-                        {% for offer in panel.available_pregaps if panel.mb_order[row] == offer.pregap_slot %}
-                        <tr data-pregap-choice class="border-b border-line">
-                            <td colspan="6" class="p-2">
-                                <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
-                                    <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}"
-                                           {% if offer.decision.pregap in panel.included_pregaps %}checked{% endif %}>
-                                    {{ 'Disc ' ~ offer.disc ~ ', track' if counts.multidisc else 'Track' }} 1 includes the pregap
-                                </label>
-                                <span class="text-muted ml-2">{{ duration(offer.decision.duration_ms) }} in your file · {{ duration(offer.pregap_length) }} + {{ duration(offer.first_length) }} on MusicBrainz</span>
-                            </td>
+                        {% if included %}
+                        <tr class="border-b border-line text-2xs text-muted" data-included-pregap>
+                            <td class="px-2 pb-2 align-top" data-pregap-note>Includes {{ panel.mb[included.pregap_slot].title }}</td>
+                            <td class="px-2 pb-2 align-top font-mono">{{ duration(included.pregap_length) }}</td>
                         </tr>
-                        {% endfor %}
+                        {% endif %}
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% for pregap in panel.unavailable_pregaps %}
             <label class="flex items-center gap-1.5 text-xs text-amber-700">
-                <input type="checkbox" name="included_pregaps" value="{{ pregap }}" checked>
+                <input type="checkbox" name="included_pregaps" value="{{ pregap }}" id="included-pregap-{{ album.id }}-{{ pregap }}" checked>
                 Previously included pregap — these files or assignments no longer qualify
             </label>
             {% endfor %}

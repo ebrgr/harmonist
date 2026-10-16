@@ -64,9 +64,49 @@ def test_editor_offers_combined_pregap_with_timing_evidence(client, cfg, combine
     assert box["value"] == "rt-pregap"
     assert "checked" not in box.attrs
     assert "Track 1 includes the pregap" in soup.get_text()
-    assert "0:10 + 0:20" in soup.get_text()
+    rows = soup.select("[data-assignment-row]")
+    assert "Missing on disk" in rows[0].get_text()
+    assert rows[0].select("td")[5].get_text(strip=True) == "0:10"
     assert "0:30" in soup.get_text()
     assert "included_pregaps" not in json.loads((root / ".harmonist.json").read_text())
+
+
+def test_pregap_draft_folds_without_changing_assignments_or_files(client, cfg, combined_album):
+    root, _, calls, _ = combined_album
+    aid = test_web._id_for(cfg, root)
+    before = {f.name: f.read_bytes() for f in root.iterdir() if f.is_file()}
+    editor = client.get(f"/assignments/{aid}?album_tracks=true&on_album_page=true")
+    data = test_web._confirmation_fields(editor.text) | {"included_pregaps": "rt-pregap"}
+    for _ in range(2):
+        response = client.post(f"/assignments/{aid}", data=data)
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.text, "html.parser")
+        rows = soup.select("[data-assignment-row]")
+        assert len(rows) == 2
+        cells = rows[0].select("td")
+        assert cells[3].get_text(strip=True) == "0+1"
+        included = soup.select_one("[data-included-pregap]")
+        assert included.select_one("[data-pregap-note]").get_text(strip=True) == (
+            "Includes Everything Is Brand New"
+        )
+        assert included.select("td")[1].get_text(strip=True) == "0:10"
+        assert all(c["rowspan"] == "2" for c in cells[:4])
+        assert cells[5].get_text(strip=True) == "0:30"
+        assert "Δ" not in rows[0].get_text()
+        assert all("disabled" in b.attrs for b in rows[0].select("button[name=move]"))
+        assert all("disabled" in b.attrs for b in rows[1].select('button[value$=":up"]'))
+        fields = test_web._confirmation_fields(response.text)
+        assert fields["disk_order"] == data["disk_order"]
+        assert fields["mb_order"] == data["mb_order"]
+    data.pop("included_pregaps")
+    response = client.post(f"/assignments/{aid}", data=data)
+    soup = BeautifulSoup(response.text, "html.parser")
+    rows = soup.select("[data-assignment-row]")
+    assert len(rows) == 3
+    assert "Missing on disk" in rows[0].get_text()
+    assert "Δ 10s" in rows[1].get_text()
+    assert {f.name: f.read_bytes() for f in root.iterdir() if f.is_file()} == before
+    assert [c for c in calls if c[0] == "mb"] == [("mb", "rel-new-confirm")]
 
 
 def test_sidecar_preserves_scoped_combined_pregap_decision(tmp_path):
@@ -147,6 +187,7 @@ def test_offer_duration_boundary(combined_album, delta, offered):
 @pytest.mark.parametrize(
     "change",
     [
+        "no_pregap",
         "missing_length",
         "small_gap",
         "video",
@@ -161,7 +202,9 @@ def test_no_offer_without_unambiguous_combined_rip(combined_album, change):
     root, release, _, _ = combined_album
     tags = [formats.read_tags(f) for f in sorted(root.glob("*.m4a"))]
     medium = release["medium-list"][0]
-    if change == "missing_length":
+    if change == "no_pregap":
+        medium.pop("pregap")
+    elif change == "missing_length":
         medium["pregap"].pop("length")
     elif change == "small_gap":
         medium["pregap"]["length"] = "1000"
