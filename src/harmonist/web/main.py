@@ -69,6 +69,7 @@ from harmonist import (
     mb_tracks,
     pending_downloads,
     pregaps,
+    progress,
     provenance,
     reconcile,
     redownloads,
@@ -4765,6 +4766,8 @@ def _register_routes(app: FastAPI) -> None:
                 # link-only sync). They need attention, so they count toward inbox.
                 "pending": pending_downloads.count(),
                 "artwork_revision": artwork_updates.revision(),
+                # Bulk background work and the last one's closing line (#757).
+                "progress": progress.status(),
             }
         )
 

@@ -25,6 +25,7 @@ from . import (
     formats,
     mb_cache,
     mb_lookup,
+    progress,
 )
 from .models import Album, AlbumState
 
@@ -180,9 +181,20 @@ def observe(mbid: str) -> None:
 
 
 def warm(albums: Sequence[Album]) -> None:
-    for mbid in dict.fromkeys(a.sidecar.mb_release_id for a in albums if a.sidecar):
-        if mbid and mbid not in _observed:
+    """Read every release not yet observed, shown in the status bar while there
+    are any (#757): the first pass after a start reads the whole library, and
+    every later one is usually nothing at all."""
+    unread = [
+        mbid
+        for mbid in dict.fromkeys(a.sidecar.mb_release_id for a in albums if a.sidecar)
+        if mbid and mbid not in _observed
+    ]
+    if not unread:
+        return
+    with progress.job("Reading artwork", total=len(unread)) as job:
+        for mbid in unread:
             observe(mbid)
+            job.advance()
 
 
 def operation(album: Album) -> artwork.Operation | None:

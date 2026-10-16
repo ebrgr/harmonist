@@ -188,7 +188,9 @@ document.addEventListener('DOMContentLoaded', function () {
 //   3. action endpoints  — fire `harmonist-status` HX-Trigger events
 //
 // Display priority (highest wins):
-//   sync running  >  reconcile running  >  most recent action flash  >  idle
+//   sync running  >  reconcile running  >  scan  >  background job (#757)
+//     >  most recent action flash  >  idle
+// A background job's closing line takes the action flash's slot when it lands.
 //
 // On the running→idle edge of either runner, also fires `library-refresh`
 // so the Library section pulls in any newly-Complete/Incomplete albums.
@@ -202,6 +204,8 @@ document.addEventListener('DOMContentLoaded', function () {
     let syncDisplay = null;       // current running-sync HTML, or null
     let reconcileDisplay = null;  // current running-reconcile HTML, or null
     let scanDisplay = null;       // current library-scan HTML, or null
+    let jobDisplay = null;        // current background-job HTML, or null
+    let lastFinishedSeq;          // last closing line seen (undefined until first poll)
     let latestActionMessage = null;  // last flash text from an action, or null
 
     const esc = (s) => String(s).replace(/[&<>"']/g, c => (
@@ -232,7 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderStatus() {
         const el = document.getElementById(STATUS_EL_ID);
         if (!el) return;
-        const html = syncDisplay || reconcileDisplay || scanDisplay || latestActionMessage || '';
+        const html = syncDisplay || reconcileDisplay || scanDisplay || jobDisplay || latestActionMessage || '';
         if (html === lastStatusHtml) return;
         lastStatusHtml = html;
         el.innerHTML = html;
@@ -444,6 +448,26 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             scanDisplay = null;
         }
+
+        // ----- Background jobs (#757) -----
+        // The oldest running job, with a count of any others. A closing line is
+        // shown only when it lands while the page is open: the first poll just
+        // records where things stand, as the scan counter above does.
+        const progress = data.progress || {jobs: [], finished: null};
+        if (progress.jobs.length) {
+            const job = progress.jobs[0];
+            const more = progress.jobs.length > 1 ? ` · ${progress.jobs.length - 1} more` : '';
+            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${more}`;
+            const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">${esc(job.label)}</span>`;
+            jobDisplay = pill + `<span class="ml-2 text-slate-300">${prog}</span>`;
+        } else {
+            jobDisplay = null;
+        }
+        const finished = progress.finished;
+        if (finished && lastFinishedSeq !== undefined && finished.seq !== lastFinishedSeq) {
+            latestActionMessage = renderActionMessage(finished.label, finished.message, 'info');
+        }
+        lastFinishedSeq = finished ? finished.seq : null;
 
         renderStatus();
     });

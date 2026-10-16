@@ -56,6 +56,7 @@ of the reading side; the flag itself never consults it.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -76,6 +77,7 @@ from . import (
     formats,
     mb_cache,
     mb_lookup,
+    progress,
     tagger,
 )
 from .config import GardenerConfig, ReviewFrom
@@ -403,7 +405,9 @@ def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     until it finished — so an album page that crawled during that window looked
     identical to one that had hung, with no way to tell which from the log.
     """
-    return _refresh_from_cache(albums, duty=duty, wanted=lambda _: True, what="warm-up")
+    return _refresh_from_cache(
+        albums, duty=duty, wanted=lambda _: True, what="warm-up", label="Checking for tag updates"
+    )
 
 
 def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
@@ -419,7 +423,11 @@ def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     The warm-up's loop over just those albums, so it reads only their files
     and, like the warm-up, spends no MusicBrainz requests.
     """
-    return _refresh_from_cache(albums, duty=duty, wanted=lambda _: True, what="rescan re-check")
+    # Out of the status bar: it follows every rescan, usually over a handful of
+    # albums, and the bar has just said "Scanning" (#757).
+    return _refresh_from_cache(
+        albums, duty=duty, wanted=lambda _: True, what="rescan re-check", label=None
+    )
 
 
 def recheck_for_settings(
@@ -452,41 +460,72 @@ def recheck_for_settings(
             or tagger.tagsets_for(release, before) != tagger.tagsets_for(release, after)
         ),
         what="settings re-check",
+        label="Re-checking tags",
     )
 
 
+def _stored_release_of(album: Album) -> Release | None:
+    """The stored payload of the album's release, or None when there is nothing
+    to compare against: no release yet, or one never fetched (or fetched under a
+    different `inc`). Neither is an error."""
+    sc = album.sidecar
+    if sc is None or not sc.mb_release_id:
+        return None
+    return mb_cache.stored_release(sc.mb_release_id)
+
+
 def _refresh_from_cache(
-    albums: Sequence[Album], *, duty: float, wanted: Callable[[Release], bool], what: str
+    albums: Sequence[Album],
+    *,
+    duty: float,
+    wanted: Callable[[Release], bool],
+    what: str,
+    label: str | None,
 ) -> int:
-    """The paced loop `warm_from_cache` and the re-checks share."""
+    """The paced loop `warm_from_cache` and the re-checks share.
+
+    Shown in the status bar as `label` while it runs (#757): the warm-up and the
+    Settings re-check are minutes of file reads on a large library, and a person
+    may be waiting on either. None keeps it out of the bar.
+    """
     started = time.monotonic()
     log.info("update-available %s: checking %d albums", what, len(albums))
     flagged = 0
     looked = 0
     reported = started
-    for album in albums:
-        sc = album.sidecar
-        if sc is None or not sc.mb_release_id:
-            continue  # nothing to compare against; not an error
-        release = mb_cache.stored_release(sc.mb_release_id)
-        if release is None:
-            continue  # never fetched, or fetched under a different `inc`
-        if not wanted(release):
-            continue
-        looked += 1
-        at = time.monotonic()
-        refresh_flag(album, release)
-        # The verdict is the flag, not the return value — a None comes back both
-        # for an unreadable album (not flagged) and for one whose tracklist no
-        # longer fits (flagged), so counting the return would undercount.
-        if album.update_available:
-            flagged += 1
-        _rest(time.monotonic() - at, duty)
-        if time.monotonic() - reported >= _PROGRESS_EVERY.total_seconds():
-            reported = time.monotonic()
-            log.info(
-                "update-available %s: %d albums looked at, %d with an update", what, looked, flagged
-            )
+    shown = (
+        progress.job(label, total=len(albums))
+        if label is not None
+        else contextlib.nullcontext(progress.Job("", len(albums)))
+    )
+    with shown as job:
+        for album in albums:
+            release = _stored_release_of(album)
+            if release is not None and wanted(release):
+                looked += 1
+                at = time.monotonic()
+                refresh_flag(album, release)
+                # The verdict is the flag, not the return value — a None comes
+                # back both for an unreadable album (not flagged) and for one
+                # whose tracklist no longer fits (flagged), so counting the
+                # return would undercount.
+                if album.update_available:
+                    flagged += 1
+                _rest(time.monotonic() - at, duty)
+            job.advance()
+            if time.monotonic() - reported >= _PROGRESS_EVERY.total_seconds():
+                reported = time.monotonic()
+                log.info(
+                    "update-available %s: %d albums looked at, %d with an update",
+                    what,
+                    looked,
+                    flagged,
+                )
+        job.closing = (
+            f"{flagged} album has a tag update"
+            if flagged == 1
+            else f"{flagged} albums have a tag update"
+        )
     log.info(
         "update-available %s: done in %.0fs — %d of %d albums with a stored release have an update",
         what,
