@@ -1,0 +1,13 @@
+<div role="radiogroup" aria-label="On-disk track display" id="{{ display_prefix }}-display-{{ album.id }}" hx-preserve
+     class="track-display-toggle inline-flex items-center">
+    <label class="track-display-choice cursor-pointer">
+        <input type="radio" name="{{ 'track_display' if display_prefix == 'assignment' else 'tracklist_display' }}" value="title"
+               id="{{ display_prefix }}-titles-{{ album.id }}" checked class="sr-only">
+        <span>Title</span>
+    </label>
+    <label class="track-display-choice cursor-pointer">
+        <input type="radio" name="{{ 'track_display' if display_prefix == 'assignment' else 'tracklist_display' }}" value="filename"
+               id="{{ display_prefix }}-filenames-{{ album.id }}" class="track-filenames sr-only">
+        <span>Filename</span>
+    </label>
+</div>

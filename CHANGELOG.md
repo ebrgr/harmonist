@@ -8,6 +8,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
+- **The main track listing can switch between titles and filenames** (#762).
 - **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
 - **Tag updates can wait in the Inbox**, grouped by how far they reach. **Review in the Inbox** in Settings picks the lowest level that does, with each level's current album count; Structure by default (#273).
 - **The status bar shows the startup update check, the Settings re-check and the first artwork read while they run**, then what each found (#757).
@@ -17,6 +18,7 @@ versions follow [semantic versioning](https://semver.org).
 - **The status bar is live on every page**, so Settings and album pages show background work and the outcome of their own actions (#757).
 - **The Activity feed only announces tag updates bound for the Inbox**; the rest stay in the **Tag updates** filter (#273).
 - **Structure now ranks above Identity**, in the severity badges and the Tag updates menu, matching how an album's update is judged (#273).
+- **The track assignment editor uses the main track listing's typography, alignment, and table styling** (#762).
 - **Track assignments are edited using the pencil beside the Tracks heading** (#756).
 
 ### Fixed

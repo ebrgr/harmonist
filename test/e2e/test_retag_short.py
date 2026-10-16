@@ -74,7 +74,7 @@ def test_combined_pregap_is_a_cancelable_assignment_choice(pregap_server, htmx_r
         first = rows.first
         pw.expect(first.locator("td").nth(3)).to_have_text("0+1")
         included = editor.locator("[data-included-pregap]")
-        pw.expect(included.locator("td").nth(0)).to_have_text("Includes Hidden Prelude")
+        pw.expect(included.locator("td").nth(0)).to_have_text("Includes pregap: Hidden Prelude")
         pw.expect(included.locator("td").nth(1)).to_have_text("0:10")
         pw.expect(first.locator("td").nth(5)).to_have_text("0:30")
         pw.expect(first).not_to_contain_text("Δ")

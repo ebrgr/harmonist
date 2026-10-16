@@ -7557,7 +7557,9 @@ def test_identifiers_start_revealed_when_they_are_the_only_difference(client, cf
     monkeypatch.setattr("harmonist.web.main.mb_lookup.fetch_release", fake_release)
     body = client.get(f"/library/{_id_for(cfg, d)}/compare").text
 
-    assert re.search(r'<div class="tracklist tracklist--ids">', body), "the wrapper"
+    from bs4 import BeautifulSoup
+
+    assert BeautifulSoup(body, "html.parser").select_one(".tracklist.tracklist--ids"), "the wrapper"
     assert re.search(r'<input type="checkbox" class="cursor-pointer" checked', body), "the box"
 
 

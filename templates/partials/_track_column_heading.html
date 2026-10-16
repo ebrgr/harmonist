@@ -1,0 +1,8 @@
+{% if col.label == 'Title' %}
+    {% if not display.shown %}
+        {% with display_prefix = 'tracklist' %}{% include 'partials/_track_display_toggle.html' %}{% endwith %}
+        {% set display.shown = true %}
+    {% else %}
+        <span class="track-title">Title</span><span class="track-filename">Filename</span>
+    {% endif %}
+{% else %}{{ col.label }}{% endif %}

@@ -143,7 +143,7 @@ def test_column_display_toggle_survives_moves_and_reset(reset_demo_server):
         pw.expect(
             editor.locator("[data-assignment-row] .assignment-filename").first
         ).to_be_visible()
-        editor.locator("label.assignment-display-choice", has_text="Title").click()
+        editor.get_by_role("radio", name="Title", exact=True).press("Space")
         pw.expect(editor.locator("[data-assignment-row] .assignment-title").first).to_be_visible()
         editor.get_by_role("button", name="Reset", exact=True).click()
         pw.expect(editor.locator('[name="disk_order"]')).to_have_value("0,1,2")

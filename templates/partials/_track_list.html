@@ -43,9 +43,10 @@
    govern every cell of the identifier columns at once (#319). The toggle itself
    is in the section's header since #328 and reaches down to this class; the
    wrapper is what it reaches for. #}
-<div class="tracklist{{ ' tracklist--ids' if tracklist.reveal_identifiers }}">
+<div class="tracklist track-display{{ ' tracklist--ids' if tracklist.reveal_identifiers }}">
 <div class="overflow-x-auto">
     <table class="track-diff">
+        {% set display = namespace(shown=false) %}
         {# The number and length columns are named so they can be aligned by
            class. Not by position: the state notes below span the value columns
            and would otherwise be caught by a `:last-child` rule and flung to the
@@ -56,7 +57,7 @@
             <tr>
                 {% for col in tracklist.columns %}
                 <th scope="col" class="{{ 'track-diff__num' if loop.first else ('track-diff__len' if col.numeric else '') }}{{ ' track-diff__id' if col.identifier }}{{ ' track-diff__advisory' if col.advisory }}"{#
-                    #}{% if col.advisory and tracklist.length_note %} title="{{ tracklist.length_note }}"{% endif %}>{{ col.label }}</th>
+                    #}{% if col.advisory and tracklist.length_note %} title="{{ tracklist.length_note }}"{% endif %}>{% include 'partials/_track_column_heading.html' %}</th>
                 {% endfor %}
             </tr>
         </thead>
@@ -171,7 +172,7 @@
             <tr class="track-diff__disc-cols">
                 {% for col in tracklist.columns %}
                 <th scope="col" class="{{ 'track-diff__num' if loop.first else ('track-diff__len' if col.numeric else '') }}{{ ' track-diff__id' if col.identifier }}{{ ' track-diff__advisory' if col.advisory }}"{#
-                    #}{% if col.advisory and tracklist.length_note %} title="{{ tracklist.length_note }}"{% endif %}>{{ col.label }}</th>
+                    #}{% if col.advisory and tracklist.length_note %} title="{{ tracklist.length_note }}"{% endif %}>{% include 'partials/_track_column_heading.html' %}</th>
                 {% endfor %}
             </tr>
             {% endif %}
@@ -281,6 +282,7 @@
                                stroke="currentColor" stroke-width="2.2" stroke-dasharray="4 3.4"/></svg></a>
                     {%- endif -%}
                     {%- endif -%}
+                    {%- if col.label == 'Title' and t.file_name -%}<span class="track-title">{%- endif -%}
                     {%- if f.disk -%}
                     {#- Through `_field_value`, not `_diff_runs` directly (#309).
                         That is what makes an id column a named link instead of a
@@ -295,6 +297,9 @@
                         two digits, which says a length is a typo — when what it
                         actually says is that this is a different master. -#}
                     {%- with runs = none if f.advisory else f.disk_runs, value = f.disk, entity = f.entity, credit = f.credit %}{% include 'partials/_field_value.html' %}{% endwith -%}
+                    {%- endif -%}
+                    {%- if col.label == 'Title' and t.file_name -%}
+                    </span><span class="track-filename" title="{{ t.file_name }}">{{ t.file_name }}</span>
                     {%- endif -%}
                 </td>
                 {% endfor %}

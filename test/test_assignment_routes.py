@@ -294,14 +294,12 @@ def test_editor_keeps_disc_context_and_number_changes_with_entries(client, cfg, 
     )
     rows = BeautifulSoup(moved.text, "html.parser").select("[data-assignment-row]")
     cells = rows[0].find_all("td", recursive=False)
-    assert cells[0].select_one("span").text.strip() == "2"
-    assert cells[3].select_one("span").text.strip() == "1"
+    assert cells[0].select_one("span").text.strip() == ("2-2" if disc == 2 else "2")
+    assert cells[3].select_one("span").text.strip() == ("2-1" if disc == 2 else "1")
     note = cells[0].select_one('[aria-label^="Track numbering changes"]')
     assert note is not None
     assert note["aria-label"] == f"Track numbering changes from {disc}.2 to {disc}.1"
     assert note.get_text(strip=True) == ("2.2 → 2.1" if disc == 2 else "2 → 1")
-    headings = [div.text.strip() for div in cells[0].find_all("div") if div is not note]
-    assert headings == (["Disc 2"] if disc == 2 else [])
     assert "bg-amber-50" in rows[0]["class"]
 
 

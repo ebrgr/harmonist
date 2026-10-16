@@ -84,22 +84,44 @@
 .assignment-number { width: 3.5rem; }
 .assignment-number-multidisc { width: 6rem; }
 .assignment-length { width: 8rem; }
-.assignment-table td { padding-top: .375rem; padding-bottom: .375rem; }
+/* The normal track table owns typography, numeric alignment and rules between
+ * tracks. Only the editor's two-source layout and controls need extra styles. */
+.assignment-table .assignment-source {
+  padding-bottom: .65rem;
+  font-size: var(--text-xs);
+  color: var(--color-ink);
+  vertical-align: middle;
+}
+.assignment-table .assignment-entry { vertical-align: top; }
 .assignment-table .assignment-title { overflow-wrap: anywhere; }
 
-.assignment-content .assignment-filename,
-.assignment-content:has(.assignment-filenames:checked) .assignment-title {
+.track-display .track-filename,
+.track-display:has(.track-filenames:checked) .track-title {
     display: none;
 }
-.assignment-content:has(.assignment-filenames:checked) .assignment-filename {
+.track-display:has(.track-filenames:checked) .track-filename {
     display: inline;
 }
-.assignment-display-choice:has(input:checked) {
-    color: var(--color-ink);
-    text-decoration: underline;
-    text-underline-offset: 4px;
+.track-filename { overflow-wrap: anywhere; }
+.track-display-toggle {
+    padding: .1rem;
+    border: 1px solid var(--color-line);
+    border-radius: .25rem;
+    background: var(--color-surface);
 }
-.assignment-display-choice:has(input:focus-visible) {
+.track-display-choice > span {
+    display: block;
+    padding: .1rem .35rem;
+    border: 1px solid transparent;
+    border-radius: .15rem;
+}
+.track-display-choice:hover { color: var(--color-ink); }
+.track-display-choice:has(input:checked) > span {
+    color: var(--color-ink);
+    background: white;
+    border-color: var(--color-line);
+}
+.track-display-choice:has(input:focus-visible) > span {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
 }

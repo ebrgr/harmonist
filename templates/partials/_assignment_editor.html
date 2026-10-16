@@ -11,25 +11,25 @@
             aria-label="Move {{ 'on-disk' if side == 'disk' else 'MusicBrainz' }} entry {{ direction }}"
             title="{{ 'Untick the pregap checkbox to move these entries' if folded else 'Swap this entry, or gap, with the one ' ~ ('above' if direction == 'up' else 'below') }}"
             {% if folded or neighbor < 0 or neighbor >= count %}disabled{% endif %}
-            class="px-2 py-1 border border-line rounded disabled:opacity-30">{{ symbol }}</button>
+            class="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-ink hover:bg-surface disabled:opacity-30 transition">{{ symbol }}</button>
     {% endfor %}
 {% endmacro %}
 {% if not fragment|default(false) %}<div id="assignments-{{ album.id }}-{{ candidate.mb_release_id }}" hx-preserve
      class="assignment-editor mb-3 space-y-2">
 {% endif %}
-<div class="assignment-content space-y-3">
+<div class="assignment-content track-display space-y-3">
         {% if error %}<p role="alert" class="text-sm text-amber-700">{{ error }}</p>{% endif %}
         {% set has_suggestion = replacement or (album.sidecar and album.sidecar.mb_match_candidate) %}
         {% if has_suggestion or panel %}
         <div class="flex flex-wrap items-center justify-between gap-2">
             {% if has_suggestion %}
             <h3 class="flex flex-wrap items-center gap-2 text-sm font-bold">
-                Suggested match:
+                <span class="text-ink uppercase tracking-widest">Suggested match:</span>
                 {% with mb_release_id=candidate.mb_release_id %}
                     {% include 'partials/_release_title_link.html' %}
                 {% endwith %}
             </h3>
-            {% else %}<h3 class="text-sm font-bold">Track assignments</h3>{% endif %}
+            {% else %}<h3 class="text-sm font-bold text-ink uppercase tracking-widest">Track assignments</h3>{% endif %}
             {% if panel %}
                 {% include 'partials/_assignment_checked.html' %}
             {% endif %}
@@ -70,12 +70,12 @@
             <input type="hidden" name="incomplete" value="{{ 'true' if panel.files|length < panel.mb|length else 'false' }}">
             <input type="hidden" name="include_artwork" value="false">
             <div class="overflow-x-auto">
-                <table class="assignment-table w-full text-xs">
+                <table class="assignment-table track-diff">
                     <colgroup><col class="assignment-number {{ 'assignment-number-multidisc' if counts.multidisc else '' }}"><col><col class="assignment-length"></colgroup>
-                    <colgroup><col class="assignment-number"><col><col class="assignment-length"></colgroup>
+                    <colgroup><col class="assignment-number {{ 'assignment-number-multidisc' if counts.multidisc else '' }}"><col><col class="assignment-length"></colgroup>
                     <thead class="text-left">
                         <tr>
-                            <th scope="colgroup" colspan="3" class="p-2 align-middle">
+                            <th scope="colgroup" colspan="3" class="assignment-source">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <span>On disk · {{ panel.files|length }} {{ 'file' if panel.files|length == 1 else 'files' }}</span>
                                     {% if counts.unassigned %}
@@ -83,37 +83,26 @@
                                     {% endif %}
                                 </div>
                             </th>
-                            <th scope="colgroup" colspan="3" class="p-2 align-middle border-l border-line text-mb-purple">
+                            <th scope="colgroup" colspan="3" class="assignment-source border-l border-line">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <span>MusicBrainz <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" class="inline" aria-hidden="true"><path d="M12 2L21 7L21 17L12 22L3 17L3 7Z"/></svg> · {{ panel.mb|length }} {{ 'track' if panel.mb|length == 1 else 'tracks' }}</span>
+                                    <span>MusicBrainz <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" class="inline text-mb-purple" aria-hidden="true"><path d="M12 2L21 7L21 17L12 22L3 17L3 7Z"/></svg> · {{ panel.mb|length }} {{ 'track' if panel.mb|length == 1 else 'tracks' }}</span>
                                     {% if cancel %}{% include 'partials/_assignment_edit_button.html' %}{% endif %}
                                 </div>
                             </th>
                         </tr>
-                        <tr class="text-muted border-b border-line">
-                            <th scope="col" class="p-2">Track</th><th scope="col" class="p-2">
-                                <div role="radiogroup" aria-label="On-disk track display" class="inline-flex items-center gap-2">
-                                    <label class="assignment-display-choice cursor-pointer">
-                                        <input type="radio" name="track_display" value="title" id="assignment-titles-{{ album.id }}" checked hx-preserve class="sr-only">
-                                        <span>Title</span>
-                                    </label>
-                                    <span aria-hidden="true" class="text-line">|</span>
-                                    <label class="assignment-display-choice cursor-pointer">
-                                        <input type="radio" name="track_display" value="filename" id="assignment-filenames-{{ album.id }}" hx-preserve class="assignment-filenames sr-only">
-                                        <span>Filename</span>
-                                    </label>
-                                </div>
-                            </th><th scope="col" class="p-2">Length</th>
-                            <th scope="col" class="p-2 border-l border-line">Track</th><th scope="col" class="p-2">Title</th><th scope="col" class="p-2">Length</th>
+                        <tr>
+                            <th scope="col" class="track-diff__num">#</th><th scope="col">
+                                {% with display_prefix = 'assignment' %}{% include 'partials/_track_display_toggle.html' %}{% endwith %}
+                            </th><th scope="col" class="track-diff__len">Length</th>
+                            <th scope="col" class="track-diff__num border-l border-line">#</th><th scope="col">Title</th><th scope="col" class="track-diff__len">Length</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {% set previous = namespace(disk='', mb='') %}
                         {% for disk, mb in panel.rows %}
                         {% set row = loop.index0 %}
                         {% for offer in panel.available_pregaps if panel.mb_order[row] == offer.pregap_slot %}
-                        <tr data-pregap-choice class="border-b border-line">
-                            <td colspan="6" class="p-2">
+                        <tbody class="track-diff__track">
+                        <tr data-pregap-choice>
+                            <td colspan="6">
                                 <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
                                     <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}"
                                            id="included-pregap-{{ album.id }}-{{ offer.decision.pregap }}"
@@ -122,42 +111,38 @@
                                 </label>
                             </td>
                         </tr>
+                        </tbody>
                         {% endfor %}
                         {% if panel.mb_order[row] not in hidden_slots %}
                         {% set included = folded|selectattr('first_slot', 'equalto', panel.mb_order[row])|first %}
                         {% set mb_length = included.pregap_length + included.first_length if included else mb.length if mb else none %}
                         {% set renumbered = disk and mb and (disk.number.split('.')[1] != mb.number.split('.')[1] or (disk.number.split('.')[0] != '?' and disk.number.split('.')[0] != mb.number.split('.')[0])) %}
-                        <tr class="{{ '' if included else 'border-b' }} border-line {{ 'bg-amber-50' if (disk and not mb) or (mb and not disk) or renumbered else '' }}" data-assignment-row="{{ row }}">
-                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top {{ 'border-b border-line' if included else '' }}">
+                        <tbody class="track-diff__track">
+                        <tr class="{{ 'bg-amber-50' if (disk and not mb) or (mb and not disk) or renumbered else '' }}" data-assignment-row="{{ row }}">
+                            <td rowspan="{{ 2 if included else 1 }}" class="track-diff__num assignment-entry">
                                 {% if disk %}
-                                    {% set disc = disk.number.split('.')[0] %}
-                                    {% if counts.multidisc and disc != previous.disk %}<div class="text-2xs text-muted whitespace-nowrap">Disc {{ disc if disc != '?' else 'unknown' }}</div>{% endif %}
-                                    {% set previous.disk = disc %}
-                                    <span class="font-mono" title="Current on-disk track number">{{ disk.number.split('.')[1] }}</span>
+                                    <span title="Current on-disk track number">{{ disk.number|replace('.', '-') if counts.multidisc else disk.number.split('.')[1] }}</span>
                                     {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
                                 {% else %}—{% endif %}
                             </td>
-                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top {{ 'border-b border-line' if included else '' }}">
-                                <div class="flex items-start justify-between gap-3">
+                            <td rowspan="{{ 2 if included else 1 }}" class="assignment-entry">
+                                <div class="flex items-start justify-between gap-2">
                                     <div class="min-w-0">
-                                        {% if disk %}<span class="assignment-title" title="{{ disk.path }}">{{ disk.title }}</span>
-                                        <span class="assignment-filename break-all" title="{{ disk.path }}">{{ disk.path }}</span>
+                                        {% if disk %}<span class="assignment-title track-title" title="{{ disk.path }}">{{ disk.title }}</span>
+                                        <span class="assignment-filename track-filename" title="{{ disk.path }}">{{ disk.path }}</span>
                                         {% else %}<span class="text-muted italic">Missing on disk</span>{% endif %}
                                     </div>
                                     {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('disk', row, panel.disk_order[row] if disk else 'gap-' ~ (panel.disk_order[:row]|select('none')|list|length), panel.rows|length, folded_slots) }}</div>{% endif %}
                                 </div>
                             </td>
-                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 font-mono align-top {{ 'border-b border-line' if included else '' }}">{{ duration(disk.length) if disk else '—' }}</td>
-                            <td rowspan="{{ 2 if included else 1 }}" class="p-2 align-top border-l border-line text-mb-purple {{ 'border-b' if included else '' }}">
+                            <td rowspan="{{ 2 if included else 1 }}" class="track-diff__len assignment-entry">{{ duration(disk.length) if disk else '—' }}</td>
+                            <td rowspan="{{ 2 if included else 1 }}" class="track-diff__num assignment-entry border-l border-line text-mb-purple">
                                 {% if mb %}
-                                    {% set disc = mb.number.split('.')[0] %}
-                                    {% if counts.multidisc and disc != previous.mb %}<div class="text-2xs text-muted whitespace-nowrap">Disc {{ disc }}</div>{% endif %}
-                                    {% set previous.mb = disc %}
-                                    <span class="font-mono" title="MusicBrainz track number">{{ '0+1' if included else mb.number.split('.')[1] }}</span>
+                                    <span title="MusicBrainz track number">{% if counts.multidisc %}{{ mb.number.split('.')[0] }}-{% endif %}{{ '0+1' if included else mb.number.split('.')[1] }}</span>
                                 {% else %}—{% endif %}
                             </td>
-                            <td class="p-2 align-top text-mb-purple">
-                                <div class="flex items-start justify-between gap-3">
+                            <td class="assignment-entry text-mb-purple">
+                                <div class="flex items-start justify-between gap-2">
                                     <div>
                                         <span class="{{ 'text-amber-700' if disk and not mb else '' }}">{{ mb.title if mb else 'Unassigned' if disk else '—' }}</span>
                                         {% if (panel.disk_order[row], panel.mb_order[row]) in panel.proposed %}<div class="text-2xs text-amber-700" data-proposed-pair>Proposed assignment</div>{% endif %}
@@ -165,7 +150,7 @@
                                     {% if not cancel %}<div class="whitespace-nowrap shrink-0">{{ arrows('mb', row, panel.mb_order[row] if mb else 'gap-' ~ (panel.mb_order[:row]|select('none')|list|length), panel.rows|length, folded_slots) }}</div>{% endif %}
                                 </div>
                             </td>
-                            <td class="p-2 font-mono align-top text-mb-purple whitespace-nowrap">
+                            <td class="track-diff__len assignment-entry text-muted">
                                 {{ duration(mb_length) if mb else '—' }}
                                 {% if not included and disk and mb and disk.length is not none and mb_length is not none %}
                                     {% set delta = (disk.length - mb_length)|abs %}
@@ -174,14 +159,14 @@
                             </td>
                         </tr>
                         {% if included %}
-                        <tr class="border-b border-line text-2xs text-muted" data-included-pregap>
-                            <td class="px-2 pb-2 align-top" data-pregap-note>Includes {{ panel.mb[included.pregap_slot].title }}</td>
-                            <td class="px-2 pb-2 align-top font-mono">{{ duration(included.pregap_length) }}</td>
+                        <tr class="text-xs text-muted" data-included-pregap>
+                            <td data-pregap-note>Includes pregap: {{ panel.mb[included.pregap_slot].title }}</td>
+                            <td class="track-diff__len">{{ duration(included.pregap_length) }}</td>
                         </tr>
                         {% endif %}
+                        </tbody>
                         {% endif %}
                         {% endfor %}
-                    </tbody>
                 </table>
             </div>
             {% for pregap in panel.unavailable_pregaps %}

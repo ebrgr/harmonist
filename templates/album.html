@@ -387,6 +387,17 @@
             }
         }
     });
+    // The Tracks comparison arrives out of band, where HTMX 2.0.0 does not
+    // preserve the display controls. Carry the current choice into the new
+    // fragment before insertion; a slow refresh must keep the latest choice.
+    document.body.addEventListener('htmx:oobBeforeSwap', function (event) {
+        if (event.detail.target.id !== 'album-track-view') return;
+        const selected = event.detail.target.querySelector('input[name="tracklist_display"]:checked');
+        if (!selected) return;
+        for (const input of event.detail.fragment.querySelectorAll('input[name="tracklist_display"]')) {
+            input.checked = input.value === selected.value;
+        }
+    });
     document.body.addEventListener('album-retagged', function (event) {
         var now = event.detail && event.detail.album_id;
         if (now && now !== {{ album.id | tojson }}) {

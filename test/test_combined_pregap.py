@@ -87,7 +87,7 @@ def test_pregap_draft_folds_without_changing_assignments_or_files(client, cfg, c
         assert cells[3].get_text(strip=True) == "0+1"
         included = soup.select_one("[data-included-pregap]")
         assert included.select_one("[data-pregap-note]").get_text(strip=True) == (
-            "Includes Everything Is Brand New"
+            "Includes pregap: Everything Is Brand New"
         )
         assert included.select("td")[1].get_text(strip=True) == "0:10"
         assert all(c["rowspan"] == "2" for c in cells[:4])
