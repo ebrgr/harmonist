@@ -80,7 +80,7 @@ def test_from_sm_up_each_row_stays_on_one_line(demo_server: str) -> None:
         edit, label = _tops(
             page,
             [
-                "#album-track-view button:has-text('Edit track assignments')",
+                "#album-track-view button[aria-label='Edit track assignments']",
                 "label:has-text('Show identifiers')",
             ],
         )

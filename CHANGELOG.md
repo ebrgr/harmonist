@@ -10,6 +10,10 @@ versions follow [semantic versioning](https://semver.org).
 
 - **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
 
+### Changed
+
+- **Track assignments are edited using the pencil beside the Tracks heading** (#756).
+
 ### Fixed
 
 - **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).
