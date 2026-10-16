@@ -81,9 +81,9 @@ the source of metadata and you in control of changes.
   purchases. Harmonist builds on it, adding MusicBrainz matching, tagging,
   artwork, and a review inbox.
 
-## Built with AI assistance
+## Human-Designed, Built With AI Assistance
 
-People set Harmonist's direction, make design decisions, and test it in real use.
+Humans set Harmonist's direction, make design decisions, and test it in real use.
 AI coding assistants help with implementation, backed by human review and
 automated checks:
 
