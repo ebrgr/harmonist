@@ -1456,7 +1456,8 @@ def test_included_pregap_is_content_of_track_one_without_masking_other_differenc
     ]
     accepted = tracklist(files, mb, included_pregaps={"gap": "first"})
     assert len(accepted.tracks) == 2
-    assert accepted.tracks[0].pregap_note == "Includes pregap: Prelude · 1:00"
+    assert accepted.tracks[0].pregap_note == "Includes pregap: Prelude"
+    assert accepted.tracks[0].pregap_length == "1:00"
     assert accepted.summary == "All 2 tracks match"
     assert accepted.length_note is None
     assert not any(c.advisory for c in accepted.columns)

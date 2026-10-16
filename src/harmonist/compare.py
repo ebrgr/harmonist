@@ -1057,6 +1057,7 @@ class ComparedTrack:
     #: Accepted combined audio belongs to this file, not a missing-track row.
     #: Derived from the reviewed release; no tags or sidecar values are changed.
     pregap_note: str | None = None
+    pregap_length: str | None = None
 
     @property
     def differs(self) -> bool:
@@ -2527,8 +2528,6 @@ def tracklist(
         pregap_note = None
         if pregap is not None:
             pregap_note = f"Includes pregap: {pregap.tags.title}"
-            if length := _mmss(pregap.length_ms):
-                pregap_note += f" · {length}"
         rows.append(
             ComparedTrack(
                 TrackState.PRESENT,
@@ -2536,6 +2535,7 @@ def tracklist(
                 file_name=name,
                 disc=disc,
                 pregap_note=pregap_note,
+                pregap_length=_mmss(pregap.length_ms) if pregap is not None else None,
             )
         )
 

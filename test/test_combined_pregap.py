@@ -150,7 +150,10 @@ def test_accept_and_reverse_only_changes_completeness(client, cfg, combined_albu
     rows = soup.select("#album-track-view tbody.track-diff__track")
     assert len(rows) == 2
     note = rows[0].select_one("[data-pregap-note]")
-    assert note.get_text(strip=True) == "Includes pregap: Everything Is Brand New · 0:10"
+    assert note.get_text(strip=True) == "Includes pregap: Everything Is Brand New"
+    note_row = note.find_parent("tr")
+    assert note_row.select_one(".track-diff__len").get_text(strip=True) == "0:10"
+    assert len(note_row.select("td")) == len(rows[0].select_one("tr").select("td"))
     assert note.find_parent("details") is None
     assert rows[0].select_one(".track-diff__len").get_text(strip=True) == "0:30"
     assert not soup.select("#album-track-view .track-diff__advisory")

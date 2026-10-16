@@ -296,12 +296,19 @@
                         actually says is that this is a different master. -#}
                     {%- with runs = none if f.advisory else f.disk_runs, value = f.disk, entity = f.entity, credit = f.credit %}{% include 'partials/_field_value.html' %}{% endwith -%}
                     {%- endif -%}
-                    {% if f.label == 'Title' and t.pregap_note %}
-                    <div class="text-xs text-muted mt-1" data-pregap-note>{{ t.pregap_note }}</div>
-                    {% endif %}
                 </td>
                 {% endfor %}
             </tr>
+            {% if t.pregap_note %}
+            <tr class="text-xs text-muted" data-pregap-row>
+                {% for col in tracklist.columns %}
+                <td class="{{ 'track-diff__num' if loop.first else ('track-diff__len' if col.numeric else '') }}{{ ' track-diff__id' if col.identifier }}">
+                    {% if col.label == 'Title' %}<span data-pregap-note>{{ t.pregap_note }}</span>
+                    {% elif col.label == 'Length' %}{{ t.pregap_length or '' }}{% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endif %}
 
             {% elif t.state == 'unreadable' %}
             {# #112's third state. NOT "missing" and emphatically not "untagged":
