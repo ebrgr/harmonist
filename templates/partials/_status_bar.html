@@ -1,0 +1,344 @@
+{# The status bar's poll and script, on every page (#757). The bar lives in the
+   header, so a job started from Settings or an album page, and the outcome of an
+   action taken there, shows where it was started rather than only once the user
+   is back on the main page. Inbox- and Library-specific parts of the script
+   check for their elements and do nothing where those are absent.
+
+   One consolidated status poll (sync + reconcile + scan + background jobs in one
+   request). JS parses it and writes display content to #harmonist-status
+   (header), and stashes each runner's state on this element's dataset for the
+   inbox poll-gate. #}
+<div id="app-status"
+     hx-get="/status"
+     hx-trigger="load, every 1500ms"
+     hx-swap="innerHTML"
+     class="hidden hx-poll"></div>
+<script>
+// Single consolidated status bar (#harmonist-status). Three input sources:
+//   1. /sync/status   — polled into #sync-status-pill (hidden)
+//   2. /reconcile/status — polled into #reconcile-status-source (hidden)
+//   3. action endpoints  — fire `harmonist-status` HX-Trigger events
+//
+// Display priority (highest wins):
+//   sync running  >  reconcile running  >  scan  >  background job (#757)
+//     >  most recent action flash  >  idle
+// A background job's closing line takes the action flash's slot when it lands.
+//
+// On the running→idle edge of either runner, also fires `library-refresh`
+// so the Library section pulls in any newly-Complete/Incomplete albums.
+(function () {
+    // Once per page load. A boosted form (Settings) swaps the body and htmx runs
+    // the scripts it swaps in, which would add every listener below a second
+    // time. The listeners sit on document.body and look their elements up by id
+    // on each event, so the first set keeps working for the swapped-in page.
+    if (window.harmonistStatusBar) return;
+    window.harmonistStatusBar = true;
+    const STATUS_EL_ID = 'harmonist-status';
+    let lastSyncState = 'idle';
+    let lastReconcileState = 'idle';
+    let lastScanState = 'idle';
+    let lastScanSeq;  // last completed-scan counter we've seen (undefined until first poll)
+    let lastArtworkRevision;
+    let syncDisplay = null;       // current running-sync HTML, or null
+    let reconcileDisplay = null;  // current running-reconcile HTML, or null
+    let scanDisplay = null;       // current library-scan HTML, or null
+    let jobDisplay = null;        // current background-job HTML, or null
+    let lastFinishedSeq;          // last closing line seen (undefined until first poll)
+    let latestActionMessage = null;  // last flash text from an action, or null
+
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+    ));
+
+    function refreshLibrary() {
+        document.body.dispatchEvent(new Event('library-refresh'));
+    }
+
+    // hx-preserve protects drafts during refreshes, but history snapshots store
+    // the input's HTML value, which may predate the submitted search. On Back /
+    // Forward the restored URL names the query whose results are on screen.
+    document.body.addEventListener('htmx:historyRestore', function () {
+        const search = document.getElementById('library-search');
+        if (search) search.value = new URL(window.location.href).searchParams.get('q') || '';
+    });
+
+    // Last string actually written, so an unchanged status isn't re-rendered.
+    // This runs from the 1.5s /status poll, and assigning innerHTML destroys and
+    // rebuilds the children even when the markup is byte-identical — which flickers
+    // the pill 40 times a minute for as long as any message is showing, and
+    // `latestActionMessage` persists after any action (#93). Same family as #91;
+    // here the fix is simply not to write, which is cheaper and exact — morphing
+    // would be overkill for one small fragment.
+    let lastStatusHtml = null;
+
+    function renderStatus() {
+        const el = document.getElementById(STATUS_EL_ID);
+        if (!el) return;
+        const html = syncDisplay || reconcileDisplay || scanDisplay || jobDisplay || latestActionMessage || '';
+        if (html === lastStatusHtml) return;
+        lastStatusHtml = html;
+        el.innerHTML = html;
+    }
+
+    // Preserve <details> group open-state across inbox re-swaps. A rescan (e.g.
+    // the dir-watcher settling after a confirm, mid-scroll) fires tasks-changed →
+    // #task-list re-renders → an opened group would collapse, forcing the user to
+    // re-open + re-scroll while working through a list (mis-tags especially).
+    // Track toggles; re-open remembered groups after each inbox swap.
+    const _openGroups = new Set();
+    document.body.addEventListener('toggle', function (e) {
+        const d = e.target;
+        if (d.tagName === 'DETAILS' && d.classList && d.classList.contains('hmt-group') && d.id) {
+            if (d.open) _openGroups.add(d.id); else _openGroups.delete(d.id);
+        }
+    }, true);
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        // Restore after a full inbox re-swap, and after a Potential-downloads
+        // action re-swaps just #pending-section (so triaging a card doesn't
+        // re-collapse the — deliberately collapsed-by-default — list mid-scroll).
+        const tid = evt.detail.target.id;
+        // 'activity-feed' included so the per-entry "what changed" disclosures
+        // (#84) survive the feed's 2s re-poll — otherwise reading one is a race.
+        if (tid !== 'task-list' && tid !== 'pending-section' && tid !== 'activity-feed') return;
+        _openGroups.forEach(function (id) {
+            const d = document.getElementById(id);
+            if (d) d.open = true;
+        });
+    });
+
+    // ----- Sync popover: link-only default -----
+    // Link-only's default is DERIVED from the live inbox (never persisted): ON
+    // while there are on-disk albums to link (needs_sync) or potential downloads
+    // to resolve. The /status poll refreshes it every tick, so it's correct even
+    // right after startup/nuke — when the server render saw a still-empty
+    // live_counts and drew it unchecked. A manual toggle wins until the popover
+    // closes, then it re-derives.
+    //
+    // `touched` also gates the hidden from_popover input the Sync button
+    // hx-includes: until the user has actually chosen, the sync posts neither
+    // field and the server auto-detects link-only from a fresh scan, which is
+    // what keeps an adoption sync from re-downloading albums already on disk.
+    let syncLinkOnlyTouched = false;
+    function syncSetTouched(touched) {
+        syncLinkOnlyTouched = touched;
+        const flag = document.getElementById('sync-from-popover');
+        if (flag) flag.disabled = !touched;
+    }
+    document.addEventListener('change', function (e) {
+        if (e.target && e.target.id === 'sync-link-only') syncSetTouched(true);
+    });
+    (function () {
+        const ctl = document.getElementById('sync-control');
+        if (!ctl) return;
+        const reset = function () { syncSetTouched(false); };
+        ctl.addEventListener('mouseleave', reset);
+        ctl.addEventListener('focusout', function (e) {
+            if (!ctl.contains(e.relatedTarget)) reset();
+        });
+    })();
+
+    // One consolidated /status poll → all three runner displays. Each runner's
+    // current state is stashed on #app-status.dataset for the inbox poll-gate.
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        if (evt.detail.target.id !== 'app-status') return;
+        let data;
+        try { data = JSON.parse(evt.detail.target.textContent); }
+        catch (e) { return; }
+        const el = evt.detail.target;
+        const sync = data.sync, reconcile = data.reconcile, scan = data.scan;
+        el.dataset.sync = sync.state;
+        el.dataset.reconcile = reconcile.state;
+        el.dataset.scan = scan.state;
+
+        // ----- Inbox busy lock -----
+        // While ANY background op runs, the inbox snapshot is frozen (sync) or
+        // being rebuilt (reconcile/scan). Dim + lock #task-list (pointer-events
+        // off) so a stale/frozen card can't be clicked, and show the op banner.
+        // Cleared as soon as the op ends (this poll runs every 1.5s).
+        const inboxBusy = sync.state === 'running'
+            || reconcile.state === 'running'
+            || scan.state === 'scanning';
+        const busyLabel = sync.state === 'running' ? 'Syncing…'
+            : reconcile.state === 'running' ? 'Reconciling…'
+            : 'Scanning…';
+        const taskList = document.getElementById('task-list');
+        if (taskList) {
+            taskList.classList.toggle('opacity-40', inboxBusy);
+            taskList.classList.toggle('pointer-events-none', inboxBusy);
+            taskList.classList.toggle('transition', true);
+        }
+        const busyBanner = document.getElementById('inbox-busy');
+        if (busyBanner) {
+            busyBanner.classList.toggle('hidden', !inboxBusy);
+            if (inboxBusy) {
+                const lbl = document.getElementById('inbox-busy-label');
+                if (lbl) lbl.textContent = busyLabel;
+            }
+        }
+
+        // Tab badges from the single source of truth (live_counts): reset from
+        // each scan, kept live by transitions during sync/reconcile.
+        if (data.counts) {
+            const ib = document.getElementById('inbox-count');
+            const lb = document.getElementById('library-count');
+            // Only write when the number actually changed — assigning textContent
+            // replaces the text node even when the value is identical, and this
+            // runs every 1.5s (#93).
+            if (ib && ib.textContent !== String(data.counts.inbox)) {
+                ib.textContent = data.counts.inbox;
+            }
+            if (lb && lb.textContent !== String(data.counts.library)) {
+                lb.textContent = data.counts.library;
+            }
+            // Link-only default derives from the live inbox (see the popover block).
+            const cb = document.getElementById('sync-link-only');
+            if (cb && !syncLinkOnlyTouched) {
+                cb.checked = data.counts.needs_sync > 0 || (data.pending || 0) > 0;
+            }
+        }
+
+        // A sync must not be kicked while either a sync OR a reconcile is in
+        // flight — reconcile mutates sidecars and shifts the inbox, so a sync
+        // started now would race it. Gate every sync trigger (header button +
+        // the inline NEEDS_SYNC bulk button) on both. The inline button is
+        // re-rendered on tasks-changed, so re-apply here on every poll.
+        const syncBusy = sync.state === 'running' || reconcile.state === 'running';
+        // The cold-start library scan: state 'scanning' with seq still 0 (the
+        // counter only increments on a completed scan, so this is the FIRST
+        // scan and won't fire on later rescans). The inbox/library aren't
+        // populated yet, so the header's actions would be confusing.
+        const initialScan = scan.state === 'scanning' && scan.seq === 0;
+        const actionOff = syncBusy || initialScan;
+        const reason = initialScan ? 'Scanning your library…'
+            : sync.state === 'running' ? 'Sync in progress'
+            : 'Reconciling — finishing up before sync';
+        document.querySelectorAll('#sync-button, #bandcamp-setup-button').forEach(function (b) {
+            b.disabled = actionOff;
+            b.classList.toggle('opacity-40', actionOff);
+            b.classList.toggle('cursor-not-allowed', actionOff);
+            if (actionOff) { b.title = reason; } else { b.removeAttribute('title'); }
+        });
+        // Settings is a link, not a button — disable via pointer-events. Off
+        // during the initial scan AND a reconcile pass (both churn the inbox).
+        const navOff = initialScan || reconcile.state === 'running';
+        const settings = document.getElementById('settings-link');
+        if (settings) {
+            settings.classList.toggle('opacity-40', navOff);
+            settings.classList.toggle('pointer-events-none', navOff);
+            settings.setAttribute('aria-disabled', navOff ? 'true' : 'false');
+            if (navOff) { settings.title = initialScan ? 'Scanning your library…' : 'Reconciling…'; }
+            else { settings.removeAttribute('title'); }
+        }
+
+        // ----- Sync -----
+        if (lastSyncState === 'running' && sync.state === 'idle') refreshLibrary();
+        lastSyncState = sync.state;
+        if (sync.state === 'running') {
+            const details = sync.current_item ? esc(sync.current_item) : null;
+            const pill = `<span class="px-3 py-0.5 bg-amber-500/15 text-amber-300 border border-amber-500/40 rounded-full font-bold text-xs">Syncing</span>`;
+            syncDisplay = pill + (details ? `<span class="ml-2 text-slate-300">${details}</span>` : '');
+        } else {
+            syncDisplay = null;
+            if (sync.last_error) {
+                latestActionMessage = renderActionMessage('Sync failed', sync.last_error, 'error');
+            } else if (sync.finished_at) {
+                const summary = sync.new_items ? `${sync.new_items} new` : 'no new items';
+                latestActionMessage = renderActionMessage('Last sync', summary, 'info');
+            }
+        }
+
+        // ----- Reconcile -----
+        if (lastReconcileState === 'running' && reconcile.state === 'idle') refreshLibrary();
+        lastReconcileState = reconcile.state;
+        if (reconcile.state === 'running') {
+            const prog = reconcile.total ? `${reconcile.completed}/${reconcile.total}` : '';
+            const item = reconcile.current_item ? esc(reconcile.current_item) : '';
+            const details = [item, prog].filter(Boolean).join(' · ');
+            const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">Reconciling</span>`;
+            reconcileDisplay = pill + (details ? `<span class="ml-2 text-slate-300">${details}</span>` : '');
+            // (Tab badges come from data.counts above — live_counts now moves
+            // as reconcile files each album, so no reconcile-specific path here.)
+        } else {
+            reconcileDisplay = null;
+        }
+
+        // ----- Library scan -----
+        // Refresh the inbox/library whenever a NEW snapshot is ready — keyed on
+        // the completed-scan counter, NOT the scanning→done state edge. A scan
+        // can start and finish between two 1.5s polls (mtime-cache hit → ~0.1s),
+        // so the edge is unobservable; the counter still increments. Without
+        // this, a post-action rescan (e.g. after confirming a suggestion tags an album) can land
+        // without the inbox ever refreshing — leaving a stale card whose cover
+        // 404s because the album's id has moved on.
+        if (lastScanSeq !== undefined && scan.seq !== lastScanSeq) {
+            document.body.dispatchEvent(new Event('tasks-changed'));
+        }
+        lastScanSeq = scan.seq;
+        if (lastArtworkRevision !== undefined && data.artwork_revision !== lastArtworkRevision) {
+            refreshLibrary();
+        }
+        lastArtworkRevision = data.artwork_revision;
+        lastScanState = scan.state;
+        if (scan.state === 'scanning') {
+            const prog = `${scan.dirs_scanned} dirs · ${scan.albums_found} albums`;
+            const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">Scanning</span>`;
+            scanDisplay = pill + `<span class="ml-2 text-slate-300">${prog}</span>`;
+        } else {
+            scanDisplay = null;
+        }
+
+        // ----- Background jobs (#757) -----
+        // The oldest running job, with a count of any others. A closing line is
+        // shown only when it lands while the page is open: the first poll just
+        // records where things stand, as the scan counter above does.
+        const progress = data.progress || {jobs: [], finished: null};
+        if (progress.jobs.length) {
+            const job = progress.jobs[0];
+            const more = progress.jobs.length > 1 ? ` · ${progress.jobs.length - 1} more` : '';
+            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${more}`;
+            const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">${esc(job.label)}</span>`;
+            jobDisplay = pill + `<span class="ml-2 text-slate-300">${prog}</span>`;
+        } else {
+            jobDisplay = null;
+        }
+        const finished = progress.finished;
+        if (finished && lastFinishedSeq !== undefined && finished.seq !== lastFinishedSeq) {
+            latestActionMessage = renderActionMessage(finished.label, finished.message, 'info');
+        }
+        lastFinishedSeq = finished ? finished.seq : null;
+
+        renderStatus();
+    });
+
+    // ----- Action flash messages -----
+    // Routes emit
+    //   HX-Trigger: {"harmonist-status": {"verb": "...", "details": "...", "level": "..."}}
+    // We render the verb as a level-coloured pill, then the details in plain
+    // text — keeps the bar visually light when details run long.
+    function pillClasses(level) {
+        if (level === 'error')   return 'bg-red-500/15 text-red-300 border border-red-500/40';
+        if (level === 'warning') return 'bg-amber-500/15 text-amber-300 border border-amber-500/40';
+        return 'bg-accent/20 text-accent-soft border border-accent/50';
+    }
+    // `album` is the album the action concerned, carried as its own field (see
+    // _flash_response). The bar has no album column, so it inlines the name ahead
+    // of the details — "[Needs review] Geogaddi — Store URL match found". Without
+    // it a bare "[Needs review]" gives no clue WHICH album it concerns.
+    function renderActionMessage(verb, details, level, album) {
+        const pill = `<span class="px-3 py-0.5 rounded-full font-bold text-xs ${pillClasses(level)}">${esc(verb)}</span>`;
+        const rest = [album, details].filter(Boolean).map(esc).join(' — ');
+        if (!rest) return pill;
+        return pill + `<span class="ml-2 text-slate-300">${rest}</span>`;
+    }
+    document.body.addEventListener('harmonist-status', function (evt) {
+        const d = evt.detail || {};
+        // New payload shape: {verb, details, level}. Tolerate old shape
+        // {value, level} so existing inline calls keep working.
+        const verb = d.verb !== undefined ? d.verb : (d.value !== undefined ? d.value : '');
+        const details = d.details !== undefined ? d.details : null;
+        const level = d.level || 'info';
+        latestActionMessage = renderActionMessage(verb, details, level, d.album || null);
+        renderStatus();
+    });
+})();
+</script>

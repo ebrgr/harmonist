@@ -119,7 +119,27 @@ def test_the_settings_recheck_reports_what_it_found(tmp_path):
 
     finished = progress.status()["finished"]
     assert finished is not None
-    assert finished["label"] == "Re-checking tags"
+    # The album's release has no disambiguation, so the transform cannot move it.
+    assert (finished["label"], finished["message"]) == ("Re-checking tags", "no albums affected")
+
+
+def test_the_settings_recheck_counts_only_the_albums_the_setting_moves(tmp_path):
+    activity_store.init(tmp_path / "activity.db")
+    disambiguated = {**_release(), "disambiguation": "expanded edition"}
+    album = _tagged(tmp_path, disambiguated)
+    activity_store.store_release(
+        "rel-aaa", "+".join(sorted(mb_lookup.RELEASE_INCLUDES)), disambiguated
+    )
+    before = TaggingChoices()
+    after = TaggingChoices(transforms=frozenset({TagTransform.ALBUM_DISAMBIGUATION}))
+    # As the app has it by the time the re-check runs: the new setting is live.
+    gardener.configure(lambda: after)
+
+    gardener.recheck_for_settings([album], before, after, duty=0)
+
+    finished = progress.status()["finished"]
+    assert finished is not None
+    assert finished["message"] == "1 album affected, 1 with a tag update"
 
 
 def test_the_artwork_warm_up_shows_only_while_it_has_releases_to_read(monkeypatch):
@@ -188,3 +208,26 @@ def test_status_reports_running_jobs(tmp_path):
     assert body["progress"]["jobs"] == [
         {"label": "Checking for tag updates", "done": 3, "total": 10}
     ]
+
+
+def test_every_page_polls_the_status_bar(tmp_path):
+    """A job started from Settings, or an action taken on an album page, shows in
+    the bar where it was started, not only once the user is back on the main
+    page."""
+    from test.test_web import _make_tagged_album
+
+    cfg = Config(
+        paths=PathsConfig(config_dir=tmp_path / "config", music_dir=tmp_path / "music"),
+        bandcamp=BandcampConfig(),
+        server=ServerConfig(),
+        test=_TestConfig(mode="fixture"),
+    )
+    cfg.paths.music_dir.mkdir(parents=True)
+    cfg.paths.config_dir.mkdir(parents=True)
+    _make_tagged_album(cfg, "Paged", mbid="rel-paged", tagged_at=datetime.now(UTC))
+    client = TestClient(create_app(cfg), headers={"HX-Request": "true"})
+
+    for page in ("/", "/settings", "/about", "/album/rel-paged"):
+        html = client.get(page).text
+        assert html.count('id="app-status"') == 1, page
+        assert html.count("window.harmonistStatusBar = true") == 1, page

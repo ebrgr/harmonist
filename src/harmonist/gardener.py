@@ -406,8 +406,17 @@ def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     identical to one that had hung, with no way to tell which from the log.
     """
     return _refresh_from_cache(
-        albums, duty=duty, wanted=lambda _: True, what="warm-up", label="Checking for tag updates"
+        albums,
+        duty=duty,
+        wanted=lambda _: True,
+        what="warm-up",
+        label="Checking for tag updates",
+        closing=lambda looked, flagged: _albums(flagged, "has a tag update", "have a tag update"),
     )
+
+
+def _albums(n: int, one: str, many: str) -> str:
+    return f"{n} album {one}" if n == 1 else f"{n} albums {many}"
 
 
 def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
@@ -461,6 +470,14 @@ def recheck_for_settings(
         ),
         what="settings re-check",
         label="Re-checking tags",
+        # Only the albums the setting can move are looked at, so the count is of
+        # those, not of the library: a library-wide "0 albums have a tag update"
+        # would be false of every album with an update from MusicBrainz.
+        closing=lambda looked, flagged: (
+            f"{_albums(looked, 'affected', 'affected')}, {flagged} with a tag update"
+            if looked
+            else "no albums affected"
+        ),
     )
 
 
@@ -481,12 +498,14 @@ def _refresh_from_cache(
     wanted: Callable[[Release], bool],
     what: str,
     label: str | None,
+    closing: Callable[[int, int], str] | None = None,
 ) -> int:
     """The paced loop `warm_from_cache` and the re-checks share.
 
     Shown in the status bar as `label` while it runs (#757): the warm-up and the
     Settings re-check are minutes of file reads on a large library, and a person
-    may be waiting on either. None keeps it out of the bar.
+    may be waiting on either. None keeps it out of the bar. A shown job ends with
+    `closing(looked, flagged)`.
     """
     started = time.monotonic()
     log.info("update-available %s: checking %d albums", what, len(albums))
@@ -521,11 +540,7 @@ def _refresh_from_cache(
                     looked,
                     flagged,
                 )
-        job.closing = (
-            f"{flagged} album has a tag update"
-            if flagged == 1
-            else f"{flagged} albums have a tag update"
-        )
+        job.closing = closing(looked, flagged) if closing is not None else None
     log.info(
         "update-available %s: done in %.0fs — %d of %d albums with a stored release have an update",
         what,
