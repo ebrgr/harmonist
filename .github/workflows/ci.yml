@@ -79,6 +79,48 @@ jobs:
       - name: Tests
         run: pytest test/ -q
 
+  # The browser suite (test/e2e/), which `check` collects and skips: the only
+  # layer that sees whether a click produced a request, where focus landed, or
+  # what an HTMX poll did to the page around it. Its own job so a browser
+  # failure reads as one, on one Python — the browser layer doesn't vary by
+  # interpreter.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install (with dev + e2e extras)
+        run: pip install -e ".[dev,e2e]"
+
+      # Each Playwright release drives its own browser builds, so the cache is
+      # keyed on the installed version: a bump in pyproject misses it and
+      # downloads the builds that release expects.
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      # Skips any browser the cache restored, but the system libraries they
+      # link against aren't in the cache, so this runs every time.
+      - name: Install browsers
+        run: playwright install --with-deps chromium webkit
+
+      - name: Browser tests
+        env:
+          RUN_E2E: "1"
+        run: pytest test/e2e -q -rs
+
   # The committed CSS bundle must match what the templates need. Runs once
   # (no matrix) — Tailwind output is Python-version-independent.
   css:

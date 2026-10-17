@@ -126,20 +126,17 @@ that would actually notice**, never in an assertion.
   a stale `uvicorn` on the port will serve you yesterday's code — check the log
   says `Application startup complete`, not `address already in use`.
 
-## 6. e2e: the rung nothing runs for you
+## 6. e2e: the browser rung
 
-`test/e2e/` holds ~20 Playwright tests across six files, each gated on
-`RUN_E2E=1`. Setup is `uv pip install -e '.[e2e]'` + `playwright install
-chromium`; run them with `make e2e`.
+`test/e2e/` holds the Playwright tests, each gated on `RUN_E2E=1` so `make
+check` stays browser-free. Setup is `uv pip install -e '.[e2e]'` + `playwright
+install chromium webkit`; run them with `make e2e`.
 
-**CI does not run them.** The workflow runs `pytest test/ -q`, which collects
-them and skips every one — so the only layer that can see the #40 bug class is
-the only layer with nothing running it automatically. Until that changes, running
-`make e2e` yourself is the whole of the coverage:
-
-- after any change under `templates/` that alters *behaviour* (a trigger, a
-  handler, a control's lifecycle) rather than wording or styling;
-- before cutting a release.
+CI runs them in its own `e2e` job, so a red browser test there is a real
+failure, not noise to rerun past. Still run `make e2e` yourself after any change
+under `templates/` that alters *behaviour* (a trigger, a handler, a control's
+lifecycle) rather than wording or styling: CI tells you after the push, and the
+full run takes minutes you'd rather spend before it.
 
 Keep it a smoke layer. It exists to prove the wiring is live — that a click
 produces a request, that a dialog closes, that focus lands — not to re-assert
