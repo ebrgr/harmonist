@@ -133,7 +133,9 @@ check` stays browser-free. Setup is `uv pip install -e '.[e2e]'` + `playwright
 install chromium webkit`; run them with `make e2e`.
 
 CI runs them in its own `e2e` job, so a red browser test there is a real
-failure, not noise to rerun past. Still run `make e2e` yourself after any change
+failure, not noise to rerun past. The job keeps a Playwright trace of each
+failing test in its `e2e-traces` artifact; `E2E_TRACE_DIR=test-results make e2e`
+does the same locally, and `playwright show-trace` opens one. Still run `make e2e` yourself after any change
 under `templates/` that alters *behaviour* (a trigger, a handler, a control's
 lifecycle) rather than wording or styling: CI tells you after the push, and the
 full run takes minutes you'd rather spend before it.

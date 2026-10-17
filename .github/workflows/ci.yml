@@ -119,7 +119,19 @@ jobs:
       - name: Browser tests
         env:
           RUN_E2E: "1"
+          E2E_TRACE_DIR: test-results
         run: pytest test/e2e -q -rs
+
+      # One Playwright trace per failing test: `playwright show-trace <zip>`
+      # replays it with the DOM, screenshots and network at every step.
+      - name: Upload traces of failing tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The committed CSS bundle must match what the templates need. Runs once
   # (no matrix) — Tailwind output is Python-version-independent.

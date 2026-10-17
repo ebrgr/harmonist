@@ -23,3 +23,6 @@ docker-compose.override.yml
 
 # Runtime logs (never commit — may contain private data)
 *.log
+
+# Playwright traces of failing browser tests (E2E_TRACE_DIR in CI)
+/test-results/

@@ -7,15 +7,20 @@ Run via `make e2e`.
 
 from __future__ import annotations
 
+import itertools
 import os
+import re
+import shutil
 import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+import warnings
+from collections.abc import Generator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,6 +28,107 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_E2E") != "1", reason="e2e disabled (set RUN_E2E=1)"
 )
 playwright_sync = pytest.importorskip("playwright.sync_api")
+
+# Where to keep a Playwright trace of each failing test, or unset for none. CI
+# sets it, because a browser failure there otherwise reads "timeout waiting for
+# selector" and nothing else; locally, open a kept trace with
+# `playwright show-trace <zip>`.
+_TRACE_DIR = os.environ.get("E2E_TRACE_DIR")
+_CALL_REPORT = pytest.StashKey[pytest.TestReport]()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    report = yield
+    if report.when == "call":
+        item.stash[_CALL_REPORT] = report
+    return report
+
+
+@pytest.fixture(autouse=True)
+def _trace_on_failure(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Trace every browser context a test opens; keep the traces if it fails.
+
+    pytest-playwright's own `--tracing` only sees its `page` fixture, and these
+    tests launch their own browsers inside `sync_playwright()`. So the methods
+    that open and close a context are wrapped instead: tracing starts when one
+    opens, and is saved before anything closes it — the context, its browser, or
+    the `with sync_playwright()` a failing assertion unwinds through, which shuts
+    the driver down with every context still open.
+    """
+    if not _TRACE_DIR:
+        yield
+        return
+
+    out = Path(_TRACE_DIR) / re.sub(r"[^\w.-]+", "_", request.node.nodeid)
+    open_contexts: list[Any] = []
+    numbers = itertools.count(1)
+
+    def start(context: Any) -> None:
+        if any(c is context for c in open_contexts):
+            return
+        context.tracing.start(title=request.node.nodeid, screenshots=True, snapshots=True)
+        open_contexts.append(context)
+
+    def save(context: Any) -> None:
+        for i, c in enumerate(open_contexts):
+            if c is context:
+                del open_contexts[i]
+                break
+        else:
+            return
+        path = out / f"trace-{next(numbers)}.zip"
+        try:
+            context.tracing.stop(path=path)
+        except playwright_sync.Error as error:
+            # A lost trace must not replace the test's own failure with this one.
+            warnings.warn(f"could not save {path}: {error}", stacklevel=1)
+
+    browser_cls = playwright_sync.Browser
+    context_cls = playwright_sync.BrowserContext
+    manager_cls = type(playwright_sync.sync_playwright())
+    new_context = browser_cls.new_context
+    new_page = browser_cls.new_page
+    close_browser = browser_cls.close
+    close_context = context_cls.close
+    exit_manager = manager_cls.__exit__
+
+    def traced_new_context(self: Any, *args: Any, **kwargs: Any) -> Any:
+        context = new_context(self, *args, **kwargs)
+        start(context)
+        return context
+
+    def traced_new_page(self: Any, *args: Any, **kwargs: Any) -> Any:
+        page = new_page(self, *args, **kwargs)
+        start(page.context)
+        return page
+
+    def saving_close_context(self: Any, *args: Any, **kwargs: Any) -> Any:
+        save(self)
+        return close_context(self, *args, **kwargs)
+
+    def saving_close_browser(self: Any, *args: Any, **kwargs: Any) -> Any:
+        for context in self.contexts:
+            save(context)
+        return close_browser(self, *args, **kwargs)
+
+    def saving_exit_manager(self: Any, *args: Any) -> Any:
+        while open_contexts:
+            save(open_contexts[0])
+        return exit_manager(self, *args)
+
+    monkeypatch.setattr(browser_cls, "new_context", traced_new_context)
+    monkeypatch.setattr(browser_cls, "new_page", traced_new_page)
+    monkeypatch.setattr(browser_cls, "close", saving_close_browser)
+    monkeypatch.setattr(context_cls, "close", saving_close_context)
+    monkeypatch.setattr(manager_cls, "__exit__", saving_exit_manager)
+    yield
+
+    report = request.node.stash.get(_CALL_REPORT, None)
+    if report is not None and not report.failed:
+        shutil.rmtree(out, ignore_errors=True)
 
 
 @pytest.fixture
