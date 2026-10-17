@@ -27,6 +27,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **Reading a release from MusicBrainz again works while an album page is still loading its comparison**; a click there used to be ignored (#775).
 - **Store URL searches show selectable releases even for a single match**, so dismissing a suggestion leaves a working path back to review (#773).
 - **Confirming a reviewed suggestion applies it without a second confirmation**, removing false layout warnings caused by missing disc numbers (#772).
 - **Extra videos no longer offer a tag update when there are no audio tags to change** (#770).

@@ -1,7 +1,11 @@
 {# MusicBrainz freshness belongs to the Album comparison header. Only the
    comparison response updates this block; artwork owns its separate date.
-   Keep the refresh available before the first successful read, too. #}
-<dl id="album-checked-{{ album.id }}" class="flex items-center gap-2 text-xs"{% if oob %} hx-swap-oob="true"{% endif %}>
+   Keep the refresh available before the first successful read, too.
+
+   Morphed, not replaced, so the button is the same element after the swap
+   (#775); its id pins the match rather than leaving it to idiomorph's guess. A click while the page's own comparison loads is queued behind it by
+   `hx-sync`, and htmx drops a queued request whose element has left the page. #}
+<dl id="album-checked-{{ album.id }}" class="flex items-center gap-2 text-xs"{% if oob %} hx-swap-oob="morph"{% endif %}>
     <dt class="text-2xs text-muted uppercase tracking-widest">MB checked</dt>
     {% if mb_read_at %}
     <dd class="text-ink tabular-nums whitespace-nowrap"
@@ -10,7 +14,7 @@
     <dd class="text-muted italic whitespace-nowrap">not yet</dd>
     {% endif %}
     <dd class="flex items-center">
-        <button type="button"
+        <button type="button" id="mb-reread-{{ album.id }}"
                 hx-get="/library/{{ album.id }}/compare?reread=1"
                 hx-sync="#compare-{{ album.id }}:queue last"
                 hx-target="#compare-{{ album.id }}" hx-swap="innerHTML"
