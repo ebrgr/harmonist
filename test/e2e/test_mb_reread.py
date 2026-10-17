@@ -48,10 +48,10 @@ def test_read_again_issues_a_compare_request_and_refills_the_panel(
         button = page.locator("#album-tags > header").get_by_role(
             "button", name="Read this release from MusicBrainz again"
         )
-        # Either way, click only once the page's own comparison has landed. A
-        # click while it is in flight queues behind it (`queue last`), and its
-        # out-of-band swap then replaces the button, so HTMX drops the queued
-        # request and nothing goes out.
+        # Either way, click once the page's own comparison has landed, so there
+        # are fields to mark and the swap below can be told apart from it. A
+        # click while that comparison is in flight is test_mb_reread_race.py's
+        # case (#775).
         fields = page.locator(f"#compare-{ALBUM} .tag-fields")
         fields.wait_for(timeout=10_000)
         fields.evaluate("el => { el.dataset.before = '' }")
