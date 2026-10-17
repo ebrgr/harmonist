@@ -26,6 +26,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **Store URL searches show selectable releases even for a single match**, so dismissing a suggestion leaves a working path back to review (#773).
+- **Confirming a reviewed suggestion applies it without a second confirmation**, removing false layout warnings caused by missing disc numbers (#772).
 - **Extra videos no longer offer a tag update when there are no audio tags to change** (#770).
 - **Release selection falls back to name search when the files cannot identify a release group**, instead of offering a Retry that cannot help (#769).
 - **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).

@@ -260,7 +260,9 @@ def test_a_retag_never_tags_from_a_cached_release(client, cfg, monkeypatch):
     assert fetch.calls == 2, "the re-tag must have gone to MusicBrainz itself"
 
 
-def test_a_store_url_search_never_matches_against_a_cached_release(client, cfg, monkeypatch):
+def test_a_store_url_search_refreshes_results_without_fetching_a_selection(
+    client, cfg, monkeypatch
+):
     """Searching again means "I have just edited MusicBrainz". Serving it a
     stored payload would make the button a silent no-op with nothing on screen
     to say why."""
@@ -268,15 +270,22 @@ def test_a_store_url_search_never_matches_against_a_cached_release(client, cfg, 
     sidecar_mod.write(d, Sidecar(store_url=STORE_URL))  # Needs MBID: nothing confirmed
     fetch = _Counter(_release())
     monkeypatch.setattr(mb_lookup, "fetch_release", fetch)
-    monkeypatch.setattr(mb_lookup, "candidate_summaries_for_url", lambda url: ([{"id": MBID}], 1))
+    lookups = []
+
+    def lookup(url):
+        lookups.append(url)
+        return [{"id": MBID, "title": f"Result {len(lookups)}"}], 1
+
+    monkeypatch.setattr(mb_lookup, "candidate_summaries_for_url", lookup)
     album_id = _album_id(cfg, d)
 
     mb_cache.fetch_release(MBID)  # warms the cache
     assert fetch.calls == 1
-    r = client.post(f"/manual/{album_id}/candidates", data={"suggest": "true"})
-
-    assert "Needs review" in r.text
-    assert fetch.calls == 2, "the search must have gone to MusicBrainz itself"
+    for attempt in (1, 2):
+        r = client.post(f"/manual/{album_id}/candidates", data={"suggest": "true"})
+        assert f"Result {attempt}" in r.text
+    assert lookups == [STORE_URL, STORE_URL]
+    assert fetch.calls == 1, "listing results must not fetch a selected release"
 
 
 def test_a_forced_read_leaves_the_cache_current_for_the_next_reader(client, cfg, monkeypatch):

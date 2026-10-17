@@ -191,7 +191,13 @@ def test_multi_folder_confirmation_uses_reviewed_release_and_all_files(client, c
     review = client.get(f"/assignments/{album.id}?cancel=true&on_album_page=true")
     fields = test_web._confirmation_fields(review.text)
     assert fields["candidate_mbid"] == "new-release"
-    assert "track layout differs" in review.text
+    numbering = BeautifulSoup(review.text, "html.parser").select(
+        '[aria-label^="Track numbering changes"]'
+    )
+    assert [n["aria-label"] for n in numbering] == [
+        "Track numbering changes from 2.1 to 1.3",
+        "Track numbering changes from 2.2 to 1.4",
+    ]
     monkeypatch.setattr(
         mb_cache, "fetch_release", lambda *a, **k: pytest.fail("review must not fetch")
     )

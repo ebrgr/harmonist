@@ -4,7 +4,6 @@
         {% if not on_album_page %}hx-sync="body:queue last"{% endif %}
         hx-target="#assignment-error-{{ album.id }}-{{ candidate.mb_release_id }}" hx-swap="none" hx-disabled-elt="this"
         hx-indicator="#assignment-progress-{{ album.id }}"
-        {% if shape_confirmation %}hx-confirm="{{ shape_confirmation }}"{% endif %}
         class="disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 bg-accent hover:bg-accent-dark text-white rounded text-xs font-bold uppercase tracking-widest transition">
     Confirm suggestion
 </button>

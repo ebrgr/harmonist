@@ -55,7 +55,7 @@ def test_a_barcode_suggestion_is_flashed_but_not_recorded(client, cfg, monkeypat
     assert not any("match found" in m for m in _activity(path))
 
 
-def test_a_store_url_suggestion_is_flashed_but_not_recorded(client, cfg, monkeypatch):
+def test_a_store_url_choice_remembers_how_without_recording_a_match(client, cfg, monkeypatch):
     path, _ = barcode_album.album(cfg.paths.music_dir)
     sidecar.write(path, Sidecar(store_url="https://lfo.bandcamp.com/album/frequencies"))
     aid = scanner.scan(cfg.paths.music_dir)[0].id
@@ -65,7 +65,11 @@ def test_a_store_url_suggestion_is_flashed_but_not_recorded(client, cfg, monkeyp
 
     response = client.post(f"/manual/{aid}/candidates", data={"suggest": "true"})
 
-    assert "Store URL match found" in response.headers["HX-Trigger"]
+    use = _confirmation_fields(response.text)
+    assert use["found_by"] == FoundBy.STORE_URL
+    assert use["review_only"] == "true"
+    assert sidecar.read(path).mb_match_candidate is None
+    client.post(f"/manual/{aid}/assign", data=use)
     candidate = sidecar.read(path).mb_match_candidate
     assert candidate is not None and candidate.found_by is FoundBy.STORE_URL
     assert not any("match found" in m for m in _activity(path))

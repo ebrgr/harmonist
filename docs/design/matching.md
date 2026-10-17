@@ -93,8 +93,10 @@ standing. The kind of store link (download or mail-order) would say the same
 thing, but it's easier to mis-enter on MusicBrainz than a release's format, so
 it isn't used.
 
-Only a first, exact, unique match is tagged unasked. Everything else, including
-every search the user runs, produces a suggestion to review.
+Only a first, exact, unique match is tagged unasked. Store-URL searches list
+every linked release, even a single result: the URL is evidence for the owner's
+choice, not a reason to recreate a suggestion they just dismissed. Choosing a
+result opens review before tagging.
 
 **A lookup never replaces a suggestion awaiting the user** (#638). The search
 tools are hidden while one waits, so a barcode or store-URL lookup arriving then

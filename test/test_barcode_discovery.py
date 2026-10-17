@@ -500,7 +500,7 @@ def test_search_and_fetched_release_must_agree(tmp_path, monkeypatch):
     assert sidecar.read(path) is None
 
 
-def test_store_url_search_suggests_without_tagging(client, cfg, monkeypatch):
+def test_store_url_search_lists_one_release_without_suggesting(client, cfg, monkeypatch):
     path, file = album(cfg.paths.music_dir)
     sidecar.write(path, Sidecar(store_url="https://lfo.bandcamp.com/album/frequencies"))
     aid = scanner.scan(cfg.paths.music_dir)[0].id
@@ -510,11 +510,14 @@ def test_store_url_search_suggests_without_tagging(client, cfg, monkeypatch):
     monkeypatch.setattr("harmonist.mb_lookup.candidate_summaries_for_url", lookup)
     response = client.post(f"/manual/{aid}/candidates", data={"suggest": "true"})
     assert response.status_code == 200
-    assert sidecar.read(path).mb_match_candidate.mb_release_id == MBID
+    assert response.headers["HX-Retarget"] == f"#mbid-results-{aid}"
+    assert "Store URL matches" in response.text
+    assert 'name="review_only" value="true"' in response.text
+    assert sidecar.read(path).mb_match_candidate is None
     assert sidecar.read(path).mb_release_id is None
     assert file.read_bytes() == before
-    assert fetch.call_args.kwargs["max_age"] == mb_cache.FRESH
-    assert lookup.call_count == fetch.call_count == 1
+    assert lookup.call_count == 1
+    assert fetch.call_count == 0
 
 
 @pytest.mark.parametrize("lookup", ["barcode", "candidates"])
@@ -561,10 +564,6 @@ def test_a_suggestion_written_while_a_lookup_runs_is_kept(client, cfg, monkeypat
     sidecar.write(path, Sidecar(store_url=store_url))
     aid = scanner.scan(cfg.paths.music_dir)[0].id
     _, fetch = services(monkeypatch, [release()])
-    monkeypatch.setattr(
-        "harmonist.mb_lookup.candidate_summaries_for_url",
-        Mock(return_value=([{"id": MBID}], 1)),
-    )
     landed = MatchCandidate(
         mb_release_id=OTHER,
         confidence="approximate",
@@ -579,6 +578,12 @@ def test_a_suggestion_written_while_a_lookup_runs_is_kept(client, cfg, monkeypat
         return fetched(mbid, **kwargs)
 
     fetch.side_effect = meanwhile
+
+    def url_lookup(url):
+        sidecar.write(path, Sidecar(store_url=store_url, mb_match_candidate=landed))
+        return [{"id": MBID}], 1
+
+    monkeypatch.setattr("harmonist.mb_lookup.candidate_summaries_for_url", url_lookup)
 
     response = client.post(f"/manual/{aid}/{lookup}", data={"suggest": "true"})
 

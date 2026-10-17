@@ -90,7 +90,6 @@
               hx-disabled-elt="find button" hx-indicator="#lookup-progress-{{ album.id }}"
               {{ reload_unless_retargeted(on_album) }} class="flex items-center gap-2">
             <input type="hidden" name="on_album_page" value="{{ 'true' if on_album else 'false' }}">
-            <input type="hidden" name="suggest" value="true">
             <span class="flex-1 min-w-0 truncate text-xs text-muted" title="{{ sc.store_url }}">{{ sc.store_url }}</span>
             <button type="submit" class="px-3 py-1.5 bg-surface hover:bg-line text-ink border border-line rounded text-xs font-bold uppercase tracking-widest transition whitespace-nowrap">Search</button>
         </form>

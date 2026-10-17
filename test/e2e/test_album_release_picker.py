@@ -56,11 +56,13 @@ def test_sibling_cancel_and_restore_keep_album_context(release_picker_server, ht
 
 
 @pytest.mark.parametrize("method", ["search", "paste"])
-def test_other_release_requires_shape_confirmation(release_picker_server, htmx_ready, method):
+def test_reviewed_incomplete_release_applies_with_one_confirmation(
+    release_picker_server, htmx_ready, method
+):
     with pw_api.sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
-        panel, dialogs, dismiss = _open_picker(page, release_picker_server, htmx_ready)
+        panel, dialogs, _ = _open_picker(page, release_picker_server, htmx_ready)
         if method == "search":
             panel.get_by_role("radio", name="By name", exact=True).check()
             panel.get_by_placeholder("Album", exact=True).fill("Another release")
@@ -79,15 +81,49 @@ def test_other_release_requires_shape_confirmation(release_picker_server, htmx_r
         pw_api.expect(panel).to_contain_text("Another release")
         pw_api.expect(panel).to_contain_text("On disk · 3 files")
         pw_api.expect(panel).to_contain_text("4 tracks")
-        htmx_ready(confirm).click()  # dismiss first: nothing may be written
-        assert len(dialogs) == 1 and "incomplete" in dialogs[0]
-        pw_api.expect(confirm).to_be_visible()
-        assert "demo-rel-picker-other" not in page.url
-        page.remove_listener("dialog", dismiss)
-        page.on("dialog", lambda d: d.accept())
         htmx_ready(confirm).click()
+        assert dialogs == []
         page.wait_for_url("**/album/demo-rel-picker-other?from_q=Dingoes")
         pw_api.expect(page.locator("#album-identity")).to_contain_text("3 of 4")
+        browser.close()
+
+
+@pytest.mark.parametrize("on_album,width", [(True, 1280), (False, 390)])
+def test_missing_disc_numbers_confirm_review_once(
+    release_picker_server, htmx_ready, tmp_path, on_album, width
+):
+    with pw_api.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": width, "height": 900})
+        panel, dialogs, _ = _open_picker(page, release_picker_server, htmx_ready)
+        aid = page.url.split("/album/")[1].split("?")[0]
+        files = [
+            p
+            for p in (tmp_path / "harmonist-demo").rglob("*.m4a")
+            if formats.read_album_id(p) == "demo-rel-dingoes"
+        ]
+        assert len(files) == 3
+        for path in files:
+            formats.write_owned(path, dict(formats.read_owned(path), disc_num=None))
+        before = [p.read_bytes() for p in files]
+        if not on_album:
+            page.goto(release_picker_server)
+            panel = page.locator(f"#task-{aid}")
+        choices = panel.get_by_role("region", name="Releases in this release group")
+        row = choices.get_by_role("listitem").filter(has_text="Alternate pressing")
+        htmx_ready(row.get_by_role("button", name="Use", exact=True)).click()
+        review = panel.locator(".assignment-editor")
+        pw_api.expect(review.locator("[data-assignment-row]")).to_have_count(3)
+        pw_api.expect(review.locator('[aria-label^="Track numbering changes"]')).to_have_count(0)
+        assert [p.read_bytes() for p in files] == before
+        htmx_ready(review.get_by_role("button", name="Confirm suggestion")).click()
+        assert dialogs == []
+        if on_album:
+            page.wait_for_url("**/album/demo-rel-picker-sibling?from_q=Dingoes")
+        else:
+            pw_api.expect(panel).to_have_count(0)
+        assert all(formats.read_album_id(p) == "demo-rel-picker-sibling" for p in files)
+        assert all(formats.read_tags(p).disc_num == 1 for p in files)
         browser.close()
 
 

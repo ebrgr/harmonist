@@ -25,13 +25,15 @@ pytestmark = pytest.mark.skipif(
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
 # Seeded as NEEDS_MBID with a store URL, and demo's MusicBrainz resolves that URL
-# to exactly one release — automatic URL search should suggest it for review.
+# to exactly one release — automatic URL search should list it for selection.
 # Reached by its title rather than by id, which also exercises the card link.
 ALBUM_TITLE = "We Are Here To Make You Sad"
 
 
 @pytest.mark.parametrize("on_album", [False, True])
-def test_search_tools_wait_until_suggestion_is_dismissed(reset_demo_server, on_album):
+def test_dismissed_suggestion_returns_to_selectable_store_results(
+    reset_demo_server, htmx_ready, on_album
+):
     with playwright_sync.sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
@@ -61,12 +63,30 @@ def test_search_tools_wait_until_suggestion_is_dismissed(reset_demo_server, on_a
                 page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
             page.wait_for_load_state("networkidle")
             playwright_sync.expect(tools).to_be_visible()
-        # A deliberate new search offers a suggestion and hides the alternatives again.
+        # A fresh search lists the release; only Use opens another review.
         tools.get_by_role("radio", name="By name", exact=True).check()
         with page.expect_response(lambda r: "/candidates" in r.url):
             tools.get_by_role("radio", name="Store URL", exact=True).check()
+        rows = tools.get_by_role("list", name="Release candidates").get_by_role("listitem")
+        playwright_sync.expect(rows).to_have_count(1)
+        playwright_sync.expect(rows).to_contain_text("Store URL matches")
+        playwright_sync.expect(tools).to_be_visible()
+        htmx_ready(rows.get_by_role("button", name="Use", exact=True)).press("Enter")
         playwright_sync.expect(dismiss).to_be_visible()
         playwright_sync.expect(tools).to_be_hidden()
+        dialogs = []
+
+        def dismiss_dialog(dialog):
+            dialogs.append(dialog.message)
+            dialog.dismiss()
+
+        page.on("dialog", dismiss_dialog)
+        htmx_ready(host.get_by_role("button", name="Confirm suggestion", exact=True)).click()
+        assert dialogs == []
+        if on_album:
+            page.wait_for_url("**/album/demo-rel-thamesmen*")
+        else:
+            playwright_sync.expect(card).to_have_count(0)
         browser.close()
 
 
@@ -78,7 +98,10 @@ def test_automatic_url_search_runs_once_across_inbox_refreshes(reset_demo_server
         page.on("request", lambda r: lookups.append(r.url) if "/candidates" in r.url else None)
         page.goto(reset_demo_server)
         card = page.locator('div[id^="task-"].relative').filter(has_text=ALBUM_TITLE)
-        playwright_sync.expect(card.get_by_role("heading", name="Suggested match:")).to_be_visible()
+        results = card.get_by_role("list", name="Release candidates")
+        playwright_sync.expect(
+            results.get_by_role("button", name="Use", exact=True)
+        ).to_be_visible()
         page.wait_for_load_state("networkidle", timeout=10_000)
         assert len(lookups) == 1
         # A real inbox swap must preserve the form without repeating its load search.
@@ -88,18 +111,20 @@ def test_automatic_url_search_runs_once_across_inbox_refreshes(reset_demo_server
         # controls. Network-idle may already have fired for the initial load.
         page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
         assert len(lookups) == 1
-        # Dismissal reveals the search tools; an explicit retry asks MusicBrainz again.
-        with page.expect_response(lambda r: "/reject/" in r.url):
-            card.get_by_role("button", name="Dismiss suggestion", exact=True).click()
+        # An explicit retry asks MusicBrainz again and keeps results selectable.
         with page.expect_response(lambda r: "/candidates" in r.url):
             card.get_by_role("button", name="Search", exact=True).click()
         page.wait_for_load_state("networkidle", timeout=10_000)
         assert len(lookups) == 2
+        playwright_sync.expect(
+            results.get_by_role("button", name="Use", exact=True)
+        ).to_be_visible()
         browser.close()
 
 
 def test_a_card_links_to_its_album_page_and_the_decision_can_be_taken_there(
     reset_demo_server: str,
+    htmx_ready,
 ) -> None:
     """Both halves of #150 in the one path a user actually walks: from the card,
     to the album, to the decision."""
@@ -118,6 +143,9 @@ def test_a_card_links_to_its_album_page_and_the_decision_can_be_taken_there(
 
         page.wait_for_url("**/album/**", timeout=10_000)
         page.wait_for_selector("#album-inbox-actions", timeout=10_000)
+        results = page.get_by_role("list", name="Release candidates")
+        playwright_sync.expect(results).to_contain_text("Store URL matches")
+        htmx_ready(results.get_by_role("button", name="Use", exact=True)).click()
         playwright_sync.expect(page.get_by_role("heading", name="Suggested match:")).to_be_visible()
         assert any("/candidates" in u for u in requests)
         assert page.locator("#album-tags").count() == 0
@@ -131,6 +159,7 @@ def test_a_card_links_to_its_album_page_and_the_decision_can_be_taken_there(
         # Selecting URL is an explicit fresh search after dismissal.
         with page.expect_response(lambda r: "/candidates" in r.url):
             page.get_by_role("radio", name="Store URL", exact=True).check()
+        htmx_ready(results.get_by_role("button", name="Use", exact=True)).click()
         playwright_sync.expect(page.get_by_role("heading", name="Suggested match:")).to_be_visible()
 
         browser.close()

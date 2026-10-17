@@ -7378,22 +7378,6 @@ def _register_routes(app: FastAPI) -> None:
             except (ValueError, OSError, tagger_mod.TagMismatchError) as e:
                 log.warning("could not preview assignment tags: %s", e, extra=_LOG_ONLY)
                 assignment_error = str(e)
-        shape_confirmation = None
-        if panel is not None:
-            if len(panel.files) < len(panel.mb):
-                shape_confirmation = (
-                    f"This release has {len(panel.mb)} tracks; you have {len(panel.files)} files. "
-                    + (
-                        "Apply the assignments shown in this review?"
-                        if panel.available_pregaps or panel.included_pregaps
-                        else "Apply these assignments and tag the album as incomplete?"
-                    )
-                )
-            elif any(d is None or m is None or d.number != m.number for d, m in panel.rows):
-                shape_confirmation = (
-                    "The release's track layout differs from your files. "
-                    "Apply the assignments shown in this review?"
-                )
         return _templates(request).TemplateResponse(
             request,
             "partials/_assignment_editor.html",
@@ -7411,7 +7395,6 @@ def _register_routes(app: FastAPI) -> None:
                 fragment=True,
                 assignment_changes=assignment_changes,
                 assignment_error=assignment_error,
-                shape_confirmation=shape_confirmation,
                 review_draft=review_draft,
                 artwork=(
                     _artwork_view(album, folder_cover=_folder_cover_policy(request))
@@ -8065,7 +8048,6 @@ def _register_routes(app: FastAPI) -> None:
         request: Request,
         album_id: str,
         on_album_page: bool = Form(False),
-        suggest: bool = Form(False),
     ) -> Response:
         """List the MB releases linked to this album's store URL so the user can
         pick the right one. Fresh lookup each call — no caching — so a fix made
@@ -8079,30 +8061,6 @@ def _register_routes(app: FastAPI) -> None:
             return Response(status_code=status.HTTP_204_NO_CONTENT)
         try:
             results, total = mb_lookup.candidate_summaries_for_url(sc.store_url)
-            if suggest and total == 1 and len(results) == 1:
-                release = mb_cache.fetch_release(results[0]["id"], max_age=mb_cache.FRESH)
-                candidate = match.assess_match(album.path, release)
-                current = sidecar_mod.read(album.path)
-                if current is None or current.mb_release_id or current.store_url != sc.store_url:
-                    raise mb_lookup.MBError("Album changed while the lookup ran")
-                if current.mb_match_candidate is not None:
-                    return Response(status_code=status.HTTP_204_NO_CONTENT)  # #638
-                sidecar_mod.write(
-                    album.path,
-                    replace(
-                        current, mb_match_candidate=replace(candidate, found_by=FoundBy.STORE_URL)
-                    ),
-                )
-                runner = request.app.state.scan_runner
-                if runner.is_engaged():
-                    runner.refresh_now()
-                # Flashed, not recorded (#639) — see the barcode lookup above.
-                return _flash_response(
-                    "Needs review",
-                    "Store URL match found — review and confirm",
-                    album=album,
-                    record_activity=False,
-                )
         except mb_lookup.MBError as e:
             response = _flash_response(
                 "MB lookup failed",
@@ -8113,6 +8071,8 @@ def _register_routes(app: FastAPI) -> None:
             )
             response.headers["HX-Retarget"] = f"#mbid-results-{album.id}"
             return response
+        if _suggestion_waiting(album.path):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
         return _render_release_picker(
             request,
             album,
@@ -8120,7 +8080,7 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading=None,
             on_album_page=on_album_page,
-            review_only=suggest,
+            review_only=True,
             retarget=True,
             store_url=sc.store_url,
         )

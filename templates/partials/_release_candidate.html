@@ -29,7 +29,7 @@
     <div class="flex items-center gap-2 flex-shrink-0">
         {% if store_match or barcode_match or store_pages %}
         <div class="text-xs {% if suggested %}text-amber-700 font-bold{% else %}text-muted{% endif %}">
-            {% if store_match %}<div>Store URL matches</div>{% endif %}
+            {% if store_match %}<div class="text-accent font-bold">Store URL matches</div>{% endif %}
             {% if barcode_match %}<div>Barcode matches</div>{% endif %}
             {# The store the download came from, not the download's own page:
                weaker than a match, so it names the host and shows the page. #}
