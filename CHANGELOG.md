@@ -17,6 +17,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **Settings uses bordered sections with shaded headings**, matching the album page and making each group easier to scan (#777).
 - **The status bar is live on every page**, so Settings and album pages show background work and the outcome of their own actions (#757).
 - **Library updates is now Check MusicBrainz for updates**, with **In the background** in place of Find updates for review, since what happens to an update is now set separately (#273).
 - **The Activity feed only announces tag updates bound for the Inbox**; the rest stay in the **Tag updates** filter (#273).

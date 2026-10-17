@@ -18,10 +18,10 @@
 {% endmacro %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto">
+<div class="max-w-3xl mx-auto space-y-5">
     {# Other actions inside the boosted settings form are type=button: setup
        and restore must never submit pending preferences (#687). #}
-    <form method="post" action="/settings" hx-boost="true">
+    <form method="post" action="/settings" hx-boost="true" class="space-y-5">
         <div class="sticky top-0 z-40 bg-white border-b border-line py-4 flex items-center justify-between gap-3">
             <h1 class="text-2xl font-extrabold text-ink">Settings</h1>
             <div class="flex flex-wrap items-center justify-end gap-3">
@@ -33,11 +33,11 @@
         <div role="alert" class="my-4 px-4 py-2 rounded-md bg-red-50 border border-red-300 text-red-700 text-sm">Couldn't save: {{ error }}</div>
         {% endif %}
 
-        <section id="tagging" aria-labelledby="tagging-heading" class="border-b border-line py-5 scroll-mt-20">
-            <h2 id="tagging-heading" class="text-sm font-bold text-ink uppercase tracking-widest">Tagging</h2>
+        <section id="tagging" aria-labelledby="tagging-heading" class="border border-line rounded-lg scroll-mt-20">
+            <h2 id="tagging-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Tagging</h2>
             {# A rule between settings, so each example reads with the control
                above it rather than the one below (#678). #}
-            <div class="mt-4 divide-y divide-line">
+            <div class="p-4 divide-y divide-line">
             <div class="pb-4">
                 <label for="folder-cover" class="block text-xs font-bold text-ink mb-1">Create cover.jpg in album folders</label>
                 <select id="folder-cover" name="folder_cover" class="w-full bg-white border border-line rounded px-3 py-2 text-sm text-ink focus:border-accent">
@@ -138,8 +138,9 @@
             </div>
         </section>
 
-        <section aria-labelledby="updates-heading" class="border-b border-line py-5 space-y-4">
-            <h2 id="updates-heading" class="text-sm font-bold text-ink uppercase tracking-widest">Background Updates</h2>
+        <section aria-labelledby="updates-heading" class="border border-line rounded-lg">
+            <h2 id="updates-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Background Updates</h2>
+            <div class="p-4 space-y-3">
             <label class="block">
                 <span class="block text-xs font-bold text-ink mb-1">Check MusicBrainz for updates</span>
                 <select name="gardener_level" class="w-full bg-white border border-line rounded px-3 py-2 text-sm text-ink focus:border-accent">
@@ -239,10 +240,12 @@
                 })();
                 </script>
             </fieldset>
+            </div>
         </section>
 
-        <section aria-labelledby="bandcamp-heading" class="border-b border-line py-5 space-y-4">
-            <h2 id="bandcamp-heading" class="text-sm font-bold text-ink uppercase tracking-widest">Bandcamp</h2>
+        <section aria-labelledby="bandcamp-heading" class="border border-line rounded-lg">
+            <h2 id="bandcamp-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Bandcamp</h2>
+            <div class="p-4 space-y-3">
             <div class="flex items-center justify-between gap-3">
                 <p class="text-sm"><span aria-hidden="true" class="text-accent">●</span> {{ 'Login cookies set up' if bandcamp_ok else 'No login cookies — sync disabled' }}</p>
                 <button type="button" hx-get="/bandcamp/setup" hx-target="#modal" hx-swap="innerHTML"
@@ -264,10 +267,12 @@
                 </label>
             </div>
             {% include 'partials/_ignored.html' %}
+            </div>
         </section>
 
-        <section aria-labelledby="server-heading" class="border-b border-line py-5 space-y-4">
-            <h2 id="server-heading" class="text-sm font-bold text-ink uppercase tracking-widest">Server</h2>
+        <section aria-labelledby="server-heading" class="border border-line rounded-lg">
+            <h2 id="server-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Server</h2>
+            <div class="p-4 space-y-3">
             <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                 <div><dt class="text-xs text-muted mb-1">Music library</dt><dd class="font-mono text-ink break-all" title="{{ cfg.paths.music_dir }}">{{ display_path(cfg.paths.music_dir) }}</dd></div>
                 <div><dt class="text-xs text-muted mb-1">Config directory</dt><dd class="font-mono text-ink break-all" title="{{ cfg.paths.config_dir }}">{{ display_path(cfg.paths.config_dir) }}</dd></div>
@@ -302,11 +307,12 @@
                 {{ storage_meter('Artwork Cache', cfg.artwork_cache_dir, used, cap) }}
                 <p class="text-xs text-muted">{% if cap %}Downloaded artwork; least recently viewed images are removed when full.{% else %}Caching is disabled, so archive images cannot be shown or offered.{% endif %}</p>
             </div>
+            </div>
         </section>
     </form>
 
-    <details class="py-5">
-        <summary class="text-sm font-semibold text-ink cursor-pointer">Maintenance</summary>
+    <details class="p-4">
+        <summary class="text-sm font-semibold text-muted hover:text-ink cursor-pointer">Maintenance</summary>
         <div class="flex flex-wrap items-center justify-between gap-3 pt-4">
             <p class="text-xs text-muted">Remove Harmonist’s album records; audio and tags stay.</p>
             <button type="button" hx-post="/settings/erase-sidecars" hx-swap="none" hx-disabled-elt="this"
