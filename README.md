@@ -40,7 +40,7 @@ Try Harmonist with a sample library using Docker. No Bandcamp account or music
 folders needed; the demo uses simulated services and leaves your music untouched.
 
 ```bash
-docker run --rm --platform linux/amd64 \
+docker run --rm \
   -p 127.0.0.1:8000:8000 \
   -e HARMONIST_DEMO_MODE=1 \
   ghcr.io/randomphrase/harmonist:latest

@@ -2,7 +2,7 @@
 # Edit the two host paths and the `user:`, then: docker compose up -d
 services:
   harmonist:
-    image: ghcr.io/randomphrase/harmonist:latest   # published to GHCR, linux/amd64
+    image: ghcr.io/randomphrase/harmonist:latest   # published to GHCR, amd64 + arm64
     container_name: harmonist
     restart: unless-stopped
     ports:

@@ -9,7 +9,7 @@ The demo runs a small sample library with simulated Bandcamp and MusicBrainz
 services. It needs no account and doesn't touch your music:
 
 ```bash
-docker run --rm --platform linux/amd64 -p 127.0.0.1:8000:8000 -e HARMONIST_DEMO_MODE=1 ghcr.io/randomphrase/harmonist:latest
+docker run --rm -p 127.0.0.1:8000:8000 -e HARMONIST_DEMO_MODE=1 ghcr.io/randomphrase/harmonist:latest
 ```
 
 It's then at <http://localhost:8000>. **Reset Demo** puts everything back, and
@@ -17,8 +17,10 @@ Ctrl+C stops it.
 
 ## Installing
 
-Harmonist runs in Docker. The image is `linux/amd64`, which covers most NAS
-boxes (including Synology) and PCs.
+Harmonist runs in Docker. Images are available for `linux/amd64` (Intel/AMD PCs
+and NAS boxes) and `linux/arm64` (including Raspberry Pi with a 64-bit OS).
+Docker selects the matching image automatically; no `--platform` option is
+needed. A 32-bit ARM OS is not supported by the published images.
 
 Save this as `docker-compose.yml`, change the two host paths and the `user:`
 line, and run `docker compose up -d`:

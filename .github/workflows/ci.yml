@@ -14,6 +14,39 @@ permissions:
   contents: read
 
 jobs:
+  # Native runners catch missing architecture-specific dependencies and startup
+  # failures that the Python suite cannot see in the packaged image.
+  container:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build --tag harmonist:smoke .
+
+      - name: Start demo and wait for health check
+        run: |
+          docker run --detach --name harmonist-smoke --env HARMONIST_DEMO_MODE=1 \
+            --health-interval=2s --health-start-period=5s --health-retries=30 \
+            harmonist:smoke
+          trap 'docker logs harmonist-smoke; docker rm --force --volumes harmonist-smoke' EXIT
+          for _ in {1..60}; do
+            status=$(docker inspect --format '{{.State.Health.Status}}' harmonist-smoke)
+            if [ "$status" = healthy ]; then
+              exit 0
+            fi
+            if [ "$status" = unhealthy ] || [ "$(docker inspect --format '{{.State.Running}}' harmonist-smoke)" != true ]; then
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Demo container did not become healthy within 120 seconds."
+          exit 1
+
   # Lint + type-check + tests, mirroring `make check`, across supported Pythons.
   check:
     runs-on: ubuntu-latest

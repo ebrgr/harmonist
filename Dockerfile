@@ -3,7 +3,7 @@
 # The CSS bundle (static/harmonist.css) is pre-built and committed, so the
 # image needs no Node/Tailwind toolchain — just Python + the runtime deps.
 #
-# Built for linux/amd64 (Synology NAS); published to GHCR by CI. To build
+# Built for linux/amd64 and linux/arm64; published to GHCR by CI. To build
 # locally: docker build -t harmonist:latest .
 FROM python:3.14-slim
 
