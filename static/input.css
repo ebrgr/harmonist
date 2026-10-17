@@ -41,22 +41,35 @@
 .settings-title:has(option[value="album_disambiguation_if_needed"]:checked) .settings-title-multiple .settings-title-plain,
 .settings-title[data-conditional="true"]:has(option[value="album_disambiguation_if_needed"]:checked) .transform-off-warning { display: none; }
 
-/* Where updates go follows the current choices the same way (#273). Review:
-   the checked level and those listed above it go to the Inbox, and the rows
-   after it are left to the Library. Apply: the checked level and the rows after
-   it are applied, and win over both, which is why those rules are prefixed with
-   the fieldset (one more class) and come last. */
-.update-routing__choice { flex: none; width: 2.75rem; text-align: center; }
-.update-routing__library,
-.update-routing__applied { display: none; }
-.update-routing__row:has(.update-routing__review:checked) ~ .update-routing__row .update-routing__library { display: inline; }
-.update-routing__row:has(.update-routing__review:checked) ~ .update-routing__row .update-routing__inbox { display: none; }
-.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__applied,
-.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__applied { display: inline; }
-.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__inbox,
-.update-routing .update-routing__row:has(.update-routing__apply:checked) .update-routing__library,
-.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__inbox,
-.update-routing .update-routing__row:has(.update-routing__apply:checked) ~ .update-routing__row .update-routing__library { display: none; }
+/* Where each level's updates go (#273): a grid of tick cells, each a visually
+   hidden checkbox inside its label, so it keeps the keyboard, focus and screen
+   reader behaviour of the native control. The outcome follows each row's own
+   ticks, unsaved changes included; the script in settings.html keeps the
+   columns contiguous. On a phone the column headings say it, and the outcome
+   column gives way. */
+.update-routing__head,
+.update-routing__row { display: grid; grid-template-columns: 7.5rem 5rem 4rem 4rem minmax(0, 1fr); }
+.update-routing__head { border: 1px solid transparent; }
+.update-routing__heading { text-align: center; padding: 0 .25rem .25rem; }
+.update-routing__level { display: flex; align-items: center; justify-content: center; padding: .5rem; }
+.update-routing__count { display: flex; align-items: center; white-space: nowrap; }
+.update-routing__cell { display: flex; align-items: center; justify-content: center; border-left: 1px solid var(--color-line); cursor: pointer; }
+.update-routing__cell:hover { background: var(--color-surface); }
+.update-routing__cell--never { cursor: default; }
+.update-routing__cell--never:hover { background: none; }
+.update-routing__cell:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.update-routing__cell:has(input:checked) .update-routing__tick::before { content: "✓"; font-size: 1rem; font-weight: 700; color: var(--color-ink); }
+.update-routing__outcome { display: flex; align-items: center; padding: .5rem .75rem; border-left: 1px solid var(--color-line); }
+.update-routing__applied,
+.update-routing__inbox { display: none; }
+.update-routing__row:has(.update-routing__apply:checked) .update-routing__applied,
+.update-routing__row:has(.update-routing__review:checked) .update-routing__inbox { display: inline; }
+.update-routing__row:has(input:checked) .update-routing__library { display: none; }
+@media (max-width: 639px) {
+  .update-routing__head,
+  .update-routing__row { grid-template-columns: 7rem minmax(0, 1fr) 3.5rem 3.5rem; }
+  .update-routing__outcome { display: none; }
+}
 
 /* The artist examples follow the current controls the same way (#678): a
    variation is standardized by either standardizing choice, a former name only

@@ -141,73 +141,103 @@
         <section aria-labelledby="updates-heading" class="border-b border-line py-5 space-y-4">
             <h2 id="updates-heading" class="text-sm font-bold text-ink uppercase tracking-widest">Background Updates</h2>
             <label class="block">
-                <span class="block text-xs font-bold text-ink mb-1">Library updates</span>
+                <span class="block text-xs font-bold text-ink mb-1">Check MusicBrainz for updates</span>
                 <select name="gardener_level" class="w-full bg-white border border-line rounded px-3 py-2 text-sm text-ink focus:border-accent">
-                    {% for value, label in [('off', 'Off'), ('review', 'Find updates for review')] %}
+                    {% for value, label in [('off', 'Off'), ('review', 'In the background')] %}
                     <option value="{{ value }}" {{ 'selected' if value == cfg.gardener.level }}>{{ label }}</option>
                     {% endfor %}
                 </select>
             </label>
             {% include 'partials/_update_check.html' %}
-            {# Where an update starts needing a person (#273): the checked level
-               and every level above it go to the Inbox. Widest first, so the
-               rows below the checked one are the levels left to the Library's
-               update filter; CSS previews that before saving. #}
-            {# Two thresholds on one scale (#273), widest first. The Inbox column
-               takes the checked level and every level above it; the Apply column
-               the checked level and every level below it, never Structure, and
-               wins where the two overlap. Each "None" sits at the end of its own
-               range. CSS previews every row's outcome before saving. #}
+            {# Where each level's updates go (#273), widest first: a grid of tick
+               cells, one checkbox each. Apply ticks run up from Settings, never
+               to Structure; Inbox ticks run down from Structure; a row ticks at
+               most one. The script below keeps both columns contiguous as cells
+               are clicked, and the server reads each threshold off whatever is
+               ticked, so a form without the script still saves a sound pair.
+               The outcome column reads each row's own ticks. #}
             <fieldset class="update-routing">
-                <legend class="block text-xs font-bold text-ink mb-1">Tag updates</legend>
+                <legend class="block text-xs font-bold text-ink mb-1">When a tag update is found</legend>
+                <input type="hidden" name="gardener_routing" value="1">
+                {# Headings sit above the box, aligned to the tick columns. #}
+                <div class="update-routing__head text-2xs font-bold text-muted" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span class="update-routing__heading">Apply</span>
+                    <span class="update-routing__heading">Inbox</span>
+                </div>
                 <ul class="divide-y divide-line border border-line rounded">
-                    <li class="update-routing__head flex items-center gap-3 px-3 py-1.5 text-2xs font-bold uppercase tracking-widest text-muted" aria-hidden="true">
-                        <span class="update-routing__choice">Apply</span>
-                        <span class="update-routing__choice">Inbox</span>
-                    </li>
-                    <li class="update-routing__row flex items-center gap-3 px-3 py-2">
-                        <span class="update-routing__choice"></span>
-                        <span class="update-routing__choice">
-                            <input type="radio" name="gardener_review_from" value="none" class="update-routing__review cursor-pointer"
-                                   aria-label="Review nothing in the Inbox"
-                                   {{ 'checked' if cfg.gardener.review_from == 'none' }}>
-                        </span>
-                        <span class="text-sm text-ink">None</span>
-                    </li>
                     {% for level in update_levels %}
                     {% set n = waiting_by_level[level] %}
-                    <li class="update-routing__row flex items-center gap-3 px-3 py-2" data-level="{{ level.value }}" data-count="{{ n }}">
-                        <span class="update-routing__choice">
-                            {% if level.value != 'structure' %}
-                            <input type="radio" name="gardener_apply_up_to" value="{{ level.value }}" class="update-routing__apply cursor-pointer"
-                                   aria-label="Apply {{ level.value }} and less automatically"
-                                   {{ 'checked' if cfg.gardener.apply_up_to == level }}>
-                            {% endif %}
-                        </span>
-                        <span class="update-routing__choice">
-                            <input type="radio" name="gardener_review_from" value="{{ level.value }}" class="update-routing__review cursor-pointer"
-                                   aria-label="Review {{ level.value }} and more in the Inbox"
-                                   {{ 'checked' if cfg.gardener.review_from == level }}>
-                        </span>
-                        {{ severity_chip(level) }}
-                        <span class="text-xs text-muted">{{ n }} {{ 'album' if n == 1 else 'albums' }}</span>
-                        <span class="ml-auto text-xs font-semibold">
-                            <span class="update-routing__inbox text-mb-purple">Inbox</span>
-                            <span class="update-routing__library text-muted">Library only</span>
-                            <span class="update-routing__applied text-accent-dark">Apply</span>
+                    {% set goes = update_outcome[level] %}
+                    <li class="update-routing__row" data-level="{{ level.value }}" data-count="{{ n }}">
+                        <span class="update-routing__level">{{ severity_chip(level) }}</span>
+                        <span class="update-routing__count text-xs text-muted">{{ n }} {{ 'album' if n == 1 else 'albums' }}</span>
+                        {% if level.value == 'structure' %}
+                        <span class="update-routing__cell update-routing__cell--never text-xs text-muted">never</span>
+                        {% else %}
+                        <label class="update-routing__cell">
+                            <input type="checkbox" name="gardener_apply" value="{{ level.value }}" class="update-routing__apply sr-only"
+                                   aria-label="Apply {{ level.value }} updates automatically"
+                                   {{ 'checked' if goes == 'apply' }}>
+                            <span class="update-routing__tick" aria-hidden="true"></span>
+                        </label>
+                        {% endif %}
+                        <label class="update-routing__cell">
+                            <input type="checkbox" name="gardener_review" value="{{ level.value }}" class="update-routing__review sr-only"
+                                   aria-label="Review {{ level.value }} updates in the Inbox"
+                                   {{ 'checked' if goes == 'review' }}>
+                            <span class="update-routing__tick" aria-hidden="true"></span>
+                        </label>
+                        <span class="update-routing__outcome text-xs text-muted">
+                            <span class="update-routing__applied">Applied automatically</span>
+                            <span class="update-routing__inbox">Sent to the Inbox</span>
+                            <span class="update-routing__library">Left in the Library</span>
                         </span>
                     </li>
                     {% endfor %}
-                    <li class="update-routing__row flex items-center gap-3 px-3 py-2">
-                        <span class="update-routing__choice">
-                            <input type="radio" name="gardener_apply_up_to" value="none" class="update-routing__apply cursor-pointer"
-                                   aria-label="Apply nothing automatically"
-                                   {{ 'checked' if cfg.gardener.apply_up_to == 'none' }}>
-                        </span>
-                        <span class="update-routing__choice"></span>
-                        <span class="text-sm text-ink">None</span>
-                    </li>
                 </ul>
+                <script>
+                (function () {
+                    // Once per page load: a boosted save re-runs swapped-in scripts.
+                    if (window.harmonistRoutingGrid) return;
+                    window.harmonistRoutingGrid = true;
+                    // Clicking a cell extends its column's range to that level, or
+                    // shrinks it to just short of it. Apply runs up from the last
+                    // row, the Inbox down from the first, and extending one moves
+                    // the other back, so no row is ticked twice.
+                    document.addEventListener('change', function (e) {
+                        const box = e.target;
+                        const grid = box.closest && box.closest('.update-routing');
+                        if (!grid) return;
+                        const rows = Array.from(grid.querySelectorAll('.update-routing__row'));
+                        const at = rows.indexOf(box.closest('.update-routing__row'));
+                        const apply = (row) => row.querySelector('.update-routing__apply');
+                        const review = (row) => row.querySelector('.update-routing__review');
+                        if (box.classList.contains('update-routing__apply')) {
+                            rows.forEach(function (row, i) {
+                                const a = apply(row);
+                                if (box.checked && i >= at) {
+                                    if (a) a.checked = true;
+                                    review(row).checked = false;
+                                } else if (!box.checked && i <= at && a) {
+                                    a.checked = false;
+                                }
+                            });
+                        } else if (box.classList.contains('update-routing__review')) {
+                            rows.forEach(function (row, i) {
+                                const a = apply(row);
+                                if (box.checked && i <= at) {
+                                    review(row).checked = true;
+                                    if (a) a.checked = false;
+                                } else if (!box.checked && i >= at) {
+                                    review(row).checked = false;
+                                }
+                            });
+                        }
+                    });
+                })();
+                </script>
             </fieldset>
         </section>
 

@@ -80,9 +80,9 @@ release's own comment; missing or identical comments can leave titles identical.
 
 | Key | Env | Default | |
 |---|---|---|---|
-| `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks tags against MusicBrainz and artwork against the Cover Art Archive in the background and reports updates. It never writes to music files. On the Settings page as **Library updates**. |
-| `review_from` | `HARMONIST_GARDENER_REVIEW_FROM` | `"structure"` | The lowest significance whose updates wait in the Inbox: `settings`, `cosmetic`, `enrichment`, `identity`, `structure`, or `none`. Each level includes those after it in that list. On the Settings page as the **Inbox** column of **Tag updates**. |
-| `apply_up_to` | `HARMONIST_GARDENER_APPLY_UP_TO` | `"none"` | The highest significance whose updates are written without review: `settings`, `cosmetic`, `enrichment`, `identity`, or `none`. Each level includes those before it in that list; `structure` is refused. Wins over `review_from` where the two overlap. On the Settings page as the **Apply** column of **Tag updates**. |
+| `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks tags against MusicBrainz and artwork against the Cover Art Archive in the background and reports updates. It never writes to music files. On the Settings page as **Check MusicBrainz for updates**. |
+| `review_from` | `HARMONIST_GARDENER_REVIEW_FROM` | `"structure"` | The lowest significance whose updates wait in the Inbox: `settings`, `cosmetic`, `enrichment`, `identity`, `structure`, or `none`. Each level includes those after it in that list. On the Settings page as the **Inbox** column of **When a tag update is found**. |
+| `apply_up_to` | `HARMONIST_GARDENER_APPLY_UP_TO` | `"none"` | The highest significance whose updates are written without review: `settings`, `cosmetic`, `enrichment`, `identity`, or `none`. Each level includes those before it in that list; `structure` is refused. Wins over `review_from` where the two overlap. On the Settings page as the **Apply** column of **When a tag update is found**. |
 
 ## `[library]`
 

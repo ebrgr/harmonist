@@ -196,16 +196,22 @@ def test_settings_counts_each_levels_waiting_updates(client, cfg, monkeypatch):
     }
 
 
-def test_saving_a_review_level_applies_it_and_keeps_it(client, cfg):
+_FORM = {
+    "download_format": "flac",
+    "max_downloads_per_sync": "10",
+    "user_agent": "Harmonist/test ( test@example.com )",
+    "gardener_level": "off",
+    "folder_cover": "never",
+    "standardize_artist_names": "none",
+    "log_level": "info",
+}
+
+
+def test_saving_the_inbox_ticks_keeps_the_narrowest_as_the_level(client, cfg):
     form = {
-        "download_format": "flac",
-        "max_downloads_per_sync": "10",
-        "user_agent": "Harmonist/test ( test@example.com )",
-        "gardener_level": "off",
-        "gardener_review_from": "enrichment",
-        "folder_cover": "never",
-        "standardize_artist_names": "none",
-        "log_level": "info",
+        **_FORM,
+        "gardener_routing": "1",
+        "gardener_review": ["structure", "identity", "enrichment"],
     }
 
     assert client.post("/settings", data=form).status_code == 200
@@ -213,6 +219,72 @@ def test_saving_a_review_level_applies_it_and_keeps_it(client, cfg):
     assert client.app.state.cfg.gardener.review_from == S.ENRICHMENT
     settings_file = (cfg.paths.config_dir / "harmonist.toml").read_text()
     assert re.search(r'review_from\s*=\s*"enrichment"', settings_file)
+
+
+def test_unticking_every_inbox_level_reviews_nothing(client):
+    form = {**_FORM, "gardener_routing": "1"}
+
+    assert client.post("/settings", data=form).status_code == 200
+
+    assert client.app.state.cfg.gardener.review_from == "none"
+
+
+def test_a_form_without_the_grid_keeps_the_saved_levels(client):
+    """Unticked boxes post nothing, so only the grid's own marker can say the
+    form had one; without it, absence is not a choice."""
+    client.app.state.cfg = client.app.state.cfg.model_copy(
+        update={"gardener": GardenerConfig(review_from=S.IDENTITY)}
+    )
+
+    assert client.post("/settings", data=_FORM).status_code == 200
+
+    assert client.app.state.cfg.gardener.review_from == S.IDENTITY
+
+
+@pytest.mark.parametrize(
+    ("review_from", "apply_up_to", "expected"),
+    [
+        (S.STRUCTURE, "none", {"structure": "review"}),
+        (
+            S.IDENTITY,
+            S.COSMETIC,
+            {"structure": "review", "identity": "review", "cosmetic": "apply", "settings": "apply"},
+        ),
+        (
+            "none",
+            S.IDENTITY,
+            {"identity": "apply", "enrichment": "apply", "cosmetic": "apply", "settings": "apply"},
+        ),
+        # Overlap: applying wins, so the row shows one tick.
+        (
+            S.SETTINGS,
+            S.ENRICHMENT,
+            {
+                "structure": "review",
+                "identity": "review",
+                "enrichment": "apply",
+                "cosmetic": "apply",
+                "settings": "apply",
+            },
+        ),
+    ],
+)
+def test_the_grid_ticks_each_level_by_where_its_updates_go(
+    client, review_from, apply_up_to, expected
+):
+    client.app.state.cfg = client.app.state.cfg.model_copy(
+        update={"gardener": GardenerConfig(review_from=review_from, apply_up_to=apply_up_to)}
+    )
+
+    page = client.get("/settings").text
+    ticked: dict[str, str] = {}
+    for name, value in re.findall(
+        r'<input[^>]*name="gardener_(apply|review)"[^>]*value="(\w+)"[^>]*\bchecked\b', page
+    ):
+        assert value not in ticked, f"{value} ticked in both columns"
+        ticked[value] = name
+
+    assert ticked == expected
 
 
 # ---- the update check's digest -------------------------------------------

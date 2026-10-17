@@ -1153,6 +1153,17 @@ def applies(significance: owned.Significance, apply_up_to: ReviewFrom) -> bool:
     )
 
 
+def outcome(significance: owned.Significance, routing: GardenerConfig) -> str:
+    """Where an update reaching `significance` goes: "apply", "review" or
+    "library". What the Settings grid ticks for each level, from the same rules
+    the pass and the Inbox follow, so the two cannot describe different things."""
+    if applies(significance, routing.apply_up_to):
+        return "apply"
+    if reviews(significance, routing.review_from):
+        return "review"
+    return "library"
+
+
 def _bound_for_review(significance: owned.Significance, routing: GardenerConfig) -> bool:
     """Reviewed and not applied: applying wins where the two ranges overlap,
     because asking about an update that is about to be written is asking twice."""

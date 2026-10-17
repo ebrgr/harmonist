@@ -148,3 +148,111 @@ def test_settings_setup_and_restore_preserve_unsaved_preferences(
         assert ("POST", f"{base}/ignored/12001/restore") in requests
         assert ("GET", f"{base}/bandcamp/setup") in requests
         browser.close()
+
+
+_LEVELS = ["structure", "identity", "enrichment", "cosmetic", "settings"]
+
+
+def test_the_tag_update_grid_keeps_both_columns_contiguous_and_saves(demo_server: str) -> None:
+    """#273. The tick grid's ranges are kept by a script and its outcome column by
+    CSS, both on unsaved clicks, which no route test can see. Clicking a cell
+    extends its column to that level or shrinks it to just short of it, and
+    extending one column pushes the other back."""
+    with playwright_sync.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.set_default_timeout(5000)
+        page.goto(f"{demo_server}/settings")
+
+        def cell(column: str, level: str):
+            return page.locator(
+                f'.update-routing__row[data-level="{level}"] label:has(.update-routing__{column})'
+            )
+
+        def state() -> dict[str, str]:
+            ticks = {}
+            for level in _LEVELS:
+                row = page.locator(f'.update-routing__row[data-level="{level}"]')
+                apply = row.locator(".update-routing__apply")
+                if apply.count() and apply.is_checked():
+                    ticks[level] = "apply"
+                elif row.locator(".update-routing__review").is_checked():
+                    ticks[level] = "review"
+                else:
+                    ticks[level] = "-"
+            return ticks
+
+        def outcomes() -> list[str]:
+            return [
+                page.locator(f'.update-routing__row[data-level="{level}"] .update-routing__outcome')
+                .inner_text()
+                .strip()
+                for level in _LEVELS
+            ]
+
+        assert state() == {"structure": "review", **dict.fromkeys(_LEVELS[1:], "-")}
+
+        cell("apply", "enrichment").click()  # extend Apply up to Enrichment
+        assert state() == {
+            "structure": "review",
+            "identity": "-",
+            "enrichment": "apply",
+            "cosmetic": "apply",
+            "settings": "apply",
+        }
+        assert outcomes() == [
+            "Sent to the Inbox",
+            "Left in the Library",
+            "Applied automatically",
+            "Applied automatically",
+            "Applied automatically",
+        ]
+
+        cell("review", "enrichment").click()  # Inbox down to Enrichment pushes Apply back
+        assert state() == {
+            "structure": "review",
+            "identity": "review",
+            "enrichment": "review",
+            "cosmetic": "apply",
+            "settings": "apply",
+        }
+
+        cell("apply", "settings").click()  # the last Apply tick: shrink to nothing
+        assert state() == {
+            "structure": "review",
+            "identity": "review",
+            "enrichment": "review",
+            "cosmetic": "-",
+            "settings": "-",
+        }
+
+        cell("apply", "identity").click()  # Apply up to Identity pushes the Inbox back
+        cell("review", "structure").click()  # and unticking Structure empties the Inbox
+        assert state() == {
+            "structure": "-",
+            "identity": "apply",
+            "enrichment": "apply",
+            "cosmetic": "apply",
+            "settings": "apply",
+        }
+        playwright_sync.expect(
+            page.locator('.update-routing__row[data-level="structure"] .update-routing__cell').first
+        ).to_have_text("never")
+
+        with page.expect_response(
+            lambda r: r.url.endswith("/settings") and r.request.method == "POST"
+        ) as saved:
+            page.get_by_role("button", name="Save settings", exact=True).click()
+        assert saved.value.ok
+        page.reload()
+        assert state() == {"structure": "-", **dict.fromkeys(_LEVELS[1:], "apply")}
+
+        # Back to the shipped levels, so the module's other tests meet the demo
+        # as they expect it.
+        cell("apply", "settings").click()
+        cell("review", "structure").click()
+        with page.expect_response(
+            lambda r: r.url.endswith("/settings") and r.request.method == "POST"
+        ):
+            page.get_by_role("button", name="Save settings", exact=True).click()
+        browser.close()

@@ -92,7 +92,7 @@ Before each clip:
 
 | Setting | Recording baseline |
 | --- | --- |
-| Library updates | Off |
+| Check MusicBrainz for updates | Off |
 | Create cover.jpg in album folders | Never (existing folder covers can still be upgraded) |
 | Album title | Title only |
 | Standardize artist names | Standardize artist name variations only |
@@ -136,7 +136,7 @@ comparison settle. Return to Library and clear any filters. Leave their updates 
 and the Enrichment update is available. The undo has its own history entry.
 
 For a background-maintenance ending, cut to Settings → **Background updates** →
-**Library updates: Find updates for review**, save, and show the update-check
+**Check MusicBrainz for updates: In the background**, save, and show the update-check
 status. Say “Checks the library in the background and finds updates for review.”
 There is no **Check now** button; don't wait on camera for the ten-minute batch
 timer or claim that it applies changes automatically. Restore Off before the

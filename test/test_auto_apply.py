@@ -321,7 +321,15 @@ def test_saving_an_apply_level_keeps_it_and_starts_applying(tmp_path, monkeypatc
     started = []
     monkeypatch.setattr(web_main, "_auto_apply_if_idle", lambda *a, **k: started.append(a))
 
-    response = client.post("/settings", data={**_FORM, "gardener_apply_up_to": "enrichment"})
+    response = client.post(
+        "/settings",
+        data={
+            **_FORM,
+            "gardener_routing": "1",
+            "gardener_apply": ["enrichment", "cosmetic", "settings"],
+            "gardener_review": ["structure"],
+        },
+    )
 
     assert response.status_code == 200
     assert client.app.state.cfg.gardener.apply_up_to == S.ENRICHMENT
@@ -331,9 +339,12 @@ def test_saving_an_apply_level_keeps_it_and_starts_applying(tmp_path, monkeypatc
 
 
 def test_settings_refuses_to_apply_structure(tmp_path):
+    """The grid never offers it, so only a hand-built request can ask."""
     _, client = _client(tmp_path)
 
-    response = client.post("/settings", data={**_FORM, "gardener_apply_up_to": "structure"})
+    response = client.post(
+        "/settings", data={**_FORM, "gardener_routing": "1", "gardener_apply": ["structure"]}
+    )
 
     assert "Couldn't save" in response.text
     assert client.app.state.cfg.gardener.apply_up_to == "none"

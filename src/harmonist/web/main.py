@@ -1957,8 +1957,9 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
         ),
         # Why the header's global actions are inert on this page, or None if they
         # aren't. Derived here rather than passed per-route so a new page can't
-        # forget it, and server-side because the poll JS that does the *busy*-state
-        # gating only runs on the index page.
+        # forget it, and server-side because it is about the page, not about what
+        # is running: the poll JS's *busy*-state gating, on every page since #757,
+        # leaves a button marked `data-globals-off` alone.
         "globals_off_reason": (
             "Finish in Settings first — a sync started here would read settings you're"
             " partway through changing."
@@ -3966,6 +3967,32 @@ def _inbox_albums(albums: list[Album]) -> list[Album]:
     return [a for a in albums if a.state not in _TERMINAL_STATES]
 
 
+def _levels(values: Sequence[str]) -> list[owned.Significance]:
+    """The ticked levels of one grid column; an unknown name raises ValueError,
+    which the Settings save reports rather than dropping."""
+    return [owned.Significance(v.strip()) for v in values]
+
+
+def _narrowest(values: Sequence[str]) -> config_mod.ReviewFrom:
+    """The Inbox threshold the ticked levels describe: the least far-reaching one,
+    since the Inbox takes that level and everything above it."""
+    levels = _levels(values)
+    if not levels:
+        return "none"
+    narrowest: owned.Significance = min(levels, key=owned.ranked)
+    return narrowest
+
+
+def _widest_level(values: Sequence[str]) -> config_mod.ReviewFrom:
+    """The apply threshold the ticked levels describe: the furthest-reaching one,
+    since applying takes that level and everything below it."""
+    levels = _levels(values)
+    if not levels:
+        return "none"
+    widest: owned.Significance = max(levels, key=owned.ranked)
+    return widest
+
+
 def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
     """Library albums whose update waits in the Inbox, by the live routing (#273):
     those reaching the review level, and those auto-apply had to hold back."""
@@ -4639,6 +4666,7 @@ def _register_routes(app: FastAPI) -> None:
             # Per-album preference when the backup store exceeds its cap.
             keep_per_album=cfg.artwork_store.keep_per_album,
             waiting_by_level=gardener.waiting_by_level(_albums(request), _ignored_updates()),
+            update_outcome={level: gardener.outcome(level, cfg.gardener) for level in owned.ORDER},
             **_update_check_ctx(request),
             **extra,
         )
@@ -4684,8 +4712,12 @@ def _register_routes(app: FastAPI) -> None:
         user_agent: str = Form(...),
         gardener_level: str = Form(...),
         # Absent from a form that predates it, which keeps the saved level.
-        gardener_review_from: str | None = Form(None),
-        gardener_apply_up_to: str | None = Form(None),
+        # The tag-update grid (#273): a level per ticked cell. Unticked boxes
+        # post nothing, so the grid also posts a marker, without which an empty
+        # list could not be told apart from a form that has no grid.
+        gardener_routing: str | None = Form(None),
+        gardener_apply: list[str] = Form(default=[]),
+        gardener_review: list[str] = Form(default=[]),
         folder_cover: str = Form(...),
         # Empty dropdown values and an omitted field both clear the list.
         transforms: list[str] = Form(default=[]),
@@ -4709,20 +4741,17 @@ def _register_routes(app: FastAPI) -> None:
             new_mb = config_mod.MusicBrainzConfig(user_agent=user_agent.strip())
             # model_validate (vs the constructor) keeps mypy happy about the
             # str→Literal narrowing while still validating the value at runtime.
-            new_gardener = config_mod.GardenerConfig.model_validate(
-                {
-                    "level": gardener_level.strip(),
-                    "review_from": (
-                        gardener_review_from.strip()
-                        if gardener_review_from is not None
-                        else cfg.gardener.review_from
-                    ),
-                    "apply_up_to": (
-                        gardener_apply_up_to.strip()
-                        if gardener_apply_up_to is not None
-                        else cfg.gardener.apply_up_to
-                    ),
+            routing: dict[str, object] = {
+                "review_from": cfg.gardener.review_from,
+                "apply_up_to": cfg.gardener.apply_up_to,
+            }
+            if gardener_routing is not None:
+                routing = {
+                    "review_from": _narrowest(gardener_review),
+                    "apply_up_to": _widest_level(gardener_apply),
                 }
+            new_gardener = config_mod.GardenerConfig.model_validate(
+                {"level": gardener_level.strip(), **routing}
             )
             new_tagging = config_mod.TaggingConfig.model_validate(
                 {

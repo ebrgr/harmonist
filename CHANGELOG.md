@@ -11,13 +11,14 @@ versions follow [semantic versioning](https://semver.org).
 - **Docker images support 64-bit ARM**, including Raspberry Pi with a 64-bit OS (#766).
 - **The main track listing can switch between titles and filenames** (#762).
 - **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
-- **Tag updates can wait in the Inbox**, grouped by how far they reach. **Tag updates** in Settings picks the lowest level that does, with each level's current album count; Structure by default (#273).
-- **Tag updates can apply themselves**: the same setting picks the highest level Harmonist writes without asking, never Structure. Saving applies what is already waiting; each write is recorded in History with Undo, and anything that can't be written unattended waits in the Inbox with the reason (#273).
+- **Tag updates can wait in the Inbox**, grouped by how far they reach. **When a tag update is found** in Settings ticks the levels that do, beside each level's current album count; Structure by default (#273).
+- **Tag updates can apply themselves**: the same setting ticks the levels Harmonist writes without asking, never Structure. Saving applies what is already waiting; each write is recorded in History with Undo, and anything that can't be written unattended waits in the Inbox with the reason (#273).
 - **The status bar shows the startup update check, the Settings re-check and the first artwork read while they run**, then what each found (#757).
 
 ### Changed
 
 - **The status bar is live on every page**, so Settings and album pages show background work and the outcome of their own actions (#757).
+- **Library updates is now Check MusicBrainz for updates**, with **In the background** in place of Find updates for review, since what happens to an update is now set separately (#273).
 - **The Activity feed only announces tag updates bound for the Inbox**; the rest stay in the **Tag updates** filter (#273).
 - **Structure now ranks above Identity**, in the severity badges and the Tag updates menu, matching how an album's update is judged (#273).
 - **The track assignment editor uses the main track listing's typography, alignment, and table styling** (#762).
