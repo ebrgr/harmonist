@@ -7,9 +7,11 @@
 </div>
 {% if siblings_error %}
 <p role="alert" class="text-xs text-amber-700">{{ siblings_error }}</p>
+{% if siblings_retryable %}
 <button type="button" hx-get="/manual/{{ album.id }}/siblings?on_album_page={{ 'true' if on_album_page else 'false' }}&amp;reread=true"
         hx-target="closest [id^=release-siblings-]" hx-swap="innerHTML settle:0ms" hx-disabled-elt="this"
         class="px-3 py-1.5 bg-surface hover:bg-line text-ink border border-line rounded text-xs font-bold uppercase tracking-widest transition">Retry</button>
+{% endif %}
 {% elif results %}
 <div class="max-h-64 overflow-auto" tabindex="0" role="region" aria-label="Releases in this release group">
     {% include 'partials/manual_search_results.html' %}

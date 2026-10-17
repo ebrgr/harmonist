@@ -23,7 +23,7 @@
                 hx-disabled-elt="this" hx-indicator="#album-track-loading"
                 hx-on::before-request="const editor = document.getElementById('album-track-editor'); if (editor.querySelector('.assignment-content')) { event.preventDefault(); editor.focus(); editor.scrollIntoView({block: 'start'}); }"
                 hx-on::after-request="if (event.detail.successful) { const editor = document.getElementById('album-track-editor'); editor.focus(); editor.scrollIntoView({block: 'start'}); }">Review assignments</button>
-        {% else %}
+        {% elif tag_updates %}
         <form hx-post="/retag/{{ album.id }}"
               hx-swap="none" hx-disabled-elt="find button"
               hx-include=".apply-art-{{ album.id }}, #include-artwork-{{ album.id }}"

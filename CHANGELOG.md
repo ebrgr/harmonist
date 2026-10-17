@@ -26,6 +26,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **Extra videos no longer offer a tag update when there are no audio tags to change** (#770).
+- **Release selection falls back to name search when the files cannot identify a release group**, instead of offering a Retry that cannot help (#769).
 - **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).
 - **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).
 - **Required track-assignment reviews show the numbering or total-count difference that triggered them** (#750).

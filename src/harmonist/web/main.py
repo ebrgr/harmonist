@@ -5682,6 +5682,7 @@ def _register_routes(app: FastAPI) -> None:
             # Whether any of the update is the user's own setting arriving
             # (#685), which the section says so they look to Settings for it.
             follows_settings=plan is not None and gardener.follows_settings(plan),
+            tag_updates=plan is not None and not plan.empty,
             contribution=contributions.assess(album),
             comparison=comparison,
             tracklist=tracks,
@@ -8133,7 +8134,8 @@ def _register_routes(app: FastAPI) -> None:
         previous = _cleared_release(album)
         releases: list[Release] = []
         total = 0
-        no_alternatives = False
+        no_alternatives = previous is None
+        retryable = False
         error = None if previous else "The files do not all carry the same MusicBrainz release."
         if previous:
             try:
@@ -8150,11 +8152,14 @@ def _register_routes(app: FastAPI) -> None:
                     )
                 else:
                     error = "MusicBrainz has no release group for the tagged release."
+                    no_alternatives = True
             except mb_lookup.ReleaseGoneError:
                 error = "The tagged release is no longer on MusicBrainz. Search for a release or paste its MBID."
+                no_alternatives = True
             except mb_lookup.MBError as exc:
                 log.warning("could not load sibling releases: %s", exc, extra=_LOG_ONLY)
                 error = f"Could not load releases in this group: {exc}"
+                retryable = True
         response = _templates(request).TemplateResponse(
             request,
             "partials/_release_siblings.html",
@@ -8164,6 +8169,7 @@ def _register_routes(app: FastAPI) -> None:
                 album_id=album.id,
                 previous_release=previous,
                 siblings_error=error,
+                siblings_retryable=retryable,
                 results=[mb_lookup.release_summary(r) for r in releases],
                 more_count=total,
                 heading=None,

@@ -4,6 +4,8 @@ import os
 
 import pytest
 
+from harmonist import formats
+
 pytestmark = pytest.mark.skipif(os.environ.get("RUN_E2E") != "1", reason="e2e disabled")
 pw_api = pytest.importorskip("playwright.sync_api")
 
@@ -215,4 +217,42 @@ def test_late_empty_group_preserves_the_chosen_mode(release_picker_no_siblings_s
         pw_api.expect(paste).to_be_visible()
         pw_api.expect(paste).to_have_value("demo-rel-picker-other")
         assert searches == []
+        browser.close()
+
+
+@pytest.mark.parametrize("on_album,width", [(True, 1280), (False, 390)])
+def test_missing_file_id_recovers_to_working_search(
+    release_picker_server, htmx_ready, tmp_path, on_album, width
+):
+    with pw_api.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": width, "height": 900})
+        _open_picker(page, release_picker_server, htmx_ready)
+        aid = page.url.split("/album/")[1].split("?")[0]
+        track = next(
+            p
+            for p in (tmp_path / "harmonist-demo").rglob("*.m4a")
+            if formats.read_album_id(p) == "demo-rel-dingoes"
+        )
+        formats.write_owned(track, dict(formats.read_owned(track), mb_album_id=None))
+        before = track.read_bytes()
+        if on_album:
+            page.reload()
+            panel = page.locator("#album-inbox-actions")
+        else:
+            page.goto(release_picker_server)
+            panel = page.locator(f"#task-{aid}")
+        pw_api.expect(panel.get_by_role("radio", name="By name", exact=True)).to_be_checked()
+        results = panel.locator('[id^="mbid-results-"]')
+        use = results.get_by_role("button", name="Use", exact=True).first
+        pw_api.expect(use).to_be_visible()
+        pw_api.expect(panel.get_by_role("button", name="Revert to Previous")).to_have_count(0)
+        panel.get_by_role("radio", name="In this release group", exact=True).check()
+        pw_api.expect(panel.get_by_role("alert")).to_contain_text("same MusicBrainz release")
+        pw_api.expect(panel.get_by_role("button", name="Retry", exact=True)).to_have_count(0)
+        panel.get_by_role("radio", name="By name", exact=True).check()
+        htmx_ready(panel.get_by_role("button", name="Search", exact=True)).click()
+        htmx_ready(use).click()
+        pw_api.expect(panel.get_by_role("button", name="Confirm suggestion")).to_be_visible()
+        assert track.read_bytes() == before
         browser.close()

@@ -130,10 +130,46 @@ def test_sibling_failure_keeps_restore_search_and_paste(client, cfg, monkeypatch
     soup = BeautifulSoup(response.text, "html.parser")
     assert soup.select_one('[role="alert"]')
     assert soup.select_one(f'#release-revert-{aid} button[hx-post$="/rematch/undo"]')
-    assert soup.select_one('[hx-get*="reread=true"]')
+    assert bool(soup.select_one('[hx-get*="reread=true"]')) is not gone
+    assert ("HX-Trigger-After-Swap" in response.headers) is gone
     page = BeautifulSoup(client.get(f"/album/{aid}").text, "html.parser")
     assert page.select_one(f'form[hx-post="/manual/{aid}/search"]')
     assert page.select_one('input[name="mbid"][type="text"]')
+    assert sc.read(folder).mb_release_id is None
+
+
+@pytest.mark.parametrize("evidence", ["missing-id", "no-group"])
+def test_unavailable_group_switches_to_search_without_retry(client, cfg, monkeypatch, evidence):
+    folder = _part(cfg.paths.music_dir / "Album", track_ids=DISC1)
+    client.post(f"/library/{REL_A}/rematch")
+    aid = test_web._id_for(cfg, folder)
+    if evidence == "missing-id":
+        track = album_files.audio_files(folder)[0]
+        formats.write_owned(track, dict(formats.read_owned(track), mb_album_id=None))
+    calls = []
+
+    def fetch(mbid):
+        calls.append(mbid)
+        release = test_web._release_for_match(mbid, n_tracks=2)
+        release.pop("release-group", None)
+        return release
+
+    monkeypatch.setattr(mb_cache, "fetch_release", fetch)
+    monkeypatch.setattr(
+        mb_cache, "fetch_release_group_editions", lambda *a: pytest.fail("no group to browse")
+    )
+    before = {p: p.read_bytes() for p in album_files.audio_files(folder)}
+    response = client.get(f"/manual/{aid}/siblings?on_album_page=true")
+    assert response.status_code == 200
+    assert json.loads(response.headers["HX-Trigger-After-Swap"]) == {
+        "release-group-empty": {"target": f"#release-siblings-{aid}"}
+    }
+    soup = BeautifulSoup(response.text, "html.parser")
+    assert soup.select_one('[role="alert"]')
+    assert not soup.select_one('[hx-get*="reread=true"]')
+    assert bool(soup.select_one('[hx-post$="/rematch/undo"]')) is (evidence == "no-group")
+    assert calls == ([] if evidence == "missing-id" else [REL_A])
+    assert {p: p.read_bytes() for p in before} == before
     assert sc.read(folder).mb_release_id is None
 
 
