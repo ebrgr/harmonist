@@ -213,6 +213,11 @@
             : sync.state === 'running' ? 'Sync in progress'
             : 'Reconciling — finishing up before sync';
         document.querySelectorAll('#sync-button, #bandcamp-setup-button').forEach(function (b) {
+            // A page that switches the global actions off server-side (Settings)
+            // keeps them off, with its own reason: busy-state gating only ever
+            // adds to that. Without this the first poll re-enabled the button on
+            // the one page that renders it disabled.
+            if (b.dataset.globalsOff === 'true') return;
             b.disabled = actionOff;
             b.classList.toggle('opacity-40', actionOff);
             b.classList.toggle('cursor-not-allowed', actionOff);

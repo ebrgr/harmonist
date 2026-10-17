@@ -136,8 +136,9 @@ def test_popover_cannot_open_over_a_disabled_sync_button(demo_server: str) -> No
 
 def test_settings_page_ships_a_disabled_button_and_a_shut_popover(demo_server: str) -> None:
     """End to end on the real page: /settings renders the button disabled
-    server-side (#108) and the popover stays shut on hover (#110) — no JS
-    involved, since the status poll doesn't run on this page."""
+    server-side (#108) and the popover stays shut on hover (#110). The status
+    poll runs here too since #757, and must leave a server-disabled button off:
+    its first tick re-enabled it until the script learned `data-globals-off`."""
     with playwright_sync.sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
@@ -145,6 +146,8 @@ def test_settings_page_ships_a_disabled_button_and_a_shut_popover(demo_server: s
 
         button = page.locator("#sync-button")
         button.wait_for(state="visible")
+        # After a poll has landed, not before: the gating runs on each one.
+        page.wait_for_function("document.getElementById('app-status')?.dataset.sync")
         assert button.is_disabled()
 
         button.hover(force=True)  # force: a disabled button swallows real hovers

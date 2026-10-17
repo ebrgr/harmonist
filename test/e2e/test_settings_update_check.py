@@ -54,6 +54,9 @@ def test_turning_the_check_on_shows_its_status_and_keeps_it_current(demo_server:
         playwright_sync.expect(line).to_contain_text(
             "albums checked for tag updates in the last week"
         )
-        assert requests == [("GET", f"{demo_server}/settings/update-check")]
+        # Less the status bar's own poll, which runs on every page since #757 and
+        # is not this line's; everything else is still asserted whole.
+        mine = [r for r in requests if r != ("GET", f"{demo_server}/status")]
+        assert mine == [("GET", f"{demo_server}/settings/update-check")]
 
         browser.close()
