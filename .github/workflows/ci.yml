@@ -116,11 +116,14 @@ jobs:
       - name: Install browsers
         run: playwright install --with-deps chromium webkit
 
+      # Mostly waiting on servers and polls, so four workers (the runner's
+      # vCPUs) take it from ~9 minutes to ~3. `loadscope` keeps each module on
+      # one worker, so a module-scoped server boots once, not once per worker.
       - name: Browser tests
         env:
           RUN_E2E: "1"
           E2E_TRACE_DIR: test-results
-        run: pytest test/e2e -q -rs
+        run: pytest test/e2e -q -rs -n 4 --dist loadscope
 
       # One Playwright trace per failing test: `playwright show-trace <zip>`
       # replays it with the DOM, screenshots and network at every step.

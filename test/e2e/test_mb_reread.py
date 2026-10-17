@@ -31,7 +31,9 @@ ALBUM = "demo-rel-dingoes"
 _MB_VALUE = 'dd[title^="MusicBrainz release last read"]'
 
 
-def test_read_again_issues_a_compare_request_and_refills_the_panel(demo_server: str) -> None:
+def test_read_again_issues_a_compare_request_and_refills_the_panel(
+    demo_server: str, htmx_ready
+) -> None:
     """Click it and a `reread=1` request must actually go out, then land."""
     with playwright_sync.sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -43,24 +45,29 @@ def test_read_again_issues_a_compare_request_and_refills_the_panel(demo_server: 
         page.goto(f"{demo_server}/album/{ALBUM}")
         # The control ships with the page once anything has read this release
         # (#355), and arrives with the /compare fetch on the very first view.
-        # Waiting covers both rather than asserting which one this run is.
         button = page.locator("#album-tags > header").get_by_role(
             "button", name="Read this release from MusicBrainz again"
         )
-        button.wait_for(timeout=10_000)
+        # Either way, click only once the page's own comparison has landed. A
+        # click while it is in flight queues behind it (`queue last`), and its
+        # out-of-band swap then replaces the button, so HTMX drops the queued
+        # request and nothing goes out.
+        fields = page.locator(f"#compare-{ALBUM} .tag-fields")
+        fields.wait_for(timeout=10_000)
+        fields.evaluate("el => { el.dataset.before = '' }")
 
         assert not [u for u in requests if "reread=1" in u], "nothing forced yet"
 
         with page.expect_response(lambda r: "reread=1" in r.url, timeout=10_000) as got:
-            button.click()
+            htmx_ready(button).click()
         assert got.value.ok
 
-        # ...and the response was SWAPPED IN, not merely received. One response,
-        # several destinations (#328, #355), and a mis-targeted swap would leave
-        # any of them behind: the comparison itself lands in the Tags section
-        # in-band, while the update section and the panel's Checked date land
-        # out-of-band.
-        page.wait_for_selector(f"#compare-{ALBUM} .tag-fields", timeout=10_000)
+        # ...and the response was SWAPPED IN, not merely received: the fields
+        # marked above must be replaced. One response, several destinations
+        # (#328, #355), and a mis-targeted swap would leave any of them behind:
+        # the comparison itself lands in the Tags section in-band, while the
+        # update section and the panel's Checked date land out-of-band.
+        page.wait_for_selector(f"#compare-{ALBUM} .tag-fields:not([data-before])", timeout=10_000)
         assert page.locator(f"#album-update-{ALBUM} .album-update__legend").is_visible()
         # `dd[title]` is the VALUE. Since #358 the row holds a second <dd> for
         # the re-read control, in the grid's third column, and a bare `dd` here
@@ -73,11 +80,11 @@ def test_read_again_issues_a_compare_request_and_refills_the_panel(demo_server: 
             "button", name="Ask the Cover Art Archive about this release again"
         )
         with page.expect_response(lambda r: "/artwork?reread=1" in r.url) as art:
-            caa.click()
+            htmx_ready(caa).click()
         assert art.value.ok
         playwright_sync.expect(caa).to_be_enabled()
         with page.expect_response(lambda r: "/compare?reread=1" in r.url) as mb:
-            button.click()
+            htmx_ready(button).click()
         assert mb.value.ok
         playwright_sync.expect(button).to_be_enabled()
         playwright_sync.expect(caa).to_be_visible()
