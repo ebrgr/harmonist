@@ -66,7 +66,9 @@ def test_muting_removes_only_the_library_completeness_badge(album_formats_server
         playwright_sync.expect(badge).to_have_text("3 of 4 tracks on disk")
         assert badge.bounding_box()["x"] + badge.bounding_box()["width"] <= 390
         page.goto(f"{album_formats_server}/?tab=library")
-        tile = page.locator(f'a[href^="/album/{ALBUM_ID}"]')
+        # By id: the Activity feed's line about the mute above links to the
+        # same album, and lands on the page whenever its poll does.
+        tile = page.locator(f"#lib-{ALBUM_ID}")
         playwright_sync.expect(tile).to_be_visible()
         playwright_sync.expect(tile.locator(".album-warning__badge")).to_have_count(0)
         tile.click()
