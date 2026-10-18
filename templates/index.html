@@ -73,7 +73,8 @@
            during sync just re-swaps identical HTML → the flicker. During sync the
            inbox refreshes on `tasks-changed` instead (fired when a rescan bumps
            the scan seq — i.e. albums actually linked/downloaded), and the status
-           bar carries live progress. #}
+           bar carries live progress. When nothing is running, `inbox-changed`
+           follows the badge: tag updates reach the Inbox without a scan (#273). #}
         {# Share assignment and acceptance requests' lock: morphing a preserved editor
            mid-request can detach its trigger and strand HTMX's response and
            busy styling. Queue the latest refresh until the action finishes. #}
@@ -81,7 +82,7 @@
              hx-get="/tasks"
              hx-sync="body:queue last"
              hx-disinherit="hx-sync"
-             hx-trigger="load, every 1500ms[document.querySelector('#app-status')?.dataset?.reconcile==='running' || document.querySelector('#app-status')?.dataset?.scan==='scanning'], tasks-changed from:body"
+             hx-trigger="load, every 1500ms[document.querySelector('#app-status')?.dataset?.reconcile==='running' || document.querySelector('#app-status')?.dataset?.scan==='scanning'], tasks-changed from:body, inbox-changed from:body"
              hx-swap="morph:innerHTML"
              class="space-y-3 hx-poll">
             <div class="text-center py-10">

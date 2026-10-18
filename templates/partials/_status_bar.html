@@ -38,6 +38,7 @@
     let lastReconcileState = 'idle';
     let lastScanState = 'idle';
     let lastScanSeq;  // last completed-scan counter we've seen (undefined until first poll)
+    let lastInboxCount;  // last Inbox badge number (undefined until first poll)
     let lastArtworkRevision;
     let syncDisplay = null;       // current running-sync HTML, or null
     let reconcileDisplay = null;  // current running-reconcile HTML, or null
@@ -276,10 +277,23 @@
         // this, a post-action rescan (e.g. after confirming a suggestion tags an album) can land
         // without the inbox ever refreshing — leaving a stale card whose cover
         // 404s because the album's id has moved on.
-        if (lastScanSeq !== undefined && scan.seq !== lastScanSeq) {
+        const snapshotChanged = lastScanSeq !== undefined && scan.seq !== lastScanSeq;
+        if (snapshotChanged) {
             document.body.dispatchEvent(new Event('tasks-changed'));
         }
         lastScanSeq = scan.seq;
+        // The Inbox list follows its badge (#273). A tag update can reach or leave
+        // the Inbox with no scan behind it — the startup update check flags albums
+        // one at a time — and the list would otherwise stay as the page loaded it
+        // while the number climbed. Its own event, not `tasks-changed`, which also
+        // re-renders the Library grid. Skipped when the list is already reloading:
+        // after a new snapshot, and while reconcile or a scan keeps it polling.
+        const inboxCount = data.counts ? data.counts.inbox : undefined;
+        if (lastInboxCount !== undefined && inboxCount !== lastInboxCount
+                && !snapshotChanged && !inboxBusy) {
+            document.body.dispatchEvent(new Event('inbox-changed'));
+        }
+        lastInboxCount = inboxCount;
         if (lastArtworkRevision !== undefined && data.artwork_revision !== lastArtworkRevision) {
             refreshLibrary();
         }
