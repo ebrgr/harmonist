@@ -231,3 +231,45 @@ def test_every_page_polls_the_status_bar(tmp_path):
         html = client.get(page).text
         assert html.count('id="app-status"') == 1, page
         assert html.count("window.harmonistStatusBar = true") == 1, page
+
+
+@pytest.mark.parametrize("artwork", [False, True])
+def test_file_writes_report_each_track_and_clear_progress(tmp_path, monkeypatch, artwork):
+    from harmonist import formats, tagger
+    from test.test_artwork import png_bytes
+    from test.test_gardener import _album_dir
+    from test.test_tagger import _update_artwork
+
+    album = _album_dir(tmp_path, tracks=2)
+    release = _release(tracks=2)
+    activity_store.init(tmp_path / "activity.db")
+    seen = []
+    write_name = "write_cover" if artwork else "write_tags"
+    original = getattr(formats, write_name)
+
+    def writing(path, *args, **kwargs):
+        seen.append(progress.status()["jobs"])
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(formats, write_name, writing)
+    if artwork:
+        cover = album / "cover.png"
+        cover.write_bytes(png_bytes(10, 10))
+        _update_artwork(album, release, cover)
+    else:
+        tagger.tag_album(album, release)
+
+    label = "Applying artwork" if artwork else "Tagging"
+    assert seen == [
+        [
+            {
+                "label": label,
+                "done": index,
+                "total": 2,
+                "item": f"0{index + 1} Track {index + 1}.m4a",
+                "foreground": True,
+            }
+        ]
+        for index in range(2)
+    ]
+    assert progress.status()["jobs"] == []

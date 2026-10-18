@@ -1,4 +1,4 @@
-"""Background work the status bar shows while it runs (#757).
+"""Work the status bar shows while it runs (#757, #786).
 
 A job that works through the library registers a label and its progress here,
 and `/status` reports whatever is running, plus the closing line of the last job
@@ -6,6 +6,9 @@ to finish. One register rather than a runner, endpoint and status-bar branch per
 job: a new bulk job only has to call `job()` to be visible, so the next one is
 not forgotten the way the startup update check, the Settings re-check and the
 artwork warm-up were.
+
+File writes use the same register with foreground priority and a current file,
+so background scans cannot hide the progress of a tag or artwork change.
 
 Not for the routine ten-minute checks. Each tick asks about a handful of albums,
 and showing it would flash the bar six times an hour over nothing a person is
@@ -16,7 +19,7 @@ from __future__ import annotations
 
 import itertools
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +30,8 @@ class Job:
     label: str
     total: int
     done: int = 0
+    foreground: bool = False
+    item: str | None = None
     #: What the bar says once the job ends, or None for nothing to say. Set by
     #: the job, which knows its result; left unset when it fails, so a failure
     #: never reads as a result.
@@ -36,6 +41,20 @@ class Job:
         with _lock:
             self.done += n
 
+    def items[T](self, items: Iterable[T], name: Callable[[T], str]) -> Iterator[T]:
+        """Name the file being processed; count it after its iteration completes.
+
+        A skipped file still advances. An exception leaves cleanup to job(),
+        without claiming the failed operation finished.
+        """
+        for item in items:
+            with _lock:
+                self.item = name(item)
+            yield item
+            with _lock:
+                self.done += 1
+                self.item = None
+
 
 _lock = threading.Lock()
 _running: list[Job] = []
@@ -44,10 +63,10 @@ _seq = itertools.count(1)
 
 
 @contextmanager
-def job(label: str, total: int) -> Iterator[Job]:
+def job(label: str, total: int, *, foreground: bool = False) -> Iterator[Job]:
     """Show `label` with `done`/`total` in the status bar while the block runs."""
     global _finished
-    current = Job(label, total)
+    current = Job(label, total, foreground=foreground)
     with _lock:
         _running.append(current)
     try:
@@ -67,7 +86,15 @@ def status() -> dict[str, Any]:
     number, which is how the bar tells a new line from one it has shown."""
     with _lock:
         return {
-            "jobs": [{"label": j.label, "done": j.done, "total": j.total} for j in _running],
+            "jobs": [
+                {
+                    "label": j.label,
+                    "done": j.done,
+                    "total": j.total,
+                    **({"foreground": True, "item": j.item} if j.foreground else {}),
+                }
+                for j in _running
+            ],
             "finished": dict(_finished) if _finished is not None else None,
         }
 

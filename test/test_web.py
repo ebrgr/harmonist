@@ -10238,11 +10238,11 @@ def _primary_actions(html: str) -> list[str]:
     counted: #491 asks for one primary among the findings and keeps that one as
     the explicit escape hatch.
     """
-    import re
+    from bs4 import BeautifulSoup
 
     return [
-        " ".join(m.group(1).split())
-        for m in re.finditer(r'class="album-finding__act"[^>]*>(.*?)</button>', html, re.DOTALL)
+        (button.select_one(".artwork-apply__idle") or button).get_text(" ", strip=True)
+        for button in BeautifulSoup(html, "html.parser").select("button.album-finding__act")
     ]
 
 
@@ -10583,12 +10583,14 @@ def test_apply_artwork_writes_only_what_the_page_showed(client, cfg):
 
     stale = client.post(f"/album/{aid}/artwork/update", data={"plan": "0" * 64})
     assert "changed after the page showed it" in " ".join(stale.text.split())
+    assert "HX-Refresh" not in stale.headers
     client.post(f"/album/{aid}/artwork/update")
     assert not list(d.glob("cover.*"))
     assert formats.read_cover(d / "02 Track.m4a") is None
 
     shown = _form_value(client.get(f"/album/{aid}/artwork").text, "plan")
-    client.post(f"/album/{aid}/artwork/update", data={"plan": shown})
+    applied = client.post(f"/album/{aid}/artwork/update", data={"plan": shown})
+    assert applied.headers.get("HX-Refresh") == "true"
 
     assert (d / "cover.png").read_bytes() == art
     cover = formats.read_cover(d / "02 Track.m4a")

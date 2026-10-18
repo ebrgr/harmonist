@@ -20,7 +20,7 @@
 //   3. action endpoints  — fire `harmonist-status` HX-Trigger events
 //
 // Display priority (highest wins):
-//   sync running  >  reconcile running  >  scan  >  background job (#757)
+//   file write  >  sync running  >  reconcile running  >  scan  >  background job (#757)
 //     >  most recent action flash  >  idle
 // A background job's closing line takes the action flash's slot when it lands.
 //
@@ -43,6 +43,7 @@
     let reconcileDisplay = null;  // current running-reconcile HTML, or null
     let scanDisplay = null;       // current library-scan HTML, or null
     let jobDisplay = null;        // current background-job HTML, or null
+    let writeDisplay = null;      // per-file writes take priority over background work
     let lastFinishedSeq;          // last closing line seen (undefined until first poll)
     let latestActionMessage = null;  // last flash text from an action, or null
 
@@ -74,7 +75,7 @@
     function renderStatus() {
         const el = document.getElementById(STATUS_EL_ID);
         if (!el) return;
-        const html = syncDisplay || reconcileDisplay || scanDisplay || jobDisplay || latestActionMessage || '';
+        const html = writeDisplay || syncDisplay || reconcileDisplay || scanDisplay || jobDisplay || latestActionMessage || '';
         if (html === lastStatusHtml) return;
         lastStatusHtml = html;
         el.innerHTML = html;
@@ -297,12 +298,15 @@
         // shown only when it lands while the page is open: the first poll just
         // records where things stand, as the scan counter above does.
         const progress = data.progress || {jobs: [], finished: null};
+        writeDisplay = null;
         if (progress.jobs.length) {
-            const job = progress.jobs[0];
+            const job = progress.jobs.find(job => job.foreground) || progress.jobs[0];
             const more = progress.jobs.length > 1 ? ` · ${progress.jobs.length - 1} more` : '';
-            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${more}`;
+            const item = job.item ? ` · ${esc(job.item)}` : '';
+            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${item}${more}`;
             const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">${esc(job.label)}</span>`;
-            jobDisplay = pill + `<span class="ml-2 text-slate-300">${prog}</span>`;
+            jobDisplay = pill + `<span class="ml-2 min-w-0 break-words text-slate-300">${prog}</span>`;
+            if (job.foreground) writeDisplay = jobDisplay;
         } else {
             jobDisplay = null;
         }

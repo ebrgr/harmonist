@@ -33,6 +33,7 @@ from . import (
     images,
     mb_lookup,
     mb_tracks,
+    progress,
     tag_history,
     track_structure,
 )
@@ -300,6 +301,19 @@ def _tag_files(
         artwork_in_scope=False,
         assignment=assignment,
     )
+    with progress.job("Tagging", len(prep.files), foreground=True) as job:
+        return _write_prepared_tags(album_dir, release, prep, tagging, job, incomplete=incomplete)
+
+
+def _write_prepared_tags(
+    album_dir: Path,
+    release: Release,
+    prep: _Prepared,
+    tagging: TaggingChoices,
+    job: progress.Job,
+    *,
+    incomplete: bool,
+) -> tuple[int, bool]:
     # Read before the loop, and before anything can move it: tagging drops a
     # sidecar's `temp_uid` for the MBID afterwards, which is why `album_history`
     # unions an album's alias chain — the same reason the `tag.album` line below
@@ -325,7 +339,9 @@ def _tag_files(
     # its disc rather than by a bare filename its sibling also answers to (#423).
     naming = album_files.Naming(album_dir, prep.files)
     wrote_something = False
-    for file_path, (medium, track_pos_in_medium, track) in prep.pairs:
+    for file_path, (medium, track_pos_in_medium, track) in job.items(
+        prep.pairs, lambda pair: naming.name_of(pair[0])
+    ):
         tagset = _build_tagset(
             release, medium, track_pos_in_medium, track, prep.media_total, tagging
         )
@@ -364,7 +380,7 @@ def _tag_files(
         if event_id is not None:
             _record_changes(event_id, naming, file_path, tagset, changes)
 
-    for path, target in prep.unassigned.items():
+    for path, target in job.items(prep.unassigned.items(), lambda pair: naming.name_of(pair[0])):
         changes = owned.diff(formats.read_owned(path), target)
         if not changes:
             continue
@@ -1695,60 +1711,61 @@ def apply_artwork(
     unkept: list[str] = []
     failed: list[str] = []
     written: list[str] = []
-    for change in tracks:
-        name = naming.name_of(change.target)
-        current = formats.read_cover(change.target)
-        if (images.digest(current[0]) if current is not None else None) != change.before:
-            stale.append(name)
-            continue
-        if change.before is not None and change.before not in kept:
-            unkept.append(name)
-            continue
-        try:
-            formats.write_cover(change.target, loaded[change.after])
-        except formats.WRITE_ERRORS:
-            # One file's failure, not the tagging's (#494). Artwork is written
-            # AFTER the tags, so letting this propagate threw away the report of
-            # work that had really happened: the route caught it as an unknown
-            # error and said "Re-tag failed" over an album whose files had just
-            # been re-tagged, and the sidecar update that follows never ran.
-            #
-            # Tolerable here only because the outcome can still tell the truth —
-            # the file is named in `failed`, which both the album page and the
-            # feed already report, so this cannot read as success. The folder
-            # cover has been handled this way since #457.
-            log.exception("could not write the album's artwork to %s", change.target)
-            failed.append(name)
-            continue
-        changed += 1
-        written.append(change.after)
-        # Recorded in the shape a tagged file's artwork change takes, which is
-        # what puts an Undo on it: `tag_history.artwork_revert_plan` reads that
-        # pair and `restore_artwork` writes it back.
-        event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=name)
-        if event_id is not None:
-            activity_store.record_tag_changes(
-                event_id, file=name, changes={owned.ARTWORK: [change.before, change.after]}
-            )
-
-    if cover_change is not None:
-        wrote = _write_folder_cover(
-            album_dir,
-            cover_change,
-            loaded[cover_change.after],
-            plan.image_for(cover_change).source,
-            album_id,
-            kept,
-        )
-        if wrote is _Wrote.WRITTEN:
+    with progress.job("Applying artwork", len(changes), foreground=True) as job:
+        for change in job.items(tracks, lambda change: naming.name_of(change.target)):
+            name = naming.name_of(change.target)
+            current = formats.read_cover(change.target)
+            if (images.digest(current[0]) if current is not None else None) != change.before:
+                stale.append(name)
+                continue
+            if change.before is not None and change.before not in kept:
+                unkept.append(name)
+                continue
+            try:
+                formats.write_cover(change.target, loaded[change.after])
+            except formats.WRITE_ERRORS:
+                # One file's failure, not the tagging's (#494). Artwork is written
+                # AFTER the tags, so letting this propagate threw away the report of
+                # work that had really happened: the route caught it as an unknown
+                # error and said "Re-tag failed" over an album whose files had just
+                # been re-tagged, and the sidecar update that follows never ran.
+                #
+                # Tolerable here only because the outcome can still tell the truth —
+                # the file is named in `failed`, which both the album page and the
+                # feed already report, so this cannot read as success. The folder
+                # cover has been handled this way since #457.
+                log.exception("could not write the album's artwork to %s", change.target)
+                failed.append(name)
+                continue
             changed += 1
-            written.append(cover_change.after)
-        elif wrote is _Wrote.STALE:
-            stale.append(cover_change.target.name)
-        elif wrote is _Wrote.UNKEPT:
-            unkept.append(cover_change.target.name)
-        else:
-            failed.append(cover_change.target.name)
+            written.append(change.after)
+            # Recorded in the shape a tagged file's artwork change takes, which is
+            # what puts an Undo on it: `tag_history.artwork_revert_plan` reads that
+            # pair and `restore_artwork` writes it back.
+            event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=name)
+            if event_id is not None:
+                activity_store.record_tag_changes(
+                    event_id, file=name, changes={owned.ARTWORK: [change.before, change.after]}
+                )
+
+        for cover in job.items([cover_change] if cover_change else [], lambda c: c.target.name):
+            wrote = _write_folder_cover(
+                album_dir,
+                cover,
+                loaded[cover.after],
+                plan.image_for(cover).source,
+                album_id,
+                kept,
+            )
+            if wrote is _Wrote.WRITTEN:
+                changed += 1
+                written.append(cover.after)
+            elif wrote is _Wrote.STALE:
+                stale.append(cover.target.name)
+            elif wrote is _Wrote.UNKEPT:
+                unkept.append(cover.target.name)
+            else:
+                failed.append(cover.target.name)
     return ArtworkOutcome(
         changed=changed,
         stale=tuple(stale),

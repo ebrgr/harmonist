@@ -506,8 +506,9 @@
 {% if artwork.writes %}
 <form hx-post="/album/{{ album.id }}/artwork/update"
       hx-target="#album-artwork" hx-swap="innerHTML settle:0ms"
-      hx-disabled-elt="find button"
-      class="art-apply">
+      hx-disabled-elt=".artwork-apply button, #album-artwork button:not([disabled]), #album-artwork input:not([type=hidden]):not([disabled])"
+      hx-indicator=".artwork-apply" hx-sync=".album-page:drop"
+      class="art-apply artwork-apply">
     <input type="hidden" name="plan" value="{{ artwork.fingerprint }}">
     {# The choices travel with the press, so the server rebuilds the same plan
        this section was drawn from (#472, #659). #}
@@ -516,7 +517,10 @@
             class="text-2xs uppercase tracking-widest font-bold px-3 py-1.5 rounded
                    border border-mb-purple bg-mb-purple text-white hover:bg-mb-purple/90 transition"
             title="Write what the After Apply column shows. No tags are touched."
-            aria-label="Apply this album's artwork">Apply artwork</button>
+            aria-label="Apply this album's artwork">
+        <span class="artwork-apply__idle">Apply artwork</span>
+        <span class="artwork-apply__busy" role="status">Applying artwork…</span>
+    </button>
 </form>
 {% endif %}
 </div>

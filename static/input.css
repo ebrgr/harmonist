@@ -239,6 +239,11 @@ button[disabled],
   cursor: progress;
 }
 
+/* Both entry points describe the same write, even when the other is offscreen. */
+.artwork-apply__busy,
+.artwork-apply.htmx-request .artwork-apply__idle { display: none; }
+.artwork-apply.htmx-request .artwork-apply__busy { display: inline; }
+
 /* The album panel's "MB checked" row while a refresh nobody pressed is in
    flight (#387). The comparison beside it is being shown from the stored
    release, so the row has to say a newer one is coming — otherwise the date is

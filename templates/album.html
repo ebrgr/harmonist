@@ -373,10 +373,49 @@
     // request must not replace a newer choice, even through its out-of-band
     // finding. Keep this in memory for this page only (#477).
     let latestArtworkRequest;
+    let albumWriteRequest;
+    const writeDisabled = new Set();
+    const writeOverlay = document.getElementById('tagging-{{ album.id }}');
+    function disableWriteActions() {
+        document.querySelectorAll('button, input:not([type="hidden"]), select, textarea').forEach(control => {
+            if (!control.disabled && control.getClientRects().length) {
+                writeDisabled.add(control);
+                control.disabled = true;
+            }
+        });
+    }
     document.body.addEventListener('htmx:beforeRequest', function (event) {
+        const onAlbum = event.detail.target.closest('.album-page') || event.detail.elt.closest('.album-page');
+        if (albumWriteRequest && onAlbum) {
+            event.preventDefault();
+            return;
+        }
+        const path = new URL(event.detail.requestConfig.path, window.location.href).pathname;
+        const artworkWrite = path.endsWith('/artwork/update');
+        const tagWrite = path.startsWith('/retag/') || path.startsWith('/confirm/');
+        if (onAlbum && event.detail.requestConfig.verb === 'post' && (artworkWrite || tagWrite)) {
+            albumWriteRequest = event.detail.xhr;
+            writeOverlay.querySelector('span').textContent = artworkWrite ? 'Applying artwork…' : 'Tagging…';
+            writeOverlay.classList.add('htmx-request');
+            disableWriteActions();
+        }
         if (event.detail.target.id === 'album-artwork') {
             latestArtworkRequest = event.detail.xhr;
         }
+    });
+    document.body.addEventListener('htmx:afterSwap', function () {
+        // Polls and a comparison already in flight can insert fresh controls.
+        if (albumWriteRequest) disableWriteActions();
+    });
+    document.body.addEventListener('htmx:afterRequest', function (event) {
+        if (event.detail.xhr !== albumWriteRequest) return;
+        albumWriteRequest = undefined;
+        writeOverlay.classList.remove('htmx-request');
+        writeOverlay.querySelector('span').textContent = 'Tagging…';
+        // Includes failures and stale previews. Only release our own lock;
+        // controls unavailable before the write remain unavailable afterwards.
+        writeDisabled.forEach(control => { control.disabled = false; });
+        writeDisabled.clear();
     });
     document.body.addEventListener('htmx:beforeSwap', function (event) {
         const target = event.detail.target.id;

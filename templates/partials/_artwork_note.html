@@ -19,11 +19,16 @@
         {% if artwork.writes %}
         <form hx-post="/album/{{ album.id }}/artwork/update"
               hx-target="#album-artwork" hx-swap="innerHTML settle:0ms"
-              hx-disabled-elt="find button" hx-include=".apply-art-{{ album.id }}"
-              class="album-finding__act-form album-artwork-apply">
+              hx-disabled-elt=".artwork-apply button, #album-artwork button:not([disabled]), #album-artwork input:not([type=hidden]):not([disabled])"
+              hx-indicator=".artwork-apply" hx-sync=".album-page:drop"
+              hx-include=".apply-art-{{ album.id }}"
+              class="album-finding__act-form album-artwork-apply artwork-apply">
             <button type="submit" class="album-finding__act"
                     title="Apply the artwork shown under After Apply. No tags are touched."
-                    aria-label="Apply updates">Apply updates</button>
+                    aria-label="Apply updates">
+                <span class="artwork-apply__idle">Apply updates</span>
+                <span class="artwork-apply__busy" role="status">Applying artwork…</span>
+            </button>
         </form>
         {% endif %}
     </div>

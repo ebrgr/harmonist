@@ -6965,8 +6965,8 @@ def _register_routes(app: FastAPI) -> None:
         one the page showed — a choice that has since become impossible simply
         fails the comparison, and the section comes back to be looked at.
 
-        Re-renders the section, so what the page shows afterwards is what is now
-        on disk rather than what was proposed a moment ago.
+        A stale preview re-renders the section for review. A completed apply
+        refreshes the page as well: its cover and History also changed.
         """
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         mbid = album.sidecar.mb_release_id if album.sidecar else None
@@ -7063,7 +7063,13 @@ def _register_routes(app: FastAPI) -> None:
             )
         else:
             activity.info(message, album_id=album_id_now, album_label=label)
-        return section()
+        response = section()
+        # The header may still hold a hidden, failed /cover image, and History
+        # predates this write. As with tagging, reload the album after applying
+        # rather than leaving those regions describing the previous files.
+        response.headers["HX-Refresh"] = "true"
+        request.state.skip_rescan = True  # section() refreshed this album already
+        return response
 
     # No `/album/{id}/artwork/load-archive`. It fetched the archive's one front
     # cover when it lost on size, so it could be looked at (#448); since #659
