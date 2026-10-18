@@ -224,7 +224,11 @@ def test_review_artwork_inspection_and_refresh_preserve_draft(reset_demo_server,
             pw.expect(page.locator("#album-artwork")).to_be_hidden()
         thumbs = artwork.locator("button[popovertarget]")
         assert thumbs.count() >= 2, "current and selected artwork must both open full size"
-        sizes = []
+        # Measure one live DOM snapshot. Resolving each thumbnail separately
+        # can retain a detached node across an Inbox morph and report 0 x 0.
+        sizes = thumbs.evaluate_all("els => els.map(e => [e.offsetWidth, e.offsetHeight])")
+        assert all(width > 0 and height > 0 for width, height in sizes)
+        assert all(size == sizes[0] for size in sizes)
         for thumb in thumbs.all():
             target = thumb.get_attribute("popovertarget")
             full = page.locator(f'[id="{target}"]')
@@ -232,14 +236,12 @@ def test_review_artwork_inspection_and_refresh_preserve_draft(reset_demo_server,
             pw.expect(full.locator("img")).to_have_attribute(
                 "src", thumb.locator("img").get_attribute("src")
             )
-            sizes.append(thumb.evaluate("e => [e.offsetWidth, e.offsetHeight]"))
             pw.expect(thumb.locator("img")).to_have_css("object-fit", "contain")
             thumb.click()
             pw.expect(full).to_be_visible()
             assert full.evaluate("e => e.matches(':popover-open')")
             page.keyboard.press("Escape")
             pw.expect(full).not_to_be_visible()
-        assert all(size == sizes[0] for size in sizes)
         # Other Inbox cards may show the same image: each target still belongs
         # to exactly one view, even when several buttons share it.
         for target in page.locator("button[popovertarget]").evaluate_all(
