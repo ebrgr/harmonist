@@ -185,6 +185,9 @@ def test_assignment_reset_preempts_inflight_inbox_refresh(reset_demo_server, eng
         }""")
         page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
         page.wait_for_function("window.inboxResponseHeld === true")
+        # A status update can queue another refresh behind the held read.
+        # Reset must take priority over both, without losing its submission.
+        page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
         editor.get_by_role("button", name="Reset", exact=True).click()
         route, response = held.pop()
         route.fulfill(response=response)

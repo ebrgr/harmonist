@@ -134,9 +134,14 @@
 // replaces. Yield only the background read, then queue a fresh snapshot behind
 // the action. Never abort another editor's write on the shared body lock.
 document.body.addEventListener('htmx:confirm', function (event) {
-    if (event.detail.elt.matches('.assignment-editor form') &&
-            document.querySelector('#task-list.htmx-request')) {
+    const inbox = document.querySelector('#task-list.htmx-request');
+    if (event.detail.elt.matches('.assignment-editor form') && inbox) {
+        // Aborting drains HTMX's queue synchronously. A queued refresh must
+        // also yield, or it takes the lock before this submission can use it.
+        const deferRefresh = e => { if (e.target === inbox) e.preventDefault(); };
+        inbox.addEventListener('htmx:beforeRequest', deferRefresh);
         htmx.trigger(document.body, 'htmx:abort');
+        inbox.removeEventListener('htmx:beforeRequest', deferRefresh);
         setTimeout(() => htmx.trigger(document.body, 'tasks-changed'), 0);
     }
 });
