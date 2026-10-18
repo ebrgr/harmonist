@@ -123,8 +123,13 @@ def test_upc_sibling_review_prioritizes_rematch(upc_contribution_server):
         panel = page.locator("#album-contributions-upc-unlinked")
         page.wait_for_load_state("networkidle")
         # Bringing the warning back reveals the barcode match to choose instead.
+        # The response replaces the legacy dismissal label with the conditional
+        # one, so uncheck's post-click lookup must survive that name change.
         with page.expect_response(lambda r: r.url.endswith("/release-accepted")):
-            panel.get_by_role("checkbox", name="Don't warn me about this").uncheck()
+            panel.locator("input.release-accepted").uncheck()
+        playwright_sync.expect(
+            panel.get_by_role("checkbox", name="Don't warn unless a better match is found")
+        ).not_to_be_checked()
         playwright_sync.expect(panel).to_contain_text(barcode_elsewhere, use_inner_text=True)
         panel.get_by_role("listitem", name="Suggested digital release").get_by_role(
             "button", name="Use", exact=True
