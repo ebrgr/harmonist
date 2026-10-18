@@ -36,11 +36,58 @@ from .formats.owned import ARTWORK, LABELS, SCOPE, Owned, Scope
 _LABELS = LABELS
 
 
-#: Display order: the owned fields as `Owned` declares them (album-level first,
-#: then per-track), with artwork last. Artwork is not an owned field and has no
-#: scope, so it can't be sorted among them — and it belongs at the end anyway,
-#: being the one row whose value isn't a tag.
-_ORDER: dict[str, int] = {f.value: i for i, f in enumerate(Owned)} | {ARTWORK: len(Owned)}
+#: The one order every list of tag changes is shown in: a History entry, the
+#: album page's waiting update, and the Inbox's (#273). What a person reads
+#: comes before what a player files by, and identifiers last, since a
+#: MusicBrainz id moving says little until its title does. It used to be the
+#: order `Owned` happens to declare its fields in, which put the release id at
+#: the top of a History entry.
+#:
+#: Every owned field is listed, and a test holds that, so a field added later
+#: cannot silently sort to the end. Artwork comes after them all: it is not an
+#: owned field, and it is the one row whose value is not a tag.
+_FIELD_ORDER: tuple[Owned, ...] = (
+    Owned.ALBUM,
+    Owned.ALBUM_ARTIST,
+    Owned.TITLE,
+    Owned.ARTIST,
+    Owned.TRACK_TOTAL,
+    Owned.TRACK_NUM,
+    Owned.DISC_TOTAL,
+    Owned.DISC_NUM,
+    Owned.DATE,
+    Owned.ORIGINAL_DATE,
+    Owned.LABEL,
+    Owned.CATALOG_NUMBER,
+    Owned.MB_ALBUM_TYPE,
+    Owned.MB_ALBUM_STATUS,
+    Owned.MB_ALBUM_COUNTRY,
+    Owned.MEDIA,
+    Owned.DISC_SUBTITLE,
+    Owned.COMPILATION,
+    Owned.ALBUM_ARTISTS,
+    Owned.ARTISTS,
+    Owned.ALBUM_ARTIST_SORT,
+    Owned.ARTIST_SORT,
+    Owned.SCRIPT,
+    Owned.BARCODE,
+    Owned.ASIN,
+    Owned.ISRCS,
+    Owned.MB_ALBUM_ID,
+    Owned.MB_RELEASE_GROUP_ID,
+    Owned.MB_ALBUM_ARTIST_IDS,
+    Owned.MB_TRACK_ID,
+    Owned.MB_RELEASE_TRACK_ID,
+    Owned.MB_ARTIST_IDS,
+)
+_ORDER: dict[str, int] = {f.value: i for i, f in enumerate(_FIELD_ORDER)} | {
+    ARTWORK: len(_FIELD_ORDER)
+}
+
+
+def field_rank(field: str) -> int:
+    """Where `field` comes in a list of tag changes: lower comes first."""
+    return _ORDER.get(field, len(_ORDER))
 
 
 @dataclass(frozen=True)

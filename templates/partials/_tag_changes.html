@@ -90,8 +90,10 @@
     {% endfor %}
 </dl>
 
+{# `compact` leaves the per-track disclosure out: the Inbox's lead rows are a
+   glimpse, and the full list beneath them carries it. #}
 {% set varied = changes | selectattr('variants') | list %}
-{% if varied %}
+{% if varied and not compact|default(false) %}
 {# <details>, not a click handler toggling `hidden` — the native element brings
    its own keyboard handling and disclosure semantics (web-ui rule 1). #}
 <details class="tag-changes__tracks">

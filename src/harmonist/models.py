@@ -17,6 +17,7 @@ if TYPE_CHECKING:  # type-only: `compare` pulls the whole field table in at runt
     from .contributions import Observation
     from .formats.types import ProvenanceTags
     from .provenance import Origin
+    from .tag_history import FieldChange
 
 # MusicBrainz JSON shapes. `musicbrainzngs` returns plain untyped dicts whose
 # schema varies with the `includes=` we request and is riddled with optional,
@@ -523,6 +524,21 @@ class Album:
     # and groups by, and it is rebuilt from the cached release payloads at
     # startup at the cost of no MusicBrainz requests at all.
     update_significance: str | None = None
+    # What the outstanding update would change, as History's own rows
+    # (`tag_history.FieldChange`) in History's order, so the Inbox can show the
+    # change list its History entry will read as. Set by the same `refresh_flag`
+    # call from the same plan, so the Inbox says what is waiting without reading
+    # a file. Empty when there is nothing outstanding, and when the update is a
+    # track assignment no field diff can describe. Derived and unpersisted, like
+    # the flag.
+    update_changes: tuple[FieldChange, ...] = ()
+    # The two of those rows the Inbox leads with: furthest-reaching first, then
+    # in the order every change list uses (`tag_history.field_rank`).
+    update_lead: tuple[FieldChange, ...] = ()
+    # Why there are no rows for an update that is still there: the tracklist no
+    # longer fits the files, so the plan was refused before any field diff
+    # existed. What the Inbox says in their place. None otherwise.
+    update_note: str | None = None
     # Which version of the cached MusicBrainz payload the two fields above were
     # computed against — `gardener.release_version`. None until something has
     # looked.

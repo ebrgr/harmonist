@@ -78,6 +78,7 @@ from . import (
     mb_cache,
     mb_lookup,
     progress,
+    tag_history,
     tagger,
 )
 from .config import GardenerConfig, ReviewFrom
@@ -360,6 +361,9 @@ def _assess(album: Album, release: Release) -> Assessment:
             album.unassigned_track_count = e.unassigned
         album.update_available = True
         album.update_significance = owned.Significance.STRUCTURE
+        # No field diff exists to describe it, so the reason stands in for one.
+        album.update_changes = album.update_lead = ()
+        album.update_note = _mismatch_note(e)
         album.mb_version = release_version(release)
         return Assessment(plan=None, verdict=owned.Significance.STRUCTURE)
     except formats.READ_ERRORS:
@@ -373,8 +377,58 @@ def _assess(album: Album, release: Release) -> Assessment:
     album.unassigned_track_count = 0
     album.update_available = verdict is not None
     album.update_significance = verdict
+    album.update_changes, album.update_lead = (
+        _change_rows(album, plan) if verdict is not None else ((), ())
+    )
+    album.update_note = None
     album.mb_version = release_version(release)
     return Assessment(plan=plan, verdict=verdict)
+
+
+#: How many rows the Inbox leads with before its full list.
+LEAD_ROWS = 2
+
+
+def _mismatch_note(e: tagger.TagMismatchError) -> str:
+    """What the Inbox says for an update no field diff describes: what the
+    album needs, and the counts that disagree when they do."""
+    tracks = "track" if e.tracks == 1 else "tracks"
+    counts = f"MusicBrainz lists {e.tracks} {tracks}, {e.files} on disk"
+    if isinstance(e, tagger.TrackAssignmentRequired):
+        review = "Track assignments need review"
+        return f"{review} · {counts}" if e.files != e.tracks else review
+    return counts
+
+
+def _change_rows(
+    album: Album, plan: tagger.AlbumPlan
+) -> tuple[tuple[tag_history.FieldChange, ...], tuple[tag_history.FieldChange, ...]]:
+    """History's rows for the changes in `plan` that count as an update, in
+    History's order, and the `LEAD_ROWS` of them to lead with: the
+    furthest-reaching first and, within a level, in the order every change list
+    uses (`tag_history.field_rank`).
+
+    The same rows History will show once the update is taken (`from_plan`), so
+    the Inbox describes a waiting update in the words and order its History
+    entry will use. Only the counted fields: an entry `_countable` sets aside is
+    written by a re-tag but is not why the album is waiting, and leading with it
+    would explain the wrong thing.
+    """
+    levels: dict[str, owned.Significance] = {}
+    for entry in _countable(plan):
+        level = plan.significance_of(*entry)
+        field = entry[1]
+        if field not in levels or owned.ranked(level) > owned.ranked(levels[field]):
+            levels[field] = level
+    rows = tuple(
+        row
+        for row in tag_history.from_plan(plan, album.path, album_files.for_paths(album.folders))
+        if row.field in levels
+    )
+    lead = sorted(
+        rows, key=lambda row: (-owned.ranked(levels[row.field]), tag_history.field_rank(row.field))
+    )
+    return rows, tuple(lead[:LEAD_ROWS])
 
 
 def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:

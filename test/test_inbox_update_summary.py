@@ -1,0 +1,200 @@
+"""What each Inbox tag update would change, at a glance (#273 follow-up).
+
+The update check already builds the album's whole plan to judge it, so it keeps
+History's own rows for it beside the flag: the changes that count as an update,
+the furthest-reaching first and, within a level, the fields a person reads
+before the identifiers. The Inbox shows the first two.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from datetime import UTC, datetime
+
+import pytest
+from fastapi.testclient import TestClient
+
+from harmonist import activity_store, gardener, mb_lookup, scanner, tag_history
+from harmonist.config import (
+    BandcampConfig,
+    Config,
+    GardenerConfig,
+    PathsConfig,
+    ServerConfig,
+)
+from harmonist.config import TestConfig as _TestConfig
+from harmonist.formats import owned
+from harmonist.web.main import create_app
+from test.test_gardener import _release, _tagged
+from test.test_web import _make_tagged_album
+
+S = owned.Significance
+
+
+def _flag(tmp_path, stored: dict):
+    activity_store.init(tmp_path / "activity.db")
+    album = _tagged(tmp_path, _release())
+    activity_store.store_release("rel-aaa", "+".join(sorted(mb_lookup.RELEASE_INCLUDES)), stored)
+    gardener.refresh_flag(album, stored)
+    return album
+
+
+def test_a_flagged_album_keeps_historys_rows_furthest_reaching_first(tmp_path):
+    stored = copy.deepcopy(_release("Test Album (remastered)"))  # a retitle: Identity
+    stored["label-info-list"] = [{"label": {"name": "Warp"}, "catalog-number": "WARPCD-1"}]
+
+    album = _flag(tmp_path, stored)
+
+    rows = album.update_changes
+    assert all(isinstance(r, tag_history.FieldChange) for r in rows)
+    album_row = album.update_lead[0]  # the retitle (Identity) leads the catalogue number
+    assert (album_row.label, album_row.before, album_row.after) == (
+        "Album",
+        "Test Album",
+        "Test Album (remastered)",
+    )
+    assert {"label", "catalog_number"} <= {r.field for r in rows}
+
+
+def test_the_lead_puts_the_furthest_reaching_change_ahead_of_field_order(tmp_path):
+    """A track title comes before the label in every change list, but a change
+    to its casing only is Cosmetic; a label arriving is Enrichment, so it leads."""
+    stored = copy.deepcopy(_release())
+    stored["medium-list"][0]["track-list"][0]["title"] = "TRACK 1"
+    stored["label-info-list"] = [{"label": {"name": "Warp"}, "catalog-number": "WARPCD-1"}]
+
+    album = _flag(tmp_path, stored)
+
+    assert album.update_changes[0].field == "title"
+    assert [r.field for r in album.update_lead] == ["label", "catalog_number"]
+
+
+def test_the_full_list_is_in_the_one_change_order(tmp_path):
+    stored = copy.deepcopy(_release("Test Album (remastered)"))
+    stored["barcode"] = "5051234567890"
+    stored["medium-list"][0]["format"] = "CD"
+
+    album = _flag(tmp_path, stored)
+
+    fields = [r.field for r in album.update_changes]
+    assert fields == ["album", "media", "barcode"]
+
+
+def test_every_tag_field_has_one_place_in_the_change_order():
+    """A field added to `Owned` without a place would sort after everything,
+    identifiers included, with nothing to say it had been forgotten."""
+    order = tag_history._FIELD_ORDER
+    assert sorted(order, key=str) == sorted(owned.Owned, key=str)
+    assert len(order) == len(set(order))
+
+
+def test_a_tracklist_that_no_longer_fits_says_so_instead_of_listing_fields(tmp_path):
+    """Two tracks on MusicBrainz for one file on disk: the plan is refused
+    before any field diff exists, so there are no rows to show, and the reason
+    is what the Inbox has to say."""
+    album = _flag(tmp_path, _release(tracks=2))
+
+    assert album.update_significance == S.STRUCTURE
+    assert album.update_changes == ()
+    note = "Track assignments need review · MusicBrainz lists 2 tracks, 1 on disk"
+    assert album.update_note == note
+
+
+def test_an_album_with_nothing_to_take_has_no_rows(tmp_path):
+    album = _flag(tmp_path, _release())
+
+    assert album.update_available is False
+    assert album.update_changes == album.update_lead == ()
+    assert album.update_note is None
+
+
+@pytest.fixture
+def web(tmp_path):
+    cfg = Config(
+        paths=PathsConfig(config_dir=tmp_path / "config", music_dir=tmp_path / "music"),
+        bandcamp=BandcampConfig(),
+        server=ServerConfig(),
+        test=_TestConfig(mode="fixture"),
+        gardener=GardenerConfig(review_from=S.SETTINGS),
+    )
+    cfg.paths.music_dir.mkdir(parents=True)
+    cfg.paths.config_dir.mkdir(parents=True)
+    return cfg, TestClient(create_app(cfg), headers={"HX-Request": "true"})
+
+
+def _row(field, label, before, after):
+    return tag_history.FieldChange(
+        field=field,
+        label=label,
+        before=before,
+        after=after,
+        tracks=1,
+        total=1,
+        scope=owned.SCOPE[owned.Owned(field)],
+    )
+
+
+def _inbox_library(cfg, monkeypatch, count: int, changes: tuple):
+    for i in range(count):
+        _make_tagged_album(cfg, f"Album {i:02d}", mbid=f"rel-{i}", tagged_at=datetime.now(UTC))
+    albums = scanner.scan(cfg.paths.music_dir)
+    for album in albums:
+        album.update_available = True
+        album.update_significance = S.ENRICHMENT
+        album.mb_version = "v1"
+        album.update_changes = changes
+        album.update_lead = changes[:2]
+    monkeypatch.setattr(scanner, "scan", lambda *a, **k: albums)
+    return albums
+
+
+def _updates_section(client) -> str:
+    match = re.search(
+        r'<section[^>]*id="inbox-updates".*?</section>', client.get("/tasks").text, re.DOTALL
+    )
+    assert match
+    return match.group(0)
+
+
+def test_an_update_card_shows_its_first_two_changes_and_counts_the_rest(web, monkeypatch):
+    cfg, client = web
+    _inbox_library(
+        cfg,
+        monkeypatch,
+        1,
+        (
+            _row("album", "Album", "Old", "New"),
+            _row("date", "Date", "2020", "2020-05-01"),
+            _row("label", "Label", None, "Warp"),
+            _row("barcode", "Barcode", None, "5051234567890"),
+        ),
+    )
+
+    lead, _, rest = _updates_section(client).partition("<details")
+
+    assert "<dt>Album</dt>" in lead and "<dt>Date</dt>" in lead
+    assert "<dt>Label</dt>" not in lead
+    # The full list, as History will show it, behind the disclosure.
+    assert "All 4 changes" in rest
+    assert all(f"<dt>{label}</dt>" in rest for label in ("Album", "Date", "Label", "Barcode"))
+
+
+def test_an_update_card_carries_no_path_badges_or_format(web, monkeypatch):
+    cfg, client = web
+    albums = _inbox_library(cfg, monkeypatch, 1, (_row("album", "Album", "Old", "New"),))
+
+    text = _updates_section(client)
+
+    assert str(albums[0].path.relative_to(cfg.paths.music_dir)) not in text
+    assert "MusicBrainz ↗" not in text and "musicbrainz.org/release" not in text
+
+
+def test_a_long_update_group_is_never_collapsed(web, monkeypatch):
+    cfg, client = web
+    _inbox_library(cfg, monkeypatch, 15, (_row("album", "Album", "Old", "New"),))
+
+    text = _updates_section(client)
+
+    assert "Show all 15 albums" not in text
+    assert text.count('id="task-') == 15

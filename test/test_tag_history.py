@@ -103,10 +103,20 @@ def test_an_artwork_change_to_the_folder_cover_alone_names_it():
     assert summarise(records)[0].reach == "cover.jpg"
 
 
-def test_album_fields_sort_before_track_fields_and_artwork_sits_last():
-    records = _album(2, lambda i: {"title": ["a", "b"], "label": [None, "L"], ARTWORK: ["x", "y"]})
+def test_rows_follow_the_one_change_order_with_artwork_last():
+    """What a person reads before what a player files by (#273): a track title
+    leads the label, identifiers come after both, and artwork sits last."""
+    records = _album(
+        2,
+        lambda i: {
+            "mb_track_id": [None, f"rec-{i}"],
+            "label": [None, "L"],
+            "title": ["a", "b"],
+            ARTWORK: ["x", "y"],
+        },
+    )
 
-    assert [r.field for r in summarise(records)] == ["label", "title", ARTWORK]
+    assert [r.field for r in summarise(records)] == ["title", "label", "mb_track_id", ARTWORK]
 
 
 def test_a_field_that_changed_differently_per_track_keeps_every_version():

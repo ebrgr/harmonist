@@ -216,21 +216,11 @@
                 <span class="text-muted font-normal">· {{ group|length }}</span>
             </h3>
         </div>
-        {% set cards %}
-        <div class="grid grid-cols-1 gap-3">
+        {# Never collapsed, unlike the state groups above: these are the updates
+           the user asked to review, and the rows are compact enough to list. #}
+        <div class="update-cards">
             {% for album in group %}{% include 'partials/task_card_update.html' %}{% endfor %}
         </div>
-        {% endset %}
-        {% if group|length > collapse_threshold|default(12) %}
-        <details id="group-UPDATE-{{ level.name }}" class="hmt-group rounded-md border border-line bg-white/40 px-3 py-2">
-            <summary class="cursor-pointer select-none text-xs font-bold uppercase tracking-widest text-muted hover:text-ink">
-                Show all {{ group|length }} albums
-            </summary>
-            <div class="mt-3">{{ cards }}</div>
-        </details>
-        {% else %}
-        {{ cards }}
-        {% endif %}
     </div>
     {% endif %}
     {% endfor %}

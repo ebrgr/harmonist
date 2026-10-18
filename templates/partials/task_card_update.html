@@ -1,13 +1,45 @@
-{# A Library album whose update waits in the Inbox (#273). The heading of its
-   group says how far the update reaches; the album's title links to its page,
-   which shows the update and applies or ignores it. An update Harmonist was
-   trusted to apply and could not says why, since that is what to look at. #}
-{# pb-1: the header and the reason keep their own bottom margin, so the card
-   ends as evenly as it starts. #}
+{# A Library album whose update waits in the Inbox (#273), as a compact row:
+   what it is, and what the update would change. The group heading says how far
+   the update reaches; the album's title links to its page, which applies or
+   ignores it. No path, format or link badges: they are one click away, and
+   here they would push the change itself off the row.
+
+   The change rows are History's own (`_tag_changes.html` over
+   `album.update_changes`), so a waiting update reads exactly as its History
+   entry will. Two lead (`album.update_lead`); the full list, in History's
+   order, sits behind a disclosure when there is more to it. An update
+   Harmonist was trusted to apply and could not says why, since that is what to
+   look at. #}
 {% set why = held_reason(album) %}
-<div id="task-{{ album.id }}" class="px-4 pt-4 pb-1 rounded-lg bg-white border border-mb-purple/40">
-    {% include 'partials/_album_header.html' %}
-    {% if why %}
-    <p class="mb-3 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
+{% set changes = album.update_changes %}
+<div id="task-{{ album.id }}" class="update-card">
+    {% if album.has_cover %}
+    <img src="/cover/{{ album.id }}" loading="lazy" onerror="this.style.visibility='hidden'" alt=""
+         width="40" height="40" class="update-card__cover">
+    {% else %}
+    <div class="update-card__cover" aria-hidden="true"></div>
     {% endif %}
+    <div class="min-w-0">
+        <h3 class="text-sm font-bold text-ink truncate">
+            <a href="/album/{{ album.id }}" class="hover:text-accent transition">{{ album.title }}</a>
+        </h3>
+        <p class="text-xs text-muted truncate">{{ album.artist }}</p>
+        {% if why %}
+        <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
+        {% endif %}
+        {% if album.update_lead %}
+        {# Hidden while the full list below is open, which includes these. #}
+        <div class="update-card__lead mt-1.5">
+            {% with changes = album.update_lead, compact = true %}{% include 'partials/_tag_changes.html' %}{% endwith %}
+        </div>
+        {% elif album.update_note %}
+        <p class="mt-1 text-xs text-muted">{{ album.update_note }}</p>
+        {% endif %}
+        {% if changes | length > album.update_lead | length %}
+        <details id="update-changes-{{ album.id }}" class="hmt-group update-card__all">
+            <summary>All {{ changes | length }} changes</summary>
+            {% include 'partials/_tag_changes.html' %}
+        </details>
+        {% endif %}
+    </div>
 </div>

@@ -41,6 +41,19 @@
 .settings-title:has(option[value="album_disambiguation_if_needed"]:checked) .settings-title-multiple .settings-title-plain,
 .settings-title[data-conditional="true"]:has(option[value="album_disambiguation_if_needed"]:checked) .transform-off-warning { display: none; }
 
+/* The Inbox's tag-update rows (#273): one bordered list per group, each album a
+   compact row of cover, name and the update's lead change rows. */
+.update-cards { border: 1px solid var(--color-line); border-radius: .375rem; background: #fff; }
+.update-card { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: .75rem; padding: .625rem .75rem; }
+.update-card + .update-card { border-top: 1px solid var(--color-line); }
+.update-card__cover { width: 2.5rem; height: 2.5rem; border-radius: .25rem; object-fit: cover; background: var(--color-surface); border: 1px solid var(--color-line); }
+.update-card .tag-changes { margin: 0; }
+.update-card__all { margin-top: .25rem; font-size: var(--text-xs); }
+.update-card__all > summary { cursor: pointer; color: var(--color-muted); width: fit-content; }
+.update-card__all > summary:hover { color: var(--color-ink); }
+.update-card__all[open] > summary { margin-bottom: .25rem; }
+.update-card:has(.update-card__all[open]) .update-card__lead { display: none; }
+
 /* Where each level's updates go (#273): a grid of tick cells, each a visually
    hidden checkbox inside its label, so it keeps the keyboard, focus and screen
    reader behaviour of the native control. The outcome follows each row's own
