@@ -6,13 +6,21 @@ user having to ask.
 
 ## Noticing changes on disk
 
-Three mechanisms, in increasing order of how little they assume. All of them
-request the same scan, so any number of triggers between two scans still
-produces one.
+Three mechanisms, in increasing order of how little they assume. Changes to
+known album files need only those folders re-read; discovering a changed folder
+layout still needs a walk of the library.
 
-**The file watcher** hears about changes to the music folder and rescans once it
+**The file watcher** hears about changes to the music folder and refreshes once it
 has been quiet for a few seconds, so copying an album in produces one scan
-rather than one per file. It only works on a local filesystem: a library the
+rather than one per file. It retains the changed paths: files in known album
+folders refresh those albums, while new, removed or uncertain directory changes
+request a full scan. A tagging already refreshes its own folders, counts and
+indexes, so its delayed file events find the same signatures and read no tags.
+No folder is muted for a time window: an external edit immediately after a
+tagging must still be noticed. A full scan already in flight preserves albums
+refreshed since it began, so it cannot put back the pre-tagging reading.
+
+The watcher only works on a local filesystem: a library the
 container mounts over NFS or SMB produces no events, and a very large tree can
 exhaust the system's watch limit and stop the watcher entirely. Both failures are
 silent.

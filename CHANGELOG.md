@@ -33,6 +33,7 @@ versions follow [semantic versioning](https://semver.org).
 - **Tag and artwork writes block the album's controls and show per-file progress**, and applying artwork refreshes the album cover and History when it finishes (#786).
 - **Inbox refreshes wait for track-assignment actions**, so moves and resets cannot lose their responses mid-edit (#795).
 - **Open artwork previews survive Inbox refreshes**, preserving the selected image, scale, scroll position, and keyboard focus (#792).
+- **Tagging an album refreshes its own folders instead of rescanning the whole library**, including automatic updates and the filesystem events from those writes (#787).
 - **Cancelling the track assignment editor stays cancelled** when the album's comparison refreshes; the editor still opens itself once per visit when assignments need review (#776).
 - **Reading a release from MusicBrainz again works while an album page is still loading its comparison**; a click there used to be ignored (#775).
 - **Store URL searches show selectable releases even for a single match**, so dismissing a suggestion leaves a working path back to review (#773).

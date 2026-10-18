@@ -906,7 +906,7 @@ def create_app(
         watch_task = asyncio.create_task(
             dir_watcher.watch_music_dir(
                 cfg.paths.music_dir,
-                scan_runner.request_scan,
+                scan_runner.request_refresh,
                 settle=timedelta(seconds=cfg.library.watch_settle_seconds),
                 stop_event=watch_stop,
             )
@@ -3392,10 +3392,23 @@ def _auto_apply_if_idle(
         log.debug("Skipping auto-apply: the library has not been scanned yet")
         return "the library hasn't finished scanning yet"
 
+    def refresh(album: Album) -> None:
+        """Publish even partially written albums, including on network mounts."""
+        try:
+            if scan_runner.refresh_album(album.folders, notify=True):
+                return
+        except Exception:
+            log.exception("Could not refresh automatically tagged album %s", album.path)
+        scan_runner.request_scan()
+
     def _run() -> None:
         try:
             auto_apply.apply_due(
-                scan_runner.albums(), app.state.cfg, app.state.tagger, _ignored_updates()
+                scan_runner.albums(),
+                app.state.cfg,
+                app.state.tagger,
+                _ignored_updates(),
+                on_processed=refresh,
             )
         except Exception:
             # Boundary catch: the pass holds the albums it cannot write, so
@@ -6181,13 +6194,9 @@ def _register_routes(app: FastAPI) -> None:
         # reload races the async rescan and re-renders the state the re-tag has
         # just replaced: a short album accepted as incomplete comes back still
         # claiming to be complete (#252).
-        #
-        # NOT paired with `skip_rescan`, unlike the other single-album mutations:
-        # `refresh_now` patches the snapshot only, and a moved state also has to
-        # reach `live_counts`, which the full rescan is what resets.
         runner = request.app.state.scan_runner
         if runner.is_engaged():
-            runner.refresh_now()
+            request.state.skip_rescan = runner.refresh_album(album.folders, notify=True)
         # Reload the open detail modal so its disk-vs-MB comparison + metadata
         # reflect the just-written tags (tasks-changed only refreshes the tiles).
         return _flash_response(
@@ -7729,8 +7738,7 @@ def _register_routes(app: FastAPI) -> None:
         # visible before the page refreshes or redirects to its new album URL.
         runner = request.app.state.scan_runner
         if runner.is_engaged():
-            runner.refresh_now()
-        # As for re-tagging, the background scan still updates state counts.
+            request.state.skip_rescan = runner.refresh_album(album.folders, notify=True)
         current = next(a for a in _albums(request) if album.path in a.folders)
         if current.id != sidecar_mod.album_id_for(album.path):
             activity_store.record_alias(album.id, current.id)

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from . import activity, activity_store, gardener, library_titles, mb_cache, progress, retag
@@ -105,6 +105,8 @@ def apply_due(
     cfg: config_mod.Config,
     tagger: tagger_mod.Tagger,
     ignored: Mapping[str, activity_store.IgnoredUpdate],
+    *,
+    on_processed: Callable[[Album], None] | None = None,
 ) -> PassResult:
     """Write every due update, shown in the status bar while it runs (#757).
 
@@ -112,6 +114,8 @@ def apply_due(
     nothing: it is working through the same albums.
 
     Blocking on the disk, so call it from a worker thread, never the event loop.
+    `on_processed` refreshes the snapshot after each attempt, even a failed one
+    that may have written some of the files.
     """
     if not _pass_lock.acquire(blocking=False):
         return PassResult(applied=0, held=0)
@@ -122,10 +126,14 @@ def apply_due(
         applied = held = 0
         with progress.job("Applying updates", total=len(todo)) as job:
             for album in todo:
-                if _apply_one(album, cfg, tagger):
-                    applied += 1
-                elif is_held(album):
-                    held += 1
+                try:
+                    if _apply_one(album, cfg, tagger):
+                        applied += 1
+                    elif is_held(album):
+                        held += 1
+                finally:
+                    if on_processed is not None:
+                        on_processed(album)
                 job.advance()
             job.closing = _summary(applied, held)
         log.info("auto-apply: %d album(s) updated, %d held for review", applied, held)
