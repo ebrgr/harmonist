@@ -117,6 +117,83 @@ def test_suggested_release_link_follows_review_and_confirmation(reset_demo_serve
         browser.close()
 
 
+@pytest.mark.parametrize("engine_name", ["chromium", "webkit"])
+def test_inbox_refresh_cannot_discard_assignment_reset(reset_demo_server, engine_name):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine_name).launch()
+        page = browser.new_page()
+        card = _card(page, reset_demo_server)
+        aid = card.get_attribute("id").removeprefix("task-")
+        card.get_by_role("button", name="Edit track assignments").click()
+        editor = card.locator(".assignment-editor")
+        editor.get_by_role("button", name="Move on-disk entry down", exact=True).first.click()
+        pw.expect(editor.locator('[name="disk_order"]')).to_have_value("1,0,2")
+        held = []
+
+        def hold(route):
+            held.append((route, route.fetch()))
+            page.evaluate("window.resetResponseHeld = true")
+
+        page.route(f"**/assignments/{aid}", hold)
+        editor.get_by_role("button", name="Reset", exact=True).click()
+        page.wait_for_function("window.resetResponseHeld === true")
+        page.evaluate("""() => {
+            window.inboxStarted = false;
+            window.inboxSettled = false;
+            document.body.addEventListener('htmx:beforeRequest', e => {
+                if (e.target.id === 'task-list') window.inboxStarted = true;
+            });
+            document.body.addEventListener('htmx:afterSettle', e => {
+                if (e.target.id === 'task-list') window.inboxSettled = true;
+            });
+            htmx.trigger(document.body, 'tasks-changed');
+        }""")
+        # Without synchronization, deliberately land the enclosing refresh
+        # first. With it, the refresh waits for Reset and then preserves its result.
+        if page.evaluate("window.inboxStarted"):
+            page.wait_for_function("window.inboxSettled")
+        route, response = held.pop()
+        route.fulfill(response=response)
+        page.wait_for_function("window.inboxSettled")
+        pw.expect(editor.locator('[name="disk_order"]')).to_have_value("0,1,2")
+        pw.expect(editor.get_by_role("button", name="Reset", exact=True)).to_be_enabled()
+        browser.close()
+
+
+@pytest.mark.parametrize("engine_name", ["chromium", "webkit"])
+def test_assignment_reset_preempts_inflight_inbox_refresh(reset_demo_server, engine_name):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine_name).launch()
+        page = browser.new_page()
+        card = _card(page, reset_demo_server)
+        card.get_by_role("button", name="Edit track assignments").click()
+        editor = card.locator(".assignment-editor")
+        editor.get_by_role("button", name="Move on-disk entry down", exact=True).first.click()
+        pw.expect(editor.locator('[name="disk_order"]')).to_have_value("1,0,2")
+        held = []
+
+        def hold(route):
+            held.append((route, route.fetch()))
+            page.evaluate("window.inboxResponseHeld = true")
+
+        page.route("**/tasks", hold, times=1)
+        page.evaluate("""() => {
+            window.inboxSettled = false;
+            document.body.addEventListener('htmx:afterSettle', e => {
+                if (e.target.id === 'task-list') window.inboxSettled = true;
+            });
+        }""")
+        page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
+        page.wait_for_function("window.inboxResponseHeld === true")
+        editor.get_by_role("button", name="Reset", exact=True).click()
+        route, response = held.pop()
+        route.fulfill(response=response)
+        page.wait_for_function("window.inboxSettled")
+        pw.expect(editor.locator('[name="disk_order"]')).to_have_value("0,1,2")
+        pw.expect(editor.get_by_role("button", name="Reset", exact=True)).to_be_enabled()
+        browser.close()
+
+
 def test_column_display_toggle_survives_moves_and_reset(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()

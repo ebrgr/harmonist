@@ -52,6 +52,7 @@
             {% if entry.number.split('.')[0] not in ['?', '1'] %}{% set counts.multidisc = true %}{% endif %}
         {% endfor %}
         <form hx-post="{{ review_url('/assignments/' ~ album.id, replacement) }}" hx-target="closest .assignment-content"
+              {% if not on_album_page %}hx-sync="body:queue last" hx-disinherit="hx-sync"{% endif %}
               hx-trigger="submit, change target:input[name='included_pregaps']"
               hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button, find input[name='included_pregaps']" class="space-y-2">
             <input type="hidden" name="disk_order" value="{{ panel.draft.disk_order }}">

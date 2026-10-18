@@ -29,6 +29,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **Inbox refreshes wait for track-assignment actions**, so moves and resets cannot lose their responses mid-edit (#795).
 - **Open artwork previews survive Inbox refreshes**, preserving the selected image, scale, scroll position, and keyboard focus (#792).
 - **Cancelling the track assignment editor stays cancelled** when the album's comparison refreshes; the editor still opens itself once per visit when assignments need review (#776).
 - **Reading a release from MusicBrainz again works while an album page is still loading its comparison**; a click there used to be ignored (#775).
