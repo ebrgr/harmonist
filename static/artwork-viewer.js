@@ -28,14 +28,14 @@
             : `${(scale * 100).toFixed(1)}% · fit to viewer`;
     }
 
-    // A CAA response replaces the album/review thumbnails AND popovers. Carry the
-    // live inspection through that swap, not through the request: the user may
-    // switch images, change scale, or dismiss the viewer while it is in flight.
+    // A CAA response or an enclosing Inbox refresh can replace/detach the open
+    // popover. Carry the live inspection through any swap containing it, not
+    // through the request: the user may switch images, change scale, or dismiss
+    // the viewer while it is in flight.
     const inspections = new WeakMap();
     document.addEventListener('htmx:beforeSwap', event => {
         const target = event.detail.target;
-        if (!target.matches('#album-artwork, .assignment-artwork') ||
-            event.defaultPrevented || !event.detail.shouldSwap) return;
+        if (event.defaultPrevented || !event.detail.shouldSwap) return;
         const viewer = target.querySelector('.art-full:popover-open');
         if (!viewer) return;
         const stage = viewer.querySelector('.art-full__stage');

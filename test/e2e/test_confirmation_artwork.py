@@ -142,6 +142,70 @@ def _suggest(page, base):
     return aid
 
 
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+@pytest.mark.parametrize("dismiss", [False, True], ids=["open", "dismissed"])
+def test_inbox_refresh_preserves_artwork_inspection(artwork_refresh_server, engine, dismiss):
+    base = artwork_refresh_server
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_page(viewport={"width": 900, "height": 700})
+        aid = _suggest(page, base)
+        page.goto(base)
+        page.wait_for_load_state("networkidle")
+        artwork = page.locator(f"#task-{aid} .assignment-artwork")
+        pw.expect(artwork.get_by_alt_text("Artwork for selected release")).to_be_visible()
+        thumb = artwork.locator("button[popovertarget]").first
+        thumb.click()
+        viewer = page.locator(".art-full:popover-open")
+        # Inspect a different image, while Escape still belongs to the opener.
+        selected = viewer.locator(".art-full__image-choice option").nth(1).get_attribute("value")
+        viewer.get_by_role("combobox", name="Artwork image").select_option(selected)
+        viewer.get_by_role("combobox", name="Viewing scale").select_option("native")
+        stage = viewer.get_by_role("region", name="Artwork detail")
+        stage.evaluate("e => { e.scrollLeft = 200; e.scrollTop = 150; }")
+        stage.focus()
+        assert stage.evaluate("e => [e.scrollLeft, e.scrollTop]") == [200, 150]
+        held = []
+
+        def hold(route):
+            held.append((route, route.fetch()))
+            page.evaluate("window.inboxResponseHeld = true")
+
+        page.route("**/tasks", hold)
+        page.evaluate("""() => {
+            window.inboxRefreshes = 0;
+            document.body.addEventListener('htmx:afterSettle', e => {
+                if (e.target.id === 'task-list') window.inboxRefreshes++;
+            });
+        }""")
+        for refresh in range(2):
+            page.evaluate("""() => {
+                window.inboxResponseHeld = false;
+                htmx.trigger(document.body, 'tasks-changed');
+            }""")
+            page.wait_for_function("window.inboxResponseHeld === true")
+            if dismiss and refresh == 0:
+                page.keyboard.press("Escape")
+                pw.expect(viewer).to_have_count(0)
+            route, response = held.pop()
+            route.fulfill(response=response)
+            page.wait_for_function("n => window.inboxRefreshes > n", arg=refresh)
+            if dismiss:
+                pw.expect(viewer).to_have_count(0)
+            else:
+                pw.expect(viewer).to_have_attribute("id", selected)
+                pw.expect(viewer.get_by_role("combobox", name="Viewing scale")).to_have_value(
+                    "native"
+                )
+                pw.expect(stage).to_be_focused()
+                assert stage.evaluate("e => [e.scrollLeft, e.scrollTop]") == [200, 150]
+        if not dismiss:
+            page.keyboard.press("Escape")
+            pw.expect(viewer).to_have_count(0)
+            pw.expect(thumb).to_be_focused()
+        browser.close()
+
+
 @pytest.mark.parametrize("on_album", [False, True])
 def test_review_artwork_inspection_and_refresh_preserve_draft(reset_demo_server, on_album):
     base = reset_demo_server
