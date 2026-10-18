@@ -4,7 +4,7 @@
 {# The discovery result owns what the album page shows (#618): a Possible
    mismatch section with the evidence and the releases to choose between, and an
    MB contributions section with the one finding for the matched release.
-   `contributions.panel` decides both up front, so "Don't warn me about this"
+   `contributions.panel` decides both up front, so the dismissal checkbox
    only hides the first and reveals the second, in place, with no re-render. #}
 {% set reasons = panel.reasons if panel else () %}
 {% set finding = panel.finding if panel else none %}
@@ -24,19 +24,23 @@
    and reveal from its :checked state alone; a failed write puts the box back. #}
 {% macro dont_warn() %}
 <label class="inline-flex items-center gap-1.5 cursor-pointer select-none text-2xs uppercase tracking-widest font-bold text-muted hover:text-ink transition"
-       title="This is the release you bought: stop flagging a possible mismatch and show what MusicBrainz is missing from it. Tags and files are not changed.">
+       title="{% if contribution.confirmed %}This release was previously accepted. Untick to restore warnings.{% else %}Keep this match for now. New suitable siblings or new source evidence bring the warning back.{% endif %}">
     <input type="checkbox" name="accept" value="true" class="release-accepted cursor-pointer"
            {% if contribution.accepted %}checked{% endif %}
            hx-post="/library/{{ album.id }}/release-accepted"
-           hx-vals='{{ {"mbid": album.sidecar.mb_release_id} | tojson }}'
-           hx-swap="none" hx-disabled-elt="this"
+           hx-vals='{{ {"mbid": album.sidecar.mb_release_id, "evidence": contribution.dismissal_token} | tojson }}'
+           hx-swap="none" hx-disabled-elt="this, #contribution-editions-{{ album.id }} button"
            hx-on::after-request="if (!event.detail.successful) this.checked = !this.checked">
-    Don't warn me about this
+    {% if contribution.confirmed %}Don't warn me about this{% else %}Don't warn unless a better match is found{% endif %}
 </label>
 {% endmacro %}
 {% macro release_links(releases) %}{% for linked in releases %}<a href="https://musicbrainz.org/release/{{ linked.id }}" target="_blank" rel="noopener" class="text-mb-purple hover:underline">{{ release_name(linked.title, linked.disambiguation) }}{% if linked.media %} ({{ linked.media }}){% endif %} ↗</a>{{ ', ' if not loop.last else '' }}{% endfor %}{% endmacro %}
 {% macro browse() %}{% if editions_group %}<a href="https://musicbrainz.org/release-group/{{ editions_group }}" target="_blank" rel="noopener"
        class="text-xs text-mb-purple hover:underline">Browse all releases on MusicBrainz ↗</a>{% endif %}{% endmacro %}
+{% macro add_release() %}
+<a href="{{ harmony_base }}/release?{% if contribution.source_upc %}gtin={{ contribution.source_upc|urlencode }}&amp;qobuz=&amp;deezer={% else %}url={{ contribution.store_url|urlencode }}{% endif %}" target="_blank" rel="noopener" title="Add the missing release with Harmony"
+   class="ml-auto inline-flex px-3 py-1.5 text-mb-purple border border-mb-purple/30 hover:bg-mb-purple/10 rounded text-xs font-bold uppercase tracking-widest transition">Add Release ↗</a>
+{% endmacro %}
 {# The matched release in the same list as the releases it is judged against,
    so "this release" always names something on screen. #}
 {% macro release_list() %}
@@ -124,18 +128,20 @@
             {{ browse() }}
             <span id="edition-reviewing-{{ album.id }}" class="hidden [&.htmx-request]:block text-xs text-muted" role="status">Loading review…</span>
             {% if panel.add_release %}
-            <a href="{{ harmony_base }}/release?{% if contribution.source_upc %}gtin={{ contribution.source_upc|urlencode }}&amp;qobuz=&amp;deezer={% else %}url={{ contribution.store_url|urlencode }}{% endif %}" target="_blank" rel="noopener" title="None of these is the release you bought: add it with Harmony"
-               class="ml-auto inline-flex px-3 py-1.5 text-mb-purple border border-mb-purple/30 hover:bg-mb-purple/10 rounded text-xs font-bold uppercase tracking-widest transition">Add Release ↗</a>
+            {{ add_release() }}
             {% endif %}
         </div>
     </div>
 </section>
     {% endif %}
-    {% if finding or (not reasons and contribution.missing_url and check.current_linked) %}
+    {% set add_missing = panel.add_release and contribution.media_mismatch and not contribution.confirmed %}
+    {% if finding or add_missing or (not reasons and contribution.missing_url and check.current_linked) %}
 <section class="border border-line rounded-lg p-4 space-y-3{% if reasons %} hidden group-has-[.release-accepted:checked]/match:block{% endif %}"
          aria-labelledby="contribution-heading-{{ album.id }}">
     <h2 id="contribution-heading-{{ album.id }}" class="{{ heading }}">MB contributions</h2>
-        {% if finding in ['barcode_different', 'barcode_free', 'barcode_missing'] %}
+        {% if add_missing %}
+    <div class="flex flex-wrap items-center gap-2">{{ add_release() }}</div>
+        {% elif finding in ['barcode_different', 'barcode_free', 'barcode_missing'] %}
     {{ barcode_contribution(contribution, album) }}
         {% elif finding == 'same_store' %}
     <p class="text-sm text-ink"><strong>Your download came from {{ store_host }}, and another release links a page there.</strong></p>

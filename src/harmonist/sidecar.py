@@ -23,6 +23,7 @@ from .models import (
     FoundBy,
     IncludedPregap,
     MatchCandidate,
+    MismatchDismissal,
     Sidecar,
     TrackComparison,
 )
@@ -288,6 +289,8 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
       * `accepted_release_id` — the user's word that this is the release they
         bought (#618). Moves the album between the Possible mismatch and MB
         contributions filters, and nothing on disk could reconstruct it.
+      * `mismatch_dismissal` — the candidate evidence the user set aside (#779).
+        New evidence renews the warning; the earlier decision is not derivable.
       * `borrowed_artwork` — which images stand in for a release with no front
         of its own (#663). Provenance nothing else records, and it decides what
         the album page suggests once the release gets its own front.
@@ -344,6 +347,8 @@ def _audit_sidecar_change(album_dir: Path, old: Sidecar | None, new: Sidecar) ->
         changes["video_media"] = f"{old.video_media}->{new.video_media}"
     if old.accepted_release_id != new.accepted_release_id:
         changes["accepted_release_id"] = f"{old.accepted_release_id}->{new.accepted_release_id}"
+    if old.mismatch_dismissal != new.mismatch_dismissal:
+        changes["mismatch_dismissal"] = f"{old.mismatch_dismissal}->{new.mismatch_dismissal}"
     if old.borrowed_artwork != new.borrowed_artwork:
 
         def short(records: tuple[BorrowedArtwork, ...]) -> str:
@@ -390,6 +395,8 @@ def _normalise_identity(s: Sidecar, album_dir: Path) -> Sidecar:
     cannot run is worse than none: it suggests an id may be arbitrary when in
     fact it is always derived, which is the property the alias chain leans on.
     """
+    if s.mismatch_dismissal and s.mismatch_dismissal.release != s.mb_release_id:
+        s = replace(s, mismatch_dismissal=None)
     if s.mb_release_id:
         if s.temp_uid is None:
             return s
@@ -445,6 +452,8 @@ def _to_dict(s: Sidecar) -> dict[str, Any]:
         d["video_media"] = list(s.video_media)
     if s.accepted_release_id:
         d["accepted_release_id"] = s.accepted_release_id
+    if s.mismatch_dismissal is not None:
+        d["mismatch_dismissal"] = asdict(s.mismatch_dismissal)
     if s.borrowed_artwork:
         d["borrowed_artwork"] = [_borrowed_to_dict(b) for b in s.borrowed_artwork]
     if s.artwork_watch:
@@ -681,6 +690,16 @@ def _from_dict(d: dict[str, Any], source_path: Path) -> Sidecar:
     ):
         raise InvalidSidecarError(f"sidecar at {source_path} has invalid origin_override")
 
+    dismissal = d.get("mismatch_dismissal")
+    if dismissal is not None and (
+        not isinstance(dismissal, dict)
+        or not isinstance(dismissal.get("release"), str)
+        or not dismissal["release"]
+        or not isinstance(dismissal.get("evidence"), list)
+        or not all(isinstance(e, str) for e in dismissal["evidence"])
+    ):
+        raise InvalidSidecarError(f"sidecar at {source_path} has invalid mismatch_dismissal")
+
     return Sidecar(
         schema_version=sv,
         origin_override=Origin(raw_origin) if raw_origin is not None else None,
@@ -699,6 +718,9 @@ def _from_dict(d: dict[str, Any], source_path: Path) -> Sidecar:
         included_pregaps=_included_pregaps_from(d.get("included_pregaps")),
         video_media=_int_tuple(d.get("video_media")),
         accepted_release_id=d.get("accepted_release_id") or None,
+        mismatch_dismissal=MismatchDismissal(dismissal["release"], tuple(dismissal["evidence"]))
+        if dismissal is not None
+        else None,
         borrowed_artwork=_borrowed_from(d.get("borrowed_artwork")),
         artwork_watch=_artwork_watch_from(d.get("artwork_watch")),
         artwork_rejected=_artwork_rejected_from(d.get("artwork_rejected")),

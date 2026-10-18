@@ -100,6 +100,23 @@ the album's folders: a decision made against the previous source evidence cannot
 silence a contradiction introduced by the new choice. Saving the same choice
 again preserves the acceptance.
 
+New checkbox dismissals instead mean **keep this match for now** (#779). A
+bookmark records the release and the candidate evidence set aside: compatible
+media when the current media contradict the source, and exact URL/UPC evidence
+the current release lacks. New evidence renews the warning, including an
+existing sibling gaining an identifier. Losing evidence, reordering results,
+or changing unrelated metadata does not. This is a reason to review, never
+automatic identity selection; track-count and length ranking is separate work.
+The bookmark is a user decision, not a stored assessment, and the warning is
+derived against each complete browse. Incomplete checks cannot renew it or
+invite contributions. Background checks continue after a provisional dismissal.
+
+Existing explicit acceptances keep their meaning: silently turning an older
+“this is my release” decision into a provisional one would revoke the user's
+choice. Removing one restores warnings and makes the next dismissal conditional.
+New decisions are written to every folder; conflicting per-folder bookmarks
+do not suppress the album. A rematch or changed Origin clears the bookmark.
+
 ### MB contributions
 
 Once the match is settled, **MB contributions** lists what the matched release
@@ -117,6 +134,12 @@ the next.
   this: a store can remove tracks or replace a download while keeping its URL,
   so an older purchase can correctly match a different release from the one
   sold there today. Other contributions remain available independently.
+
+A temporary physical match for a download is not an assertion that the store
+URL belongs to the physical release. Its provisional dismissal therefore
+offers no edits to that release; an existing Harmony add-release action can
+remain available as an MB contribution. Explicit release confirmations retain
+their stronger meaning.
 
 Harmonist opens MusicBrainz's release editor with the value ready to copy.
 MusicBrainz's editor can only pre-fill links when *adding* a release, so the

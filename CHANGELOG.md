@@ -17,6 +17,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **New mismatch dismissals last until a better sibling or new source evidence is found**, while existing acceptances keep their meaning (#779).
 - **Settings uses bordered sections with shaded headings**, matching the album page and making each group easier to scan (#777).
 - **Tag changes are listed in one order everywhere**, in History, on the album page and in the Inbox: titles and artists first, identifiers last (#784).
 - **The status bar is live on every page**, so Settings and album pages show background work and the outcome of their own actions (#757).

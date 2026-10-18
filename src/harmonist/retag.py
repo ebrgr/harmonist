@@ -416,6 +416,7 @@ def tag_with_release(
             accepted_release_id=_accepted_after_tagging(
                 base.accepted_release_id, requested_mbid, mbid, accept=accept_release
             ),
+            mismatch_dismissal=None if accept_release else base.mismatch_dismissal,
             # Folded into the same write rather than a second one after it (#663).
             borrowed_artwork=caa_listings.stand_ins_after(
                 album_path,

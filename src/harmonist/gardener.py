@@ -1297,8 +1297,9 @@ def _browse_siblings(release: Release, group: list[Album]) -> None:
 
     Only when needed: an album with a finding, since neither Library filter
     places one until a complete browse of its group exists. A release the user
-    accepted needs it only while that browse is missing or incomplete — its
+    explicitly confirmed needs it only while that browse is missing or incomplete — its
     mismatch evidence no longer matters, only whether the group was compared.
+    A provisional dismissal keeps looking for new candidate evidence (#779).
     Incomplete browses are retried, since MusicBrainz fills in unspecified
     media. At most one request per release this pass already fetched, so the
     pass's pacing bounds it. A failure keeps the previous browse and costs
@@ -1308,7 +1309,7 @@ def _browse_siblings(release: Release, group: list[Album]) -> None:
     for album in group:
         assessment = contributions.assess(album)
         siblings = assessment.siblings
-        settled = assessment.accepted and siblings is not None and siblings.complete
+        settled = assessment.confirmed and siblings is not None and siblings.complete
         if assessment.eligible and assessment.has_findings and not settled:
             wanted = True
             break

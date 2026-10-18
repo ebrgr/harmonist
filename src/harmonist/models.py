@@ -305,6 +305,14 @@ class MatchCandidate:
         return sum(1 for tc in self.track_comparisons if tc.title_differs)
 
 
+@dataclass(frozen=True)
+class MismatchDismissal:
+    """Candidate evidence the owner chose to set aside for this release."""
+
+    release: str
+    evidence: tuple[str, ...] = ()
+
+
 @dataclass
 class Sidecar:
     """Per-album persisted state — the on-disk `.harmonist.json`.
@@ -333,6 +341,7 @@ class Sidecar:
     video_media: tuple[int, ...] | None = None
     # Accepted only while it equals `mb_release_id`, so a rematch lapses it.
     accepted_release_id: str | None = None
+    mismatch_dismissal: MismatchDismissal | None = None
     # Archive images written as stand-ins for a release with no front of its
     # own (#663). Each is held only while its `release` is `mb_release_id`.
     borrowed_artwork: tuple[BorrowedArtwork, ...] = ()

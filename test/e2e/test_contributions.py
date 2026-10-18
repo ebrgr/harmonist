@@ -81,7 +81,9 @@ def test_dismissed_store_match_does_not_offer_a_duplicate_url(
         page = browser.new_page()
         page.goto(f"{server}/album/{ALBUM}")
         panel = page.locator(f"#album-contributions-{ALBUM}")
-        box = htmx_ready(panel.get_by_role("checkbox", name="Don't warn me about this"))
+        box = htmx_ready(
+            panel.get_by_role("checkbox", name="Don't warn unless a better match is found")
+        )
         reason = panel.get_by_text(
             "Your store URL is linked from another release, not the matched one.", exact=True
         )

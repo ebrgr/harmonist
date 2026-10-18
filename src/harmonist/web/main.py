@@ -5314,6 +5314,7 @@ def _register_routes(app: FastAPI) -> None:
                 current,
                 origin_override=target,
                 accepted_release_id=None if origin_changed else current.accepted_release_id,
+                mismatch_dismissal=None if origin_changed else current.mismatch_dismissal,
             )
             if current == updated:
                 continue
@@ -5340,18 +5341,22 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/library/{album_id}/release-accepted", response_class=HTMLResponse)
     def set_release_accepted(
-        request: Request, album_id: str, mbid: str = Form(...), accept: bool = Form(False)
+        request: Request,
+        album_id: str,
+        mbid: str = Form(...),
+        accept: bool = Form(False),
+        evidence: str = Form(""),
     ) -> Response:
-        """Record that this is the release the user bought, or take it back (#618).
+        """Dismiss the shown candidate evidence until better evidence appears (#779).
 
         `mbid` is the release the page showed: an acceptance of whatever the
         album is matched to by the time the click lands would accept a release
         nobody reviewed. Writes nothing but the sidecar field; tags, files and
         the match are untouched.
 
-        The page already rendered both sections, and the checkbox shows or hides
-        them itself, so the response re-renders nothing. A refusal is an error
-        status, which puts the box back.
+        The checkbox folds the already-rendered sections in place. Retiring a
+        legacy acceptance replaces the panel to change its meaning and actions.
+        A refusal is an error status, which puts the box back.
         """
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         sc = album.sidecar
@@ -5366,18 +5371,50 @@ def _register_routes(app: FastAPI) -> None:
                 tasks_changed=False,
                 status_code=status.HTTP_409_CONFLICT,
             )
-        target = mbid if accept else None
-        if sc.accepted_release_id == target:
+        assessment = contributions.assess(album)
+        target = assessment.dismissal if accept else None
+        if accept and (target is None or evidence != assessment.dismissal_token):
+            return _flash_response(
+                "Not changed",
+                "the release comparison changed or is incomplete; reload the page",
+                level=Level.WARNING,
+                album=album,
+                tasks_changed=False,
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        parts = [(folder, sidecar_mod.read(folder)) for folder in album.folders]
+        if any(part is None or part.mb_release_id != mbid for _, part in parts):
+            raise HTTPException(status.HTTP_409_CONFLICT, "album folders changed; reload the page")
+        if all(
+            part is not None
+            and part.mismatch_dismissal == target
+            and part.accepted_release_id is None
+            for _, part in parts
+        ):
             # Idempotent: a double click writes nothing and reports nothing new.
             return _flash_response("No change", album=album, tasks_changed=False)
-        sidecar_mod.write(album.path, replace(sc, accepted_release_id=target))
+        for folder, part in parts:
+            assert part is not None
+            updated = replace(part, accepted_release_id=None, mismatch_dismissal=target)
+            if updated != part:
+                sidecar_mod.write(folder, updated)
         runner = request.app.state.scan_runner
         if runner.is_engaged():
             runner.refresh_now()
         request.state.skip_rescan = True
-        return _flash_response(
-            "Mismatch warning off" if accept else "Mismatch warning back on", album=album
+        response = _flash_response(
+            "Mismatch warning paused" if accept else "Mismatch warning back on", album=album
         )
+        if sc.accepted_release_id == mbid:
+            # Retiring an older permanent acceptance changes the available
+            # contribution and checkbox meaning. Swap it in this response, not
+            # a later GET that could replace a release button mid-click.
+            rendered = contribution_editions(request, album_id)
+            rendered.headers["HX-Trigger"] = response.headers["HX-Trigger"]
+            rendered.headers["HX-Retarget"] = f"#contribution-editions-{album.id}"
+            rendered.headers["HX-Reswap"] = "innerHTML settle:0ms"
+            return rendered
+        return response
 
     @app.get("/library/{album_id}/compare", response_class=HTMLResponse)
     def library_compare(

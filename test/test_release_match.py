@@ -11,10 +11,11 @@ import musicbrainzngs
 import pytest
 from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
+from mutagen.mp4 import MP4
 
 from harmonist import activity_store, contributions, gardener, mb_cache, mb_lookup, scanner, sidecar
 from harmonist.config import Config, PathsConfig
-from harmonist.models import Sidecar
+from harmonist.models import MismatchDismissal, Release, Sidecar
 from harmonist.web.main import _library_page_vars, create_app
 from test.test_contributions import (
     MBID,
@@ -271,22 +272,238 @@ def client(tmp_path, monkeypatch):
     return _app(tmp_path, monkeypatch, release(urls=(LABEL,)))
 
 
-def test_dont_warn_records_the_shown_release_once_and_can_be_taken_back(client):
+def _dismissal_panel(client):
+    return BeautifulSoup(client.get(f"/library/{MBID}/contributions/editions").text, "html.parser")
+
+
+def _dismiss(client, page):
+    box = page.select_one("input.release-accepted")
+    return client.post(
+        f"/library/{MBID}/release-accepted",
+        data={**json.loads(box["hx-vals"]), "accept": "true"},
+    )
+
+
+def test_provisional_cd_match_reopens_for_new_sibling_and_can_be_dismissed_again(
+    tmp_path, monkeypatch
+):
+    current = release(("CD",))
+    client, folder = _app(tmp_path, monkeypatch, current)
+    siblings: list[Release] = []
+    browse = Mock(
+        side_effect=lambda **kw: {
+            "release-list": [current, *siblings],
+            "release-count": 1 + len(siblings),
+        }
+    )
+    monkeypatch.setattr(musicbrainzngs, "browse_releases", browse)
+    old_page = _dismissal_panel(client)
+    assert _dismiss(client, old_page).status_code == 200
+    assert _dismissal_panel(client).select_one("input.release-accepted").has_attr("checked")
+    siblings.append(release(mbid="new-digital"))
+    page = _dismissal_panel(client)
+    assert not page.select_one("input.release-accepted").has_attr("checked")
+    # A stale page cannot silently dismiss the candidate just discovered.
+    assert _dismiss(client, old_page).status_code == 409
+    assert _dismiss(client, page).status_code == 200
+    siblings[0]["title"] = "An unrelated title correction"
+    page = _dismissal_panel(client)
+    assert page.select_one("input.release-accepted").has_attr("checked")
+    # Keeping the CD provisionally never invites adding a download URL to it.
+    assert page.select_one('a[href$="/edit"]') is None
+    assert sidecar.read(folder).mb_release_id == MBID
+    assert sidecar.read(folder).accepted_release_id is None
+
+
+def test_existing_sibling_gaining_source_evidence_renews_dismissal(client, monkeypatch):
+    client, _ = client
+    sibling = release(mbid="sibling")
+    browse = Mock(
+        side_effect=lambda **kw: {
+            "release-list": [
+                release(urls=(LABEL,)),
+                sibling,
+                release(urls=(RENAMED,), mbid="other"),
+            ],
+            "release-count": 3,
+        }
+    )
+    monkeypatch.setattr(musicbrainzngs, "browse_releases", browse)
+    old_page = _dismissal_panel(client)
+    assert _dismiss(client, old_page).status_code == 200
+    sibling["url-relation-list"] = release(urls=(URL,))["url-relation-list"]
+    page = _dismissal_panel(client)
+    assert not page.select_one("input.release-accepted").has_attr("checked")
+    assert _dismiss(client, old_page).status_code == 409
+    assert _dismiss(client, page).status_code == 200
+    assert _dismissal_panel(client).select_one("input.release-accepted").has_attr("checked")
+
+
+def test_background_check_keeps_looking_after_provisional_dismissal(tmp_path, monkeypatch):
+    current = release(("CD",))
+    client, folder = _app(tmp_path, monkeypatch, current)
+    browse = Mock(return_value={"release-list": [current], "release-count": 1})
+    monkeypatch.setattr(musicbrainzngs, "browse_releases", browse)
+    assert _dismiss(client, _dismissal_panel(client)).status_code == 200
+    albums = client.app.state.scan_runner.scan_now()
+    monkeypatch.setattr(mb_lookup, "fetch_release", Mock(return_value=current))
+    monkeypatch.setattr(gardener, "refresh_flag", Mock())
+    browse.return_value = {
+        "release-list": [current, release(mbid="new-digital")],
+        "release-count": 2,
+    }
+    browse.reset_mock()
+    gardener.sweep(albums, recheck_after=timedelta(0), limit=1)
+    assert browse.call_count == 1
+    assert contributions.possible_mismatch(contributions.assess(albums[0]))
+    assert sidecar.read(folder).mb_release_id == MBID
+
+
+def test_incomplete_or_failed_check_preserves_dismissal_without_offering_edits(client, monkeypatch):
     client, folder = client
+    sibling = release(urls=(URL,), mbid="sibling")
+    browse = Mock(return_value={"release-list": [release(), sibling], "release-count": 2})
+    monkeypatch.setattr(musicbrainzngs, "browse_releases", browse)
+    assert _dismiss(client, _dismissal_panel(client)).status_code == 200
+    before = sidecar.read(folder).mismatch_dismissal
+    for payload in (
+        {"release-list": [release(), sibling], "release-count": 101},
+        {"release-list": [release(("",), mbid="unknown")], "release-count": 1},
+    ):
+        browse.return_value = payload
+        page = _dismissal_panel(client)
+        assert page.select_one("input.release-accepted").has_attr("checked")
+        assert page.select_one('a[href$="/edit"]') is None
+        assert _dismiss(client, page).status_code == 409
+    browse.side_effect = musicbrainzngs.NetworkError("offline")
+    page = _dismissal_panel(client)
+    assert page.select_one('[role="alert"]') is not None
+    assert sidecar.read(folder).mismatch_dismissal == before
+    # Even a failed comparison retains the control to restore warnings.
+    assert client.post(f"/library/{MBID}/release-accepted", data={"mbid": MBID}).status_code == 200
+    assert sidecar.read(folder).mismatch_dismissal is None
+
+
+def test_new_barcode_evidence_but_not_reordering_or_removal_renews_dismissal():
+    a = album()
+    a.source_upc = "0801061000332"
+    first = release(mbid="first")
+    other = release(mbid="other")
+    assessment = observed(a, siblings=[first, other], formats=("CD",))
+    a.sidecar = replace(a.sidecar, mismatch_dismissal=assessment.dismissal)
+    assert observed(a, siblings=[other, first], formats=("CD",)).accepted
+    assert observed(a, siblings=[first], formats=("CD",)).accepted
+    first["barcode"] = "801061000332"
+    assert not observed(a, siblings=[first], formats=("CD",)).accepted
+    # An existing explicit acceptance remains an explicit acceptance.
+    a.sidecar = replace(a.sidecar, accepted_release_id=MBID, mismatch_dismissal=None)
+    assert observed(a, siblings=[first], formats=("CD",)).accepted
+
+
+def test_dismissal_roundtrip_rematch_and_conflicting_folders(tmp_path):
+    folder = tmp_path / "album"
+    folder.mkdir()
+    bookmark = MismatchDismissal(MBID, ("candidate:media",))
+    original = Sidecar(mb_release_id=MBID, mismatch_dismissal=bookmark)
+    sidecar.write(folder, original)
+    loaded = sidecar.read(folder)
+    assert loaded is not None
+    assert loaded.mismatch_dismissal == bookmark
+    assert scanner._merge_sidecars([loaded, loaded], MBID).mismatch_dismissal == bookmark
+    other = replace(loaded, mismatch_dismissal=MismatchDismissal(MBID))
+    assert scanner._merge_sidecars([loaded, other], MBID).mismatch_dismissal is None
+    assert scanner._merge_sidecars([loaded, None], MBID).mismatch_dismissal is None
+    sidecar.write(folder, replace(loaded, mb_release_id="different"))
+    assert sidecar.read(folder).mismatch_dismissal is None
+    rematched = sidecar.read(folder)
+    assert rematched is not None
+    sidecar.write(folder, replace(rematched, mb_release_id=MBID))
+    assert "mismatch_dismissal" not in json.loads(sidecar.sidecar_path(folder).read_text())
+    assert any("mismatch_dismissal=" in e.message for e in activity_store.recent(20))
+
+
+def test_origin_change_clears_dismissal_but_same_origin_does_not(client, monkeypatch):
+    client, folder = client
+    browse = Mock(return_value={"release-list": [release(urls=(LABEL,))], "release-count": 1})
+    monkeypatch.setattr(musicbrainzngs, "browse_releases", browse)
+    # Establish the mismatch through another release's store link.
+    browse.return_value["release-list"].append(release(urls=(RENAMED,), mbid="sibling"))
+    browse.return_value["release-count"] = 2
+    assert _dismiss(client, _dismissal_panel(client)).status_code == 200
+    assert client.post(f"/library/{MBID}/origin", data={"origin": "automatic"}).status_code == 200
+    assert sidecar.read(folder).mismatch_dismissal is not None
+    assert client.post(f"/library/{MBID}/origin", data={"origin": "CD"}).status_code == 200
+    assert sidecar.read(folder).mismatch_dismissal is None
+
+
+def test_dismissal_writes_and_clears_every_folder_without_copying_other_decisions(
+    client, monkeypatch
+):
+    client, folder = client
+    second = make_files(folder.parent, "Second")
+    tags = MP4(second / "track.m4a")
+    tags["----:com.apple.iTunes:MusicBrainz Release Track Id"] = [b"second-track"]
+    tags.save()
+    second_sc = sidecar.read(second)
+    assert second_sc is not None
+    sidecar.write(second, replace(second_sc, notes="Second folder's note"))
+    monkeypatch.setattr(
+        musicbrainzngs,
+        "browse_releases",
+        Mock(
+            return_value={
+                "release-list": [release(urls=(LABEL,)), release(urls=(RENAMED,), mbid="sibling")],
+                "release-count": 2,
+            }
+        ),
+    )
+    assert _dismiss(client, _dismissal_panel(client)).status_code == 200
+    assert sidecar.read(folder).mismatch_dismissal is not None
+    assert sidecar.read(second).mismatch_dismissal == sidecar.read(folder).mismatch_dismissal
+    assert sidecar.read(second).notes == "Second folder's note"
+    assert sidecar.read(folder).notes is None
+    assert client.post(f"/library/{MBID}/release-accepted", data={"mbid": MBID}).status_code == 200
+    assert all(sidecar.read(p).mismatch_dismissal is None for p in (folder, second))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [[], {}, {"release": MBID, "evidence": "not a list"}, {"release": MBID, "evidence": [123]}],
+)
+def test_malformed_dismissal_is_reported(tmp_path, bad):
+    with pytest.raises(sidecar.InvalidSidecarError, match="invalid mismatch_dismissal"):
+        sidecar._from_dict(
+            {"schema_version": 1, "mb_release_id": MBID, "mismatch_dismissal": bad}, tmp_path
+        )
+
+
+def test_dont_warn_records_the_shown_release_once_and_can_be_taken_back(client, monkeypatch):
+    client, folder = client
+    monkeypatch.setattr(
+        musicbrainzngs,
+        "browse_releases",
+        Mock(
+            return_value={
+                "release-list": [release(urls=(LABEL,)), release(urls=(RENAMED,), mbid="sibling")],
+                "release-count": 2,
+            }
+        ),
+    )
+    page = _dismissal_panel(client)
     before = {p: p.read_bytes() for p in folder.iterdir() if p.name != ".harmonist.json"}
     outcomes = []
     for _ in range(2):
-        r = client.post(f"/library/{MBID}/release-accepted", data={"mbid": MBID, "accept": "true"})
+        r = _dismiss(client, page)
         assert r.status_code == 200
-        assert sidecar.read(folder).accepted_release_id == MBID
+        assert sidecar.read(folder).mismatch_dismissal.release == MBID
         outcomes.append(json.loads(r.headers["HX-Trigger"])["harmonist-status"]["verb"])
     # A double click is reported as what it is, rather than as a second change.
-    assert outcomes == ["Mismatch warning off", "No change"]
-    rows = [e for e in activity_store.recent(50) if "accepted_release_id" in e.message]
+    assert outcomes == ["Mismatch warning paused", "No change"]
+    rows = [e for e in activity_store.recent(50) if "mismatch_dismissal" in e.message]
     assert len(rows) == 1
     # An unticked box posts no value: that absence takes the acceptance back.
     r = client.post(f"/library/{MBID}/release-accepted", data={"mbid": MBID})
-    assert r.status_code == 200 and sidecar.read(folder).accepted_release_id is None
+    assert r.status_code == 200 and sidecar.read(folder).mismatch_dismissal is None
     # Never an acceptance of a release the page did not show.
     r = client.post(f"/library/{MBID}/release-accepted", data={"mbid": "other", "accept": "true"})
     assert r.status_code == 409 and sidecar.read(folder).accepted_release_id is None

@@ -348,9 +348,16 @@ The album's page lists the reasons, then the matched release beside the other
 releases in the group it could be, with the evidence that supports each. From
 there, the album can be switched to another release (after reviewing its tracks
 and artwork), the correct release can be added to MusicBrainz through Harmony,
-or **Don't warn me about this** records that the current match is the release
-you bought. Changing the Origin choice clears that dismissal so the new source
-evidence is checked again.
+or its warning can be silenced until a better match is found. New compatible
+siblings of a mismatched media type, or new exact store URL or barcode evidence
+on a sibling, bring the warning back. Unrelated metadata edits do not. These
+are candidates for review; the match never changes automatically. Background
+discovery follows the configured MusicBrainz update checks; opening the album
+also checks the group. Changing the Origin choice clears the dismissal.
+
+Earlier **Don't warn me about this** decisions and explicitly confirmed release
+choices retain their original meaning. Removing that acceptance restores
+warnings; a subsequent dismissal uses the conditional behaviour.
 
 Nothing is flagged until the whole release group has been compared, and a group
 that can't be compared in full (more than 100 releases, or releases with no
@@ -366,6 +373,10 @@ are in the **MB contributions** filter.
 A store URL already linked from another release in the group is not offered,
 even when the current match is accepted. A store's tracklist can change over
 time while an older download still belongs to the original release.
+
+A download provisionally matched to a physical release does not establish that
+its URL or barcode belongs on that release. Where a source URL or UPC is known,
+adding the missing release through Harmony remains available after dismissal.
 
 The album's page shows one finding at a time, with a link to the release's
 editor on MusicBrainz and the value ready to copy. After the edit is accepted,

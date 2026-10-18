@@ -7,13 +7,15 @@ from. No function here writes music, sidecars, or persisted status flags.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from . import barcodes, mb_cache, mb_lookup, provenance
-from .models import Album, Release
+from .models import Album, MismatchDismissal, Release
 
 BarcodeStatus = Literal["missing", "barcode_free", "different", "same"]
 
@@ -52,11 +54,36 @@ class Assessment:
     observation: Observation | None = None
     source_upc: str | None = None
     barcode_status: BarcodeStatus | None = None
-    # The user said this is the release they bought (#618). Silences mismatch
-    # evidence; never removes it, so the warning can be brought back.
+    # The warning is silenced by confirmation or a still-current dismissal.
+    # Evidence remains available so the warning can always be brought back.
     accepted: bool = False
+    # Explicit release confirmation and pre-#779 dismissals retain their meaning.
+    confirmed: bool = False
+    # Current evidence, available only after a complete sibling comparison.
+    dismissal: MismatchDismissal | None = None
     # From the observation's stored group browse; None when never browsed.
     siblings: SiblingCheck | None = None
+
+    @property
+    def dismissal_token(self) -> str:
+        """Bind the checkbox to the candidate evidence actually rendered."""
+        if self.dismissal is None:
+            return ""
+        evidence = json.dumps(
+            [
+                self.dismissal.release,
+                self.dismissal.evidence,
+                self.rip,
+                self.private,
+                self.store_url,
+                self.source_upc,
+                self.media_mismatch,
+                self.barcode_status,
+            ]
+        )
+        # Private provenance must not appear in the contribution markup, even
+        # in a hidden form value. Only the equality fingerprint leaves Python.
+        return hashlib.sha256(evidence.encode()).hexdigest()
 
     @property
     def offline_mismatch(self) -> bool:
@@ -196,12 +223,11 @@ def panel(assessment: Assessment, check: SiblingCheck) -> Panel | None:
     """The mismatch evidence and the single contribution, from a complete check.
 
     Release match comes first: data edits are offered only for a release the
-    user accepted, or one with no mismatch evidence. Dismissing the warning is
-    the user's word that this is the release they bought, so the contribution
-    then offers what the matched release is missing, except a store URL already
-    linked from another release: accepting the files' identity does not prove
-    that today's store page belongs to it. None while the check is incomplete,
-    which can authorize nothing.
+    user accepted, or one with no mismatch evidence. A provisional media
+    mismatch cannot authorize edits to that release; an explicit confirmation
+    can. A URL linked from another release is never offered: accepting the
+    files' identity does not prove that today's store page belongs to it.
+    None while the check is incomplete, which can authorize nothing.
     """
     if not check.complete:
         return None
@@ -244,6 +270,10 @@ def panel(assessment: Assessment, check: SiblingCheck) -> Panel | None:
             finding = "missing_url"
     elif barcode == "missing":
         finding = "barcode_missing"
+    if assessment.media_mismatch and not assessment.confirmed:
+        # A provisional physical match is not evidence that a download's URL
+        # belongs on that release. Adding the missing release remains possible.
+        finding = None
     return Panel(
         reasons=tuple(reasons),
         finding=finding,
@@ -286,7 +316,12 @@ def contribution_due(assessment: Assessment) -> bool:
     shown = _library_panel(assessment)
     return (
         shown is not None
-        and shown.finding is not None
+        and (
+            shown.finding is not None
+            or (
+                shown.add_release and assessment.media_mismatch is True and not assessment.confirmed
+            )
+        )
         and (assessment.accepted or not shown.reasons)
     )
 
@@ -401,9 +436,13 @@ def assess(album: Album) -> Assessment:
         source_upc=album.source_upc,
         barcode_status=barcode_status,
         accepted=sc.accepted_release_id == sc.mb_release_id,
+        confirmed=sc.accepted_release_id == sc.mb_release_id,
     )
+    previous = sc.mismatch_dismissal
+    if previous is not None and previous.release != sc.mb_release_id:
+        previous = None
     if observed is None or observed.group is None:
-        return assessment
+        return replace(assessment, accepted=assessment.accepted or previous is not None)
     # Everything `sibling_check` reads from this copy, so one classification
     # serves every render until the evidence or the stored browse changes.
     key = (url, private, rip, album.source_upc, barcode_status, sc.mb_release_id)
@@ -413,7 +452,26 @@ def assess(album: Album) -> Assessment:
             list(observed.group), assessment, sc.mb_release_id, observed.group_total
         )
         observed.checks[key] = check
-    return replace(assessment, siblings=check)
+    evidence: set[str] = set()
+    for edition in check.editions:
+        mbid = edition["id"]
+        if media:
+            evidence.add(f"{mbid}:media")
+        if edition["url_evidence"]:
+            evidence.add(f"{mbid}:url:{url}")
+        if edition["upc_evidence"]:
+            evidence.add(f"{mbid}:upc:{barcodes.normalise(album.source_upc or '')}")
+    dismissal = (
+        MismatchDismissal(sc.mb_release_id, tuple(sorted(evidence))) if check.complete else None
+    )
+    # Losing evidence is not a new candidate. Neither an incomplete browse nor
+    # unrelated release edits undo the user's decision. Nothing is persisted here.
+    held = previous is not None and (
+        dismissal is None or set(dismissal.evidence) <= set(previous.evidence)
+    )
+    return replace(
+        assessment, siblings=check, dismissal=dismissal, accepted=assessment.accepted or held
+    )
 
 
 def observe(album: Album, release: Release, checked_at: datetime | None) -> None:

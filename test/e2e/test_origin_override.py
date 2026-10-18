@@ -92,7 +92,7 @@ def test_cd_choice_rechecks_media_and_reopens_dismissed_warning(reset_demo_serve
         playwright_sync.expect(
             page.get_by_text("your files are a CD rip.", exact=False)
         ).to_be_visible()
-        dismiss = page.get_by_role("checkbox", name="Don't warn me about this")
+        dismiss = page.get_by_role("checkbox", name="Don't warn unless a better match is found")
         with page.expect_response(lambda r: r.url.endswith("/release-accepted")):
             htmx_ready(dismiss).check()
         playwright_sync.expect(warning).to_be_hidden()

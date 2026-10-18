@@ -555,6 +555,16 @@ def _merge_sidecars(sidecars: list[Sidecar | None], mbid: str | None) -> Sidecar
         accepted_release_id=next(
             (s.accepted_release_id for s in present if s.accepted_release_id == mbid), None
         ),
+        # Controls write all parts. Conflicting or partial decisions cannot
+        # silence the whole album: no union of independently dismissed evidence.
+        mismatch_dismissal=present[0].mismatch_dismissal
+        if present[0].mismatch_dismissal
+        and present[0].mismatch_dismissal.release == mbid
+        and all(
+            s is not None and s.mismatch_dismissal == present[0].mismatch_dismissal
+            for s in sidecars
+        )
+        else None,
         # Every part's stand-ins for THIS release, once each (#663): a cover
         # borrowed onto one disc's folder is the album's.
         borrowed_artwork=tuple(

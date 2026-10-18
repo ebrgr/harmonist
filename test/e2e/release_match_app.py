@@ -51,3 +51,9 @@ _sibling("demo-rel-wyld-digital", "demo-rel-wyld", date="2019-02-17")
 demo.MB_RELEASES["demo-rel-wyld"]["medium-list"][0]["format"] = "CD"
 
 app = create_app()
+
+
+@app.post("/test/new-digital-sibling")
+def new_digital_sibling() -> dict[str, bool]:
+    _sibling("demo-rel-wyld-new", "demo-rel-wyld-digital", disambiguation="New digital release")
+    return {"added": True}
