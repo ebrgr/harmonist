@@ -8277,8 +8277,13 @@ def _register_routes(app: FastAPI) -> None:
             # A suggestion to review, or nothing to act on: flashed, not recorded.
             response = _flash_response("Needs review", msg, album=album, record_activity=False)
         if on_album_page:
-            current_id = sidecar_mod.album_id_for(album.path) or album.id
-            response.headers["HX-Redirect"] = _album_location(request, current_id)
+            # Publish the new identity before the redirected GET can arrive
+            # (#798). Use the scanned id so duplicate copies remain distinct.
+            runner = request.app.state.scan_runner
+            if runner.is_engaged():
+                runner.refresh_album(album.folders)
+            refreshed_album = next(a for a in _albums(request) if album.path in a.folders)
+            response.headers["HX-Redirect"] = _album_location(request, refreshed_album.id)
         return response
 
     @app.post("/unconfirmed/{album_id}/manual", response_class=HTMLResponse)
