@@ -364,7 +364,12 @@ def test_current_artwork_keeps_actions_in_place_while_loading(
         base = reset_public_demo_server
         aid = _suggest(page, base)
         pending = []
-        page.route("**/assignments/*/artwork?*", lambda route: pending.append(route))
+
+        def hold(route):
+            pending.append(route)
+            page.evaluate("window.artworkRequestHeld = true")
+
+        page.route(f"**/assignments/{aid}/artwork?*", hold)
         page.goto(f"{base}/album/{aid}" if on_album else base)
         host = page.locator("main") if on_album else page.locator(f"#task-{aid}")
         review = host.locator(".assignment-editor")
@@ -384,6 +389,10 @@ def test_current_artwork_keeps_actions_in_place_while_loading(
         viewer = page.locator(f"#{thumb.get_attribute('popovertarget')}")
         pw.expect(viewer).to_be_visible()
         viewer.get_by_role("combobox", name="Viewing scale").select_option("native")
+        # Current artwork is usable before HTMX starts the archive request.
+        # Wait for the request we will release, not for unrelated UI work to
+        # happen to give its load trigger enough time on a busy runner.
+        page.wait_for_function("window.artworkRequestHeld === true")
         assert pending
         for route in pending:
             route.continue_()

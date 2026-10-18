@@ -81,7 +81,11 @@ def test_dismissed_suggestion_returns_to_selectable_store_results(
             dialog.dismiss()
 
         page.on("dialog", dismiss_dialog)
-        htmx_ready(host.get_by_role("button", name="Confirm suggestion", exact=True)).click()
+        # The click starts tag writing; the card can leave only after the
+        # confirmation finishes, which can exceed an assertion's timeout in CI.
+        with page.expect_response(lambda r: r.url.endswith(f"/confirm/{aid}/accept")) as applied:
+            htmx_ready(host.get_by_role("button", name="Confirm suggestion", exact=True)).click()
+        assert "confirmation-applied" in applied.value.headers.get("hx-trigger", "")
         assert dialogs == []
         if on_album:
             page.wait_for_url("**/album/demo-rel-thamesmen*")
