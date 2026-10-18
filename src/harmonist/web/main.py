@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from harmonist import (
     activity,
@@ -74,6 +75,7 @@ from harmonist import (
     provenance,
     reconcile,
     redownloads,
+    request_load,
     scanner,
     storage_paths,
     tag_history,
@@ -1038,6 +1040,9 @@ def create_app(
         return response
 
     _install_security_middleware(app, cfg)
+    # Outermost, so a request counts as in flight for everything the server does
+    # with it — the security stack included.
+    app.add_middleware(_CountInFlight)
 
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -1046,6 +1051,26 @@ def create_app(
     if cfg.demo_mode:
         _register_demo_routes(app)
     return app
+
+
+class _CountInFlight:
+    """Mark every HTTP request as in flight while it is served (#793), so the
+    library-wide background passes can stay out of its way (`request_load`).
+
+    Plain ASGI rather than `@app.middleware("http")`: it has to span the whole
+    response, body included, and it should cost nothing on a request beyond a
+    lock taken twice.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        with request_load.serving():
+            await self.app(scope, receive, send)
 
 
 def _install_security_middleware(app: FastAPI, cfg: config_mod.Config) -> None:

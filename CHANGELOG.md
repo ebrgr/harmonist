@@ -6,6 +6,11 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+
+- **The startup update check runs about five times faster**, pausing only while
+  a page is being served (#793).
+
 ### Fixed
 
 - **Keyboard focus in an Inbox card stays put when the Inbox refreshes** (#802).

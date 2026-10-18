@@ -46,14 +46,14 @@ def test_scan_add_remove_and_rematch_rechecks_unchanged_albums(client, cfg, monk
     first = _tagged(cfg.paths.music_dir, original, name="Original")
     runner = client.app.state.scan_runner
     runner.refresh_now()
-    gardener.warm_from_cache(runner.albums(), duty=0)
+    gardener.warm_from_cache(runner.albums())
     assert not runner.albums()[0].update_available
 
     done = Event()
     recheck = gardener.recheck_for_settings
 
     def checked(albums, before, after):
-        result = recheck(albums, before, after, duty=0)
+        result = recheck(albums, before, after)
         done.set()
         return result
 
@@ -67,7 +67,7 @@ def test_scan_add_remove_and_rematch_rechecks_unchanged_albums(client, cfg, monk
     for album, release in [(first, original), (second, reissue)]:
         tagger.tag_album(album.path, release, tagging=library_titles.choices(cfg.tagging.choices()))
     runner.refresh_now()
-    gardener.warm_from_cache(runner.albums(), duty=0)
+    gardener.warm_from_cache(runner.albums())
     assert not any(a.update_available for a in runner.albums())
 
     # Rematching the other release away affects the original's title too.

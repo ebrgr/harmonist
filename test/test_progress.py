@@ -102,7 +102,7 @@ def test_the_startup_update_check_reports_progress_and_what_it_found(tmp_path, m
         return real(*args, **kwargs)
 
     monkeypatch.setattr(gardener, "refresh_flag", _watching)
-    gardener.warm_from_cache([album], duty=0)
+    gardener.warm_from_cache([album])
 
     assert seen == [[("Checking for tag updates", 0, 1)]]
     finished = progress.status()["finished"]
@@ -115,7 +115,7 @@ def test_the_settings_recheck_reports_what_it_found(tmp_path):
     before = TaggingChoices()
     after = TaggingChoices(transforms=frozenset({TagTransform.ALBUM_DISAMBIGUATION}))
 
-    gardener.recheck_for_settings([album], before, after, duty=0)
+    gardener.recheck_for_settings([album], before, after)
 
     finished = progress.status()["finished"]
     assert finished is not None
@@ -135,7 +135,7 @@ def test_the_settings_recheck_counts_only_the_albums_the_setting_moves(tmp_path)
     # As the app has it by the time the re-check runs: the new setting is live.
     gardener.configure(lambda: after)
 
-    gardener.recheck_for_settings([album], before, after, duty=0)
+    gardener.recheck_for_settings([album], before, after)
 
     finished = progress.status()["finished"]
     assert finished is not None

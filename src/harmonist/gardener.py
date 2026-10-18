@@ -78,6 +78,7 @@ from . import (
     mb_cache,
     mb_lookup,
     progress,
+    request_load,
     tag_history,
     tagger,
 )
@@ -90,29 +91,15 @@ log = logging.getLogger(__name__)
 
 _LIBRARY_STATES = frozenset({AlbumState.COMPLETE, AlbumState.INCOMPLETE})
 
-# What fraction of the time the warm-up is allowed to be working. The rest of
-# each album's share is spent asleep, so the pass takes roughly 1/duty times as
-# long as the work itself and leaves the remainder to whatever else the machine
-# is doing — a request being served, Plex transcoding, the library scan.
-#
-# A ratio rather than a fixed pause (#299). The original rested 50 ms between
-# albums, which is most of the time on a laptop and a rounding error on a NAS —
-# backwards, since the slow machine is the one that most needs this out of the
-# way. Resting in proportion to what each album cost self-tunes to the machine
-# with nothing to measure and nothing to configure.
-#
-# A quarter is deliberately unambitious. The warm-up's only job is that the
-# Library's Update available filter is not empty after a restart, and being
-# late to that is invisible — the filter under-reports by design and browsing
-# fills it in. Being slow is free here; being in the way is not.
-WARM_DUTY = 0.25
-
 # How often a running pass says where it has got to. Long enough not to fill the
 # log on a healthy install, short enough that a stalled pass is obvious.
 _PROGRESS_EVERY = timedelta(seconds=30)
 
-# The longest single rest, so one pathological album cannot park the pass.
-_MAX_REST = timedelta(seconds=2)
+# The longest a pass waits for the web server to go idle before it looks at one
+# more album anyway (#793). A request that takes longer than this — a re-tag on
+# a slow disk — then shares the machine with one album in every ten seconds,
+# and one that never ends cannot park the pass.
+_LONGEST_WAIT = timedelta(seconds=10)
 
 
 SettingsReader = Callable[[], TaggingChoices]
@@ -431,7 +418,7 @@ def _change_rows(
     return rows, tuple(lead[:LEAD_ROWS])
 
 
-def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
+def warm_from_cache(albums: Sequence[Album]) -> int:
     """Rebuild the update-available flags from stored releases. Returns how many
     albums were flagged.
 
@@ -454,15 +441,14 @@ def warm_from_cache(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     Blocking I/O (one read per file, per `plan_album`), so call it from a worker
     thread, never the event loop.
 
-    **Paced by duty cycle, and audible while it runs** (#299). It shipped doing
-    neither, and the two failures compounded: on a NAS it took the CPU for
+    **Out of the way of requests, and audible while it runs** (#299). It shipped
+    doing neither, and the two failures compounded: on a NAS it took the CPU for
     however long a whole library takes to parse, while saying nothing at all
     until it finished — so an album page that crawled during that window looked
     identical to one that had hung, with no way to tell which from the log.
     """
     return _refresh_from_cache(
         albums,
-        duty=duty,
         wanted=lambda _: True,
         what="warm-up",
         label="Checking for tag updates",
@@ -474,7 +460,7 @@ def _albums(n: int, one: str, many: str) -> str:
     return f"{n} album {one}" if n == 1 else f"{n} albums {many}"
 
 
-def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
+def recheck_rebuilt(albums: Sequence[Album]) -> int:
     """Re-judge albums a rescan rebuilt (#758). Returns how many were flagged.
 
     A rebuilt album starts with no flag. That is right when the edit that
@@ -489,17 +475,11 @@ def recheck_rebuilt(albums: Sequence[Album], *, duty: float = WARM_DUTY) -> int:
     """
     # Out of the status bar: it follows every rescan, usually over a handful of
     # albums, and the bar has just said "Scanning" (#757).
-    return _refresh_from_cache(
-        albums, duty=duty, wanted=lambda _: True, what="rescan re-check", label=None
-    )
+    return _refresh_from_cache(albums, wanted=lambda _: True, what="rescan re-check", label=None)
 
 
 def recheck_for_settings(
-    albums: Sequence[Album],
-    before: TaggingChoices,
-    after: TaggingChoices,
-    *,
-    duty: float = WARM_DUTY,
+    albums: Sequence[Album], before: TaggingChoices, after: TaggingChoices
 ) -> int:
     """Re-judge the albums a change to the user's spelling settings can move
     (#685, #678). Returns how many albums were flagged.
@@ -518,7 +498,6 @@ def recheck_for_settings(
     changed_groups = {group for _, group in before.library_releases ^ after.library_releases}
     return _refresh_from_cache(
         albums,
-        duty=duty,
         wanted=lambda release: (
             (release.get("release-group") or {}).get("id") in changed_groups
             or tagger.tagsets_for(release, before) != tagger.tagsets_for(release, after)
@@ -549,7 +528,6 @@ def _stored_release_of(album: Album) -> Release | None:
 def _refresh_from_cache(
     albums: Sequence[Album],
     *,
-    duty: float,
     wanted: Callable[[Release], bool],
     what: str,
     label: str | None,
@@ -577,7 +555,7 @@ def _refresh_from_cache(
             release = _stored_release_of(album)
             if release is not None and wanted(release):
                 looked += 1
-                at = time.monotonic()
+                _yield_to_requests()
                 refresh_flag(album, release)
                 # The verdict is the flag, not the return value — a None comes
                 # back both for an unreadable album (not flagged) and for one
@@ -585,7 +563,6 @@ def _refresh_from_cache(
                 # return would undercount.
                 if album.update_available:
                     flagged += 1
-                _rest(time.monotonic() - at, duty)
             job.advance()
             if time.monotonic() - reported >= _PROGRESS_EVERY.total_seconds():
                 reported = time.monotonic()
@@ -606,22 +583,21 @@ def _refresh_from_cache(
     return flagged
 
 
-def _rest(worked: float, duty: float) -> None:
-    """Sleep long enough that the pass only ever uses `duty` of the machine.
+def _yield_to_requests() -> None:
+    """Before each album, wait until no web request is being served (#793).
 
-    A fixed pause was the original, and it is the wrong shape: 50 ms between
-    albums is most of the time on a laptop and a rounding error on a NAS, which
-    is exactly backwards — the slow machine is the one that needs the pass to
-    get out of the way. Resting in proportion to what each album actually cost
-    self-tunes with no measurement, no configuration and nothing shared with the
-    request path to coordinate through.
+    The work is pure Python — mutagen parsing, the plan's diff — so it holds the
+    GIL, and a request served alongside it gets a fraction of the machine. That
+    was #299, an album page that crawled after every restart. The answer then
+    was to rest three times as long as each album took, always: on a NAS, five
+    minutes of work became twenty, with or without anyone to be in the way of.
 
-    Capped, so one pathological album — a hundred tracks on a failing disk —
-    cannot stall the whole pass behind a single long sleep.
+    Only a request in flight needs the machine, so that is what this waits on.
+    A request arriving mid-album shares it for the rest of that one album and
+    then has it to itself, which beats the duty cycle: under that, a slow album
+    page competed with the pass for its whole length.
     """
-    if duty <= 0 or duty >= 1:
-        return  # 0 disables pacing (tests); 1 means "no rest", same thing here
-    time.sleep(min(worked * (1 / duty - 1), _MAX_REST.total_seconds()))
+    request_load.wait_for_idle(_LONGEST_WAIT)
 
 
 # --- The background pass (#270) ---------------------------------------------

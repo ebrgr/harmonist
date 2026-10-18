@@ -452,7 +452,7 @@ def plan_album(
         )
         if file_changes := _changes_for(
             tagset,
-            formats.read_owned(file_path),
+            _owned_now(file_path, prep.read),
             file_path,
             prep.art.before,
             # Only where the tagging would really write it — the same targets
@@ -723,6 +723,27 @@ class _Prepared:
     #: The page's preview no longer matches the plan, so this tagging writes no
     #: artwork at all (#469).
     art_withheld: bool = False
+    #: What the track review read from each file, when it read them — nothing
+    #: under an explicit `assignment`. `plan_album` diffs against the owned
+    #: fields already in here rather than parse every file a second time
+    #: (#793).
+    read: Mapping[Path, formats.TrackTags] = dataclasses.field(default_factory=dict)
+
+
+def _owned_now(path: Path, read: Mapping[Path, formats.TrackTags]) -> dict[str, Any]:
+    """Every owned field `path` carries, from the read already made when there
+    is one (#793). Same answer as `formats.read_owned`: each format builds both
+    from the same open with the same `_read_owned`.
+
+    Read again when there is nothing to reuse: no read under an explicit
+    assignment, a file that could not be opened (where `read_owned` raises,
+    which is how a plan says "I could not tell"), or an untagged Vorbis file,
+    whose `read_tags` returns before it reads the owned fields.
+    """
+    tags = read.get(path)
+    if tags is None or tags.unreadable or not tags.owned:
+        return formats.read_owned(path)
+    return dict(tags.owned)
 
 
 def decide_artwork(
@@ -965,6 +986,7 @@ def _prepare(
         art_withheld=withheld,
         media_total=len(release.get("medium-list", [])) or 1,
         accepted_countries=release_countries(release),
+        read=dict(zip(files, tags, strict=True)) if assignment is None else {},
     )
 
 
