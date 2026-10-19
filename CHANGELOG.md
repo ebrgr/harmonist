@@ -6,45 +6,72 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-10-18
+
 ### Added
 
-- **Docker images support 64-bit ARM**, including Raspberry Pi with a 64-bit OS (#766).
+- **Tag updates can wait in the Inbox**, each showing its two most significant
+  changes. **When a tag update is found** in Settings picks the levels;
+  Structure by default (#273, #784).
+- **Tag updates can apply themselves** at levels ticked in the same setting,
+  never Structure; each write is in History with Undo (#273).
+- **Docker images support 64-bit ARM**, including Raspberry Pi with a 64-bit OS
+  (#766).
+- **Albums with a pregap joined to track 1 can count it as present**, a
+  per-album choice in the track assignment editor (#242).
 - **The main track listing can switch between titles and filenames** (#762).
-- **Albums with a pregap joined to track 1 can count it as present**, using a per-album choice in the track assignment editor when the timings fit (#242).
-- **Tag updates can wait in the Inbox**, grouped by how far they reach, each showing its two most significant changes with the full list, as History will record it, a click away. **When a tag update is found** in Settings ticks the levels that do, beside each level's current album count; Structure by default (#273, #784).
-- **Tag updates can apply themselves**: the same setting ticks the levels Harmonist writes without asking, never Structure. Saving applies what is already waiting; each write is recorded in History with Undo, and anything that can't be written unattended waits in the Inbox with the reason (#273).
-- **The status bar shows the startup update check, the Settings re-check and the first artwork read while they run**, then what each found (#757).
+- **The status bar shows background update checks and artwork reads while they
+  run** (#757).
 
 ### Changed
 
-- **New mismatch dismissals last until a better sibling or new source evidence is found**, while existing acceptances keep their meaning (#779).
-- **Settings uses bordered sections with shaded headings**, matching the album page and making each group easier to scan (#777).
-- **Tag changes are listed in one order everywhere**, in History, on the album page and in the Inbox: titles and artists first, identifiers last (#784).
-- **The status bar is live on every page**, so Settings and album pages show background work and the outcome of their own actions (#757).
-- **Library updates is now Check MusicBrainz for updates**, with **In the background** in place of Find updates for review, since what happens to an update is now set separately (#273).
-- **The Activity feed only announces tag updates bound for the Inbox**; the rest stay in the **Tag updates** filter (#273).
-- **Structure now ranks above Identity**, in the severity badges and the Tag updates menu, matching how an album's update is judged (#273).
-- **The track assignment editor uses the main track listing's typography, alignment, and table styling** (#762).
-- **Track assignments are edited using the pencil beside the Tracks heading** (#756).
+- **Library updates is now Check MusicBrainz for updates**, with **In the
+  background** in place of Find updates for review (#273).
+- **The status bar is live on every page** (#757).
+- **Mismatch dismissals last until a better sibling or new source evidence turns
+  up**; existing acceptances are unchanged (#779).
+- **The Activity feed only announces tag updates bound for the Inbox**; the rest
+  stay under the **Tag updates** filter (#273).
+- **Structure now ranks above Identity** in severity badges and the Tag updates
+  menu (#273).
+- **Tag changes are listed in one order everywhere**: titles and artists first,
+  identifiers last (#784).
+- **Track assignments are edited from the pencil beside the Tracks heading**
+  (#756).
+- **The track assignment editor matches the main track listing's styling**
+  (#762).
+- **Settings uses bordered sections with shaded headings** (#777).
 
 ### Fixed
 
-- **Using a MusicBrainz search result opens the updated album**, instead of sometimes showing an album-not-found error after tagging (#798).
-- **Late assignment reads no longer remove artwork from a refreshed Inbox** when reconciliation replaces the original editor (#800).
-- **Tag and artwork writes block the album's controls and show per-file progress**, and applying artwork refreshes the album cover and History when it finishes (#786).
-- **Inbox refreshes wait for track-assignment actions**, so moves and resets cannot lose their responses mid-edit (#795).
-- **Open artwork previews survive Inbox refreshes**, preserving the selected image, scale, scroll position, and keyboard focus (#792).
-- **Tagging an album refreshes its own folders instead of rescanning the whole library**, including automatic updates and the filesystem events from those writes (#787).
-- **Cancelling the track assignment editor stays cancelled** when the album's comparison refreshes; the editor still opens itself once per visit when assignments need review (#776).
-- **Reading a release from MusicBrainz again works while an album page is still loading its comparison**; a click there used to be ignored (#775).
-- **Store URL searches show selectable releases even for a single match**, so dismissing a suggestion leaves a working path back to review (#773).
-- **Confirming a reviewed suggestion applies it without a second confirmation**, removing false layout warnings caused by missing disc numbers (#772).
-- **Extra videos no longer offer a tag update when there are no audio tags to change** (#770).
-- **Release selection falls back to name search when the files cannot identify a release group**, instead of offering a Retry that cannot help (#769).
-- **The track identifier hint only names actual differences from MusicBrainz**, rather than IDs that simply vary between tracks (#242).
-- **Hidden pregap tracks appear as track 0 and count toward the album total**, preventing false assignment reviews and re-tagging that hides a missing pregap file (#242).
-- **Required track-assignment reviews show the numbering or total-count difference that triggered them** (#750).
-- **Albums keep their Tag updates flag when their files change outside Harmonist**, and albums spanning several folders keep it through the hourly rescan; previously both dropped out of Tag updates until the album was opened or Harmonist restarted (#758).
+- **Hidden pregap tracks appear as track 0 and count toward the album total**,
+  and re-tagging no longer drops them from it (#242).
+- **Tagging an album rescans only its own folders**, not the whole library
+  (#787).
+- **Albums no longer drop out of Tag updates when their files change or a rescan
+  rebuilds them** (#758).
+- **Using a MusicBrainz search result opens the updated album**, not an
+  album-not-found error (#798).
+- **Tag and artwork writes show per-file progress, lock the album's controls,
+  and refresh the album when they finish** (#786).
+- **Release selection falls back to name search when the files cannot identify
+  a release group** (#769).
+- **Store URL searches show selectable releases even for a single match**
+  (#773).
+- **Confirming a reviewed suggestion applies it once, without false layout
+  warnings** (#772).
+- **Required track-assignment reviews say what triggered them** (#750).
+- **The track identifier hint only names actual differences from MusicBrainz**
+  (#242).
+- **Extra videos no longer offer a tag update with nothing to change** (#770).
+- **Read again works while an album page is still loading its comparison**
+  (#775).
+- **Cancelling the track assignment editor stays cancelled** when the album's
+  comparison refreshes (#776).
+- **Inbox refreshes no longer lose track-assignment moves and resets** (#795).
+- **Open artwork previews survive Inbox refreshes** (#792).
+- **Artwork selected in the Inbox is no longer lost when the Inbox refreshes**
+  (#800).
 
 ## [1.27.0] - 2026-10-15
 

@@ -172,8 +172,8 @@ When track numbers are missing, or the release's tracklist has changed, Harmonis
 may not know which file is which track. The album shows **Tracks unassigned**,
 or its update says **Track assignments need review**.
 
-Click **Edit track assignments** (beside **Tracks** on the album's page) and
-use the arrows to move files into place. **Accept changes**, then apply.
+Click the pencil beside **Tracks** on the album's page (**Edit track
+assignments**) and use the arrows to move files into place. **Accept changes**, then apply.
 Files left opposite a gap keep their own tags and get only the album's
 MusicBrainz ID.
 
