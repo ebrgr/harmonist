@@ -20,9 +20,10 @@ way in history would read as two different kinds of fact.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +91,68 @@ def field_rank(field: str) -> int:
     return _ORDER.get(field, len(_ORDER))
 
 
+#: The owned fields whose values are MusicBrainz identifiers, and the kind of
+#: entity each names, which is also its path on musicbrainz.org (#801).
+ID_ENTITIES: dict[str, str] = {
+    Owned.MB_ALBUM_ID.value: "release",
+    Owned.MB_RELEASE_GROUP_ID.value: "release-group",
+    Owned.MB_ALBUM_ARTIST_IDS.value: "artist",
+    Owned.MB_ARTIST_IDS.value: "artist",
+    Owned.MB_TRACK_ID.value: "recording",
+    Owned.MB_RELEASE_TRACK_ID.value: "track",
+}
+
+#: How a stored value joins several ids: `display`'s "; " for a list, and the
+#: "/" some taggers put inside a single value. Captured so a row can keep them,
+#: since one slash-joined value becoming two values is itself the change.
+_ID_SEPARATOR = re.compile(r"(\s*[;/]\s*)")
+
+
+@dataclass(frozen=True)
+class IdRef:
+    """One MusicBrainz id in a change row, with its name where one is known."""
+
+    id: str
+    name: str | None
+    entity: str
+
+    @property
+    def label(self) -> str:
+        """The name, or the id cut short: the full id is the link's tooltip,
+        and its first eight characters are enough to tell two apart."""
+        return self.name if self.name is not None else f"{self.id[:8]}…"
+
+    @property
+    def url(self) -> str:
+        return f"https://musicbrainz.org/{self.entity}/{self.id}"
+
+
+def named(rows: Sequence[FieldChange], names: Mapping[str, str]) -> tuple[FieldChange, ...]:
+    """`rows`, with each id row carrying the names `names` has for its ids
+    (`tagger.change_names` builds those from a release).
+
+    Only the names a row needs travel with it, so a row is complete on its own
+    wherever it is rendered: History, the album page, the Inbox.
+    """
+    result = []
+    for row in rows:
+        if not row.is_id:
+            result.append(row)
+            continue
+        values = [row.before, row.after] + [v for t in row.variants for v in (t.before, t.after)]
+        ids = {part for value in values for part in _id_tokens(value)}
+        known = tuple(sorted((i, names[i]) for i in ids if i in names))
+        result.append(replace(row, names=known))
+    return tuple(result)
+
+
+def _id_tokens(value: str | None) -> list[str]:
+    """The ids in one displayed value, separators dropped."""
+    if not value:
+        return []
+    return [p for i, p in enumerate(_ID_SEPARATOR.split(value)) if i % 2 == 0 and p]
+
+
 @dataclass(frozen=True)
 class TrackChange:
     """What one file's copy of a field did, for the per-track expansion."""
@@ -131,11 +194,34 @@ class FieldChange:
     #: not a track, so it is named beside the track count rather than counted
     #: in it (#469).
     cover: str | None = None
+    #: For an id row, the names known for its ids, as `named` attaches them.
+    names: tuple[tuple[str, str], ...] = ()
 
     @property
     def uniform(self) -> bool:
         """Whether every file that changed changed the same way."""
         return not self.variants
+
+    @property
+    def is_id(self) -> bool:
+        """Whether this row's values are MusicBrainz ids (#801)."""
+        return self.field in ID_ENTITIES
+
+    def parts(self, value: str | None) -> tuple[IdRef | str, ...]:
+        """An id row's value as ids and the separators between them, in order."""
+        if not value:
+            return ()
+        known = dict(self.names)
+        entity = ID_ENTITIES[self.field]
+        return tuple(
+            IdRef(part, known.get(part), entity) if i % 2 == 0 else part
+            for i, part in enumerate(_ID_SEPARATOR.split(value))
+            if part
+        )
+
+    def refs(self, value: str | None) -> tuple[IdRef, ...]:
+        """The ids in one of this row's values."""
+        return tuple(p for p in self.parts(value) if isinstance(p, IdRef))
 
     @property
     def varied_summary(self) -> str:
@@ -506,10 +592,17 @@ def _row(field: str, entries: list[tuple[str, str | None, Any, Any]], total: int
     opaque = field == ARTWORK
     before_runs: tuple[Run, ...] = ()
     after_runs: tuple[Run, ...] = ()
-    if before is not None and after is not None and not opaque and not variants:
+    if (
+        before is not None
+        and after is not None
+        and not opaque
+        and not variants
+        and field not in ID_ENTITIES
+    ):
         # Two sha256 digests differ in nearly every character, so emphasis on
-        # them would be noise on top of noise — and a row whose files disagree
-        # shows no pair to emphasise.
+        # them would be noise on top of noise; so do two MusicBrainz ids, which
+        # a row names rather than spells out (#801). And a row whose files
+        # disagree shows no pair to emphasise.
         before_runs, after_runs = diff_runs(before, after)
 
     return FieldChange(

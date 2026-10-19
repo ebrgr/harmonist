@@ -124,9 +124,11 @@ def test_suggested_release_link_follows_review_and_confirmation(reset_demo_serve
         if on_album:
             page.wait_for_url(f"{base}/album/demo-rel-folksmen")
         page.goto(f"{base}/album/demo-rel-folksmen")
-        pw.expect(
-            page.locator('main a[href="https://musicbrainz.org/release/demo-rel-folksmen"]')
-        ).to_be_visible()
+        # The page's own release link, by its id: History now links the release
+        # it was tagged to as well (#801), so a match on the URL alone finds two.
+        pw.expect(page.locator("#album-release-demo-rel-folksmen")).to_have_attribute(
+            "href", "https://musicbrainz.org/release/demo-rel-folksmen"
+        )
         browser.close()
 
 

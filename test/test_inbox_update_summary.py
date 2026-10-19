@@ -171,13 +171,17 @@ def test_an_update_card_shows_its_first_two_changes_and_counts_the_rest(web, mon
         ),
     )
 
-    lead, _, rest = _updates_section(client).partition("<details")
+    lead, _, rest = _updates_section(client).partition('class="update-card__all')
 
     assert "<dt>Album</dt>" in lead and "<dt>Date</dt>" in lead
     assert "<dt>Label</dt>" not in lead
-    # The full list, as History will show it, behind the disclosure.
-    assert "All 4 changes" in rest
+    # The full list, as History will show it, opened by the button beneath it.
     assert all(f"<dt>{label}</dt>" in rest for label in ("Album", "Date", "Label", "Barcode"))
+    assert re.search(
+        r'<button[^>]*class="update-card__more"[^>]*aria-expanded="false"[^>]*>'
+        r"\s*<span[^>]*>Show all 4 changes</span>",
+        rest,
+    )
 
 
 def test_an_update_card_carries_no_path_badges_or_format(web, monkeypatch):

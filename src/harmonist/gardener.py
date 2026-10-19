@@ -365,7 +365,7 @@ def _assess(album: Album, release: Release) -> Assessment:
     album.update_available = verdict is not None
     album.update_significance = verdict
     album.update_changes, album.update_lead = (
-        _change_rows(album, plan) if verdict is not None else ((), ())
+        _change_rows(album, plan, release) if verdict is not None else ((), ())
     )
     album.update_note = None
     album.mb_version = release_version(release)
@@ -388,7 +388,7 @@ def _mismatch_note(e: tagger.TagMismatchError) -> str:
 
 
 def _change_rows(
-    album: Album, plan: tagger.AlbumPlan
+    album: Album, plan: tagger.AlbumPlan, release: Release
 ) -> tuple[tuple[tag_history.FieldChange, ...], tuple[tag_history.FieldChange, ...]]:
     """History's rows for the changes in `plan` that count as an update, in
     History's order, and the `LEAD_ROWS` of them to lead with: the
@@ -399,7 +399,8 @@ def _change_rows(
     the Inbox describes a waiting update in the words and order its History
     entry will use. Only the counted fields: an entry `_countable` sets aside is
     written by a re-tag but is not why the album is waiting, and leading with it
-    would explain the wrong thing.
+    would explain the wrong thing. Id rows carry the names `release` has for
+    their ids (#801), from the payload the check already holds.
     """
     levels: dict[str, owned.Significance] = {}
     for entry in _countable(plan):
@@ -407,10 +408,13 @@ def _change_rows(
         field = entry[1]
         if field not in levels or owned.ranked(level) > owned.ranked(levels[field]):
             levels[field] = level
-    rows = tuple(
-        row
-        for row in tag_history.from_plan(plan, album.path, album_files.for_paths(album.folders))
-        if row.field in levels
+    rows = tag_history.named(
+        [
+            row
+            for row in tag_history.from_plan(plan, album.path, album_files.for_paths(album.folders))
+            if row.field in levels
+        ],
+        tagger.change_names(release),
     )
     lead = sorted(
         rows, key=lambda row: (-owned.ranked(levels[row.field]), tag_history.field_rank(row.field))

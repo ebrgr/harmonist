@@ -28,7 +28,7 @@
         <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
         {% endif %}
         {% if album.update_lead %}
-        {# Hidden while the full list below is open, which includes these. #}
+        {# Hidden while the full list is shown, which includes these. #}
         <div class="update-card__lead mt-1.5">
             {% with changes = album.update_lead, compact = true %}{% include 'partials/_tag_changes.html' %}{% endwith %}
         </div>
@@ -36,10 +36,16 @@
         <p class="mt-1 text-xs text-muted">{{ album.update_note }}</p>
         {% endif %}
         {% if changes | length > album.update_lead | length %}
-        <details id="update-changes-{{ album.id }}" class="hmt-group update-card__all">
-            <summary>All {{ changes | length }} changes</summary>
+        {# Shown in place of the lead rows while the button below is expanded
+           (CSS, off `aria-expanded`). The button stays below the rows either
+           way, so it doesn't move out from under the pointer (#801). #}
+        <div id="update-changes-{{ album.id }}" class="update-card__all mt-1.5">
             {% include 'partials/_tag_changes.html' %}
-        </details>
+        </div>
+        <button type="button" class="update-card__more" aria-expanded="false" aria-controls="update-changes-{{ album.id }}">
+            <span class="update-card__more-show">Show all {{ changes | length }} changes</span>
+            <span class="update-card__more-hide">Show fewer</span>
+        </button>
         {% endif %}
     </div>
 </div>

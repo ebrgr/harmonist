@@ -2449,6 +2449,33 @@ def mbid_names(release: Release) -> dict[str, str]:
     return names
 
 
+def change_names(release: Release) -> dict[str, str]:
+    """What to call each id in a list of tag changes (#801), by id.
+
+    `mbid_names`, plus the release itself and every recording and release
+    track. A change list has no Title column beside it, which is the reason
+    `mbid_names` leaves recordings out, so here a moved recording id would
+    otherwise be bare hex; the track's title is what tells a reader which one.
+    Built on `mbid_names` so an artist is named exactly as the album page names
+    it, from the same credits.
+
+    Only what this release carries, as `mbid_names` says of itself: an id it has
+    moved away from is not here, and the change list shows it shortened.
+    """
+    names = mbid_names(release)
+    if (release_id := release.get("id")) and (title := release.get("title")):
+        disambiguation = release.get("disambiguation")
+        names[release_id] = f"{title} ({disambiguation})" if disambiguation else title
+    for _, _, track in _flatten_tracks(release):
+        track_title = _track_title(track)
+        recording = track.get("recording") or {}
+        if track_id := track.get("id"):
+            names[track_id] = track_title
+        if recording_id := recording.get("id"):
+            names[recording_id] = recording.get("title") or track_title
+    return names
+
+
 class ReleaseEvent(NamedTuple):
     """One (where, when) pair MusicBrainz records for a release (#329).
 

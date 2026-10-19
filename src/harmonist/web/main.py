@@ -5156,7 +5156,20 @@ def _register_routes(app: FastAPI) -> None:
             # re-tagged a few times has a `tag.track` row per file per tagging,
             # and this table only grows.
             detail = activity_store.tag_changes_for([e.id for e in history])
-            tag_changes = tag_history.group_by_action(history, detail)
+            # Ids named from the release the album follows now (#801): a local
+            # read, and the names History's older ids were given at the time
+            # are the ones still on it. An id it no longer carries, a merged
+            # release's say, shows shortened.
+            stored = (
+                mb_cache.stored_release(album.sidecar.mb_release_id)
+                if album.sidecar and album.sidecar.mb_release_id
+                else None
+            )
+            names = tagger_mod.change_names(stored) if stored else {}
+            tag_changes = {
+                anchor: tag_history.named(rows, names)
+                for anchor, rows in tag_history.group_by_action(history, detail).items()
+            }
             # Only offer Undo where the images are actually still there (#131).
             restorable = _restorable_anchors(history, detail)
             # And where the tagging changed a tag this build can put back (#157).
@@ -5848,12 +5861,15 @@ def _register_routes(app: FastAPI) -> None:
             # comparison because its columns are earned. Union, not either — a
             # field the box may show is one neither surface did.
             update_changes=(
-                tuple(
-                    c
-                    for c in tag_history.from_plan(
-                        plan, album.path, album_files.for_paths(album.folders)
-                    )
-                    if c.field not in compare.PANEL_FIELDS | tracks.shown_fields
+                tag_history.named(
+                    [
+                        c
+                        for c in tag_history.from_plan(
+                            plan, album.path, album_files.for_paths(album.folders)
+                        )
+                        if c.field not in compare.PANEL_FIELDS | tracks.shown_fields
+                    ],
+                    tagger_mod.change_names(release),
                 )
                 if plan is not None and plan.changes
                 else ()

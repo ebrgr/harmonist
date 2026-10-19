@@ -225,4 +225,30 @@
     {% endif %}
     {% endfor %}
 </section>
+<script>
+(function () {
+    // Show all / Show fewer on each update card (#801). Once per page load: the
+    // Inbox re-swaps this fragment, and htmx runs the scripts it swaps in.
+    if (window.harmonistUpdateCards) return;
+    window.harmonistUpdateCards = true;
+    // Which cards are expanded, so a refresh of the list (which renders them
+    // all collapsed) doesn't fold one up under the reader.
+    const expanded = new Set();
+    document.addEventListener('click', function (e) {
+        const button = e.target.closest && e.target.closest('.update-card__more');
+        if (!button) return;
+        const open = button.getAttribute('aria-expanded') !== 'true';
+        button.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const id = button.getAttribute('aria-controls');
+        if (open) { expanded.add(id); } else { expanded.delete(id); }
+    });
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        if (evt.detail.target.id !== 'task-list') return;
+        expanded.forEach(function (id) {
+            const button = document.querySelector('.update-card__more[aria-controls="' + id + '"]');
+            if (button) button.setAttribute('aria-expanded', 'true');
+        });
+    });
+})();
+</script>
 {% endif %}

@@ -6,10 +6,18 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **MusicBrainz IDs in tag changes show as names**, linked to MusicBrainz, in
+  History, on the album page and in the Inbox; an ID the release no longer
+  carries shows shortened (#801).
+
 ### Changed
 
 - **The startup update check runs about five times faster**, pausing only while
   a page is being served (#793).
+- **An Inbox tag update's full change list opens with Show all / Show fewer**
+  beneath its rows, instead of a disclosure triangle (#801).
 
 ### Fixed
 

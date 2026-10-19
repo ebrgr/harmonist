@@ -48,11 +48,18 @@
 .update-card + .update-card { border-top: 1px solid var(--color-line); }
 .update-card__cover { width: 2.5rem; height: 2.5rem; border-radius: .25rem; object-fit: cover; background: var(--color-surface); border: 1px solid var(--color-line); }
 .update-card .tag-changes { margin: 0; }
-.update-card__all { margin-top: .25rem; font-size: var(--text-xs); }
-.update-card__all > summary { cursor: pointer; color: var(--color-muted); width: fit-content; }
-.update-card__all > summary:hover { color: var(--color-ink); }
-.update-card__all[open] > summary { margin-bottom: .25rem; }
-.update-card:has(.update-card__all[open]) .update-card__lead { display: none; }
+/* Show all / Show fewer (#801): the full list replaces the lead rows while
+   expanded, and the button stays beneath whichever is showing. */
+.update-card__all,
+.update-card__more-hide { display: none; }
+.update-card:has(.update-card__more[aria-expanded="true"]) .update-card__lead,
+.update-card__more[aria-expanded="true"] .update-card__more-show { display: none; }
+.update-card:has(.update-card__more[aria-expanded="true"]) .update-card__all { display: block; }
+.update-card__more[aria-expanded="true"] .update-card__more-hide { display: inline; }
+.update-card__more { margin-top: .25rem; font-size: var(--text-xs); color: var(--color-muted); }
+.update-card__more:hover { color: var(--color-ink); text-decoration: underline; }
+.tag-changes__id { text-decoration: underline dotted; text-underline-offset: 2px; }
+.tag-changes__id:hover { text-decoration-style: solid; }
 
 /* Where each level's updates go (#273): a grid of tick cells, each a visually
    hidden checkbox inside its label, so it keeps the keyboard, focus and screen
