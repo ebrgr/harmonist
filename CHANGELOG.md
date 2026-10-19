@@ -30,6 +30,7 @@ versions follow [semantic versioning](https://semver.org).
 ### Fixed
 
 - **Using a MusicBrainz search result opens the updated album**, instead of sometimes showing an album-not-found error after tagging (#798).
+- **Late assignment reads no longer remove artwork from a refreshed Inbox** when reconciliation replaces the original editor (#800).
 - **Tag and artwork writes block the album's controls and show per-file progress**, and applying artwork refreshes the album cover and History when it finishes (#786).
 - **Inbox refreshes wait for track-assignment actions**, so moves and resets cannot lose their responses mid-edit (#795).
 - **Open artwork previews survive Inbox refreshes**, preserving the selected image, scale, scroll position, and keyboard focus (#792).

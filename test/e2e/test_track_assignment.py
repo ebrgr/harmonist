@@ -69,14 +69,27 @@ def test_suggested_release_link_follows_review_and_confirmation(reset_demo_serve
         confirm = review.get_by_role("button", name="Confirm suggestion", exact=True)
         dismiss = review.get_by_role("button", name="Dismiss suggestion", exact=True)
         artwork = review.locator(".assignment-artwork")
-        table_box = review.locator("table").bounding_box()
-        assert table_box["y"] + table_box["height"] <= accept.bounding_box()["y"]
-        assert accept.bounding_box()["y"] < artwork.bounding_box()["y"]
         for action in (confirm, dismiss):
             pw.expect(action).to_be_visible()
             pw.expect(action).to_be_disabled()
-            art_box = artwork.bounding_box()
-            assert action.bounding_box()["y"] >= art_box["y"] + art_box["height"]
+        boxes = (
+            review.locator("table")
+            .or_(accept)
+            .or_(artwork)
+            .or_(confirm)
+            .or_(dismiss)
+            .evaluate_all("""elements => Object.fromEntries(elements.map(element => [
+                element.matches('table') ? 'table' :
+                    element.matches('.assignment-artwork') ? 'artwork' : element.textContent.trim(),
+                element.getBoundingClientRect().toJSON()
+            ]))""")
+        )
+        assert len(boxes) == 5
+        assert all(box["height"] > 0 for box in boxes.values())
+        assert boxes["table"]["bottom"] <= boxes["Accept changes"]["y"]
+        assert boxes["Accept changes"]["y"] < boxes["artwork"]["y"]
+        for label in ("Confirm suggestion", "Dismiss suggestion"):
+            assert boxes[label]["y"] >= boxes["artwork"]["bottom"]
         pw.expect(link).to_be_visible()
         # Colspan content can change subpixel table rounding between modes.
         assert columns.evaluate_all(

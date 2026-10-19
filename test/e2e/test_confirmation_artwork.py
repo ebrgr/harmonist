@@ -143,6 +143,58 @@ def _suggest(page, base):
 
 
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_stale_assignment_response_preserves_current_artwork(reset_demo_server, engine):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_page()
+        aid = _suggest(page, reset_demo_server)
+        page.goto("about:blank")
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script(
+            """(() => {
+            const open = XMLHttpRequest.prototype.open;
+            const send = XMLHttpRequest.prototype.send;
+            let held = false;
+            XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                this.assignmentRead = url.startsWith('/assignments/ALBUM_ID?');
+                return open.call(this, method, url, ...args);
+            };
+            XMLHttpRequest.prototype.send = function(...args) {
+                if (this.assignmentRead && !held) {
+                    held = true;
+                    const onload = this.onload;
+                    this.onload = (...events) => {
+                        window.deliverOldAssignment = () => onload.apply(this, events);
+                        window.assignmentResponseHeld = true;
+                    };
+                }
+                return send.apply(this, args);
+            };
+        })()""".replace("ALBUM_ID", aid)
+        )
+        page.goto(reset_demo_server)
+        page.wait_for_function("window.assignmentResponseHeld === true")
+        page.route(
+            "**/tasks",
+            lambda route: route.fulfill(
+                status=200, content_type="text/html", body="<p>Scanning library…</p>"
+            ),
+            times=1,
+        )
+        page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
+        pw.expect(page.locator("#task-list")).to_have_text("Scanning library…")
+        page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
+        artwork = page.locator(f"#task-{aid} .assignment-artwork")
+        pw.expect(artwork.get_by_alt_text("Artwork for selected release")).to_be_visible()
+        page.evaluate("window.deliverOldAssignment()")
+        page.wait_for_load_state("networkidle")
+        pw.expect(artwork.get_by_alt_text("Artwork for selected release")).to_be_visible()
+        assert not errors
+        browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 @pytest.mark.parametrize("dismiss", [False, True], ids=["open", "dismissed"])
 def test_inbox_refresh_preserves_artwork_inspection(artwork_refresh_server, engine, dismiss):
     base = artwork_refresh_server

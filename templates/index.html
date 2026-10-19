@@ -130,6 +130,14 @@
 </div>
 
 <script>
+document.body.addEventListener('htmx:beforeRequest', function (event) {
+    const source = event.detail.elt;
+    if (event.detail.requestConfig.verb !== 'get' || !source.closest('.assignment-editor')) return;
+    source.addEventListener('htmx:beforeOnLoad', function (response) {
+        if (!response.detail.target.isConnected) response.preventDefault();
+    }, {once: true});
+});
+
 // A queued assignment action would retain a form that the pending Inbox morph
 // replaces. Yield only the background read, then queue a fresh snapshot behind
 // the action. Never abort another editor's write on the shared body lock.
