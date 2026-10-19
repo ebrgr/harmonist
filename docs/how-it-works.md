@@ -179,8 +179,9 @@ Each update is labelled by how far it reaches:
   come from Harmonist's settings, not MusicBrainz, so they're never announced and
   can't be ignored; changing the setting back withdraws them.
 - **Cosmetic**: a title that differs only in capitalisation or spacing.
-- **Enrichment**: details added or corrected, such as a catalogue number or a
-  more precise date.
+- **Enrichment**: details added or corrected, such as a catalogue number, a
+  more precise date, or a collaboration's artists stored as one value
+  (`Artist A/Artist B`) written out as separate artists.
 - **Identity**: the album now points at a different release, for instance
   after a merge on MusicBrainz.
 - **Structure**: tracks added, removed or renumbered. If Harmonist can't be sure

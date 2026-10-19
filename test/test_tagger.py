@@ -1876,6 +1876,53 @@ def test_a_credit_list_being_emptied_is_not_an_enrichment():
     )
 
 
+def test_a_slash_joined_credit_split_into_the_same_list_is_enrichment():
+    """#804: a credit list stored as ONE `/`-joined value — Picard's form for
+    ID3v2.3, which cannot hold several values in a frame — written back as the
+    multi-value tag MusicBrainz gives. Same artists, same ids, in the same order;
+    what arrives is the record of where one ends and the next begins, which is
+    #389's list-arriving case reached from a file whose format could not say it.
+
+    All four credit fields, ids included: the id lists are the half of the pair
+    whose rank decides the album's verdict when the names agree.
+    """
+    names = ["Astral Projection", "DJ Jörg"]
+    ids = ["2ba31cc4-df9e-4c21-9dbc-bb8fa9af424f", "4e6ae86f-6635-4628-81be-1356e12636a3"]
+    for field, after in (
+        ("artists", names),
+        ("album_artists", names),
+        ("mb_artist_ids", ids),
+        ("mb_album_artist_ids", ids),
+    ):
+        assert (
+            tagger.significance_of(field, ["/".join(after)], after) is owned.Significance.ENRICHMENT
+        ), field
+
+
+def test_a_slash_joined_credit_whose_artists_moved_is_still_identity():
+    """The split has to land on exactly the list MusicBrainz gives — nothing
+    looser. A reordered credit, a different id, a joined value that only
+    contains the new names, or the list collapsing into a joined value (the
+    split lost) all say something about who made the track, so they keep the
+    field's own level."""
+    ids = ["2ba31cc4-df9e-4c21-9dbc-bb8fa9af424f", "4e6ae86f-6635-4628-81be-1356e12636a3"]
+    for field, before, after in (
+        ("artists", ["DJ Jörg/Astral Projection"], ["Astral Projection", "DJ Jörg"]),
+        ("artists", ["Astral Projection / DJ Jörg"], ["Astral Projection", "DJ Jörg"]),
+        ("artists", ["Astral Projection/DJ Jörg/Somebody"], ["Astral Projection", "DJ Jörg"]),
+        ("artists", ["Astral Projection/DJ Jörg", "Somebody"], ["Astral Projection", "DJ Jörg"]),
+        ("artists", ["Astral Projection", "DJ Jörg"], ["Astral Projection/DJ Jörg"]),
+        ("mb_artist_ids", [f"{ids[0]}/00000000-0000-0000-0000-000000000000"], ids),
+        ("mb_artist_ids", ids, ["/".join(ids)]),
+        ("mb_artist_ids", [ids[0]], ids),
+        # Unlike the names, an id list arriving is not a fill: it is the file
+        # being told which entities it points at for the first time.
+        ("mb_artist_ids", None, ids),
+    ):
+        got = tagger.significance_of(field, before, after)
+        assert got is owned.Significance.IDENTITY, (field, before, after)
+
+
 def test_every_by_value_field_has_a_rule_deciding_when_it_lowers():
     """The two halves of a by-value field live in different modules — `owned`
     declares how far it may drop, this one holds the comparison that decides,

@@ -663,6 +663,16 @@ def _only_cosmetically_different(before: Any, after: Any) -> bool:
     return norm_title(before) == norm_title(after)
 
 
+def _credits_arrive_without_moving(before: Any, after: Any) -> bool:
+    """Whether a credit list's change keeps every name where it was (#389, #804).
+
+    Either the list arrives where there was none, or a file that held it as one
+    joined value gets it back split. Both supply the list's shape and neither
+    credits anybody new; anything else a credit list does stays IDENTITY.
+    """
+    return owned.fills_in_an_absent_list(before, after) or owned.splits_a_joined_list(before, after)
+
+
 #: When each `owned.BY_VALUE` field drops to the level declared there — the
 #: comparison half of the pair, keyed alike (#389).
 #:
@@ -675,8 +685,12 @@ def _only_cosmetically_different(before: Any, after: Any) -> bool:
 #: itself at its declared level.
 LOWERED_WHEN: dict[str, Callable[[Any, Any], bool]] = {
     owned.Owned.TITLE: _only_cosmetically_different,
-    owned.Owned.ALBUM_ARTISTS: owned.fills_in_an_absent_list,
-    owned.Owned.ARTISTS: owned.fills_in_an_absent_list,
+    owned.Owned.ALBUM_ARTISTS: _credits_arrive_without_moving,
+    owned.Owned.ARTISTS: _credits_arrive_without_moving,
+    # The ids only split, never fill: an id list arriving where there was none
+    # says which entities the album points at, and that is what IDENTITY is for.
+    owned.Owned.MB_ALBUM_ARTIST_IDS: owned.splits_a_joined_list,
+    owned.Owned.MB_ARTIST_IDS: owned.splits_a_joined_list,
 }
 
 

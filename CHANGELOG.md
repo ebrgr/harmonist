@@ -18,6 +18,9 @@ versions follow [semantic versioning](https://semver.org).
   a page is being served (#793).
 - **An Inbox tag update's full change list opens with Show all / Show fewer**
   beneath its rows, instead of a disclosure triangle (#801).
+- **A collaboration's artists stored as one `/`-joined value rank as
+  Enrichment**, not Identity, when written out as the same artists and IDs
+  (#804).
 
 ### Fixed
 

@@ -249,7 +249,8 @@ SIGNIFICANCE: dict[str, Significance] = {
     # where a redirect names both ids. An id that simply arrives different inside
     # an unchanged release payload carries no such evidence. It is a merge, a
     # re-point, or a MusicBrainz edit that replaced the track, and nothing here
-    # can tell those apart.
+    # can tell those apart. (The artist-id lists can drop, but only when no id
+    # moves at all — see BY_VALUE.)
     # A restatement of who the release artist is: the flag is set exactly when
     # that artist is MusicBrainz's Various Artists, so it moves only when
     # `album_artist` does, and it is Identity for the same reason. Its
@@ -340,9 +341,10 @@ def needs_review(significance: Significance) -> bool:
 #: one. MusicBrainz tidying the spacing or casing of a track title is the same
 #: title spelt differently, so `title` drops to COSMETIC; a credit list arriving
 #: where there was none is MusicBrainz filling in a detail, so `album_artists`
-#: and `artists` drop to ENRICHMENT (#389). One entry in `SIGNIFICANCE` cannot say
-#: both halves of either pair: renaming the track, and a credit list whose names
-#: have moved, are still IDENTITY.
+#: and `artists` drop to ENRICHMENT (#389) — as do they and their id lists when a
+#: file held the same list joined into one value (#804). One entry in
+#: `SIGNIFICANCE` cannot say both halves of either pair: renaming the track, and
+#: a credit list whose names have moved, are still IDENTITY.
 #:
 #: These are declared at their HIGHER significance in `SIGNIFICANCE` and lowered
 #: to what is written here — never raised. That direction is deliberate: a rule
@@ -366,6 +368,8 @@ BY_VALUE: dict[str, Significance] = {
     Owned.TITLE: Significance.COSMETIC,
     Owned.ALBUM_ARTISTS: Significance.ENRICHMENT,
     Owned.ARTISTS: Significance.ENRICHMENT,
+    Owned.MB_ALBUM_ARTIST_IDS: Significance.ENRICHMENT,
+    Owned.MB_ARTIST_IDS: Significance.ENRICHMENT,
 }
 
 
@@ -439,6 +443,41 @@ def fills_in_an_absent_list(before: object, after: object) -> bool:
     two names reaches exactly as far as a fill of one.
     """
     return _absent(before) and isinstance(after, list) and not _absent(after)
+
+
+#: How Picard joins a multi-value tag into the single value ID3v2.3 can hold —
+#: its default for that format, and the only joined form `splits_a_joined_list`
+#: recognises. Another tagger's separator belongs beside it only once a real
+#: library shows one.
+JOINED_LIST_SEPARATOR = "/"
+
+
+def splits_a_joined_list(before: object, after: object) -> bool:
+    """Whether this change only splits one joined value into the list it joined.
+
+    The other `BY_VALUE` test for the credit lists and their ids (#804). A file
+    whose format holds one value per frame — ID3v2.3, as Picard writes it — keeps
+    a collaboration as `"Astral Projection/DJ Jörg"`, and its ids likewise; the
+    write replaces that with the multi-value tag MusicBrainz gives. When the
+    parts are exactly that list, in that order, nobody new is credited: what
+    arrives is where one artist ends and the next begins, which is #389's fill
+    reached from a file that could not say it.
+
+    Exact, never a pattern (review-gate item 2): one string on the left, a list
+    on the right, and the left split on the separator equal to the right — no
+    stripping, no case folding, no reordering. (A one-item right side can only
+    equal a split with nothing to split, which `values_differ` never reports.) A name may itself contain the
+    separator ("AC/DC"); a file crediting such an artist where MusicBrainz now
+    credits two artists spelt as its halves passes this for the names, and is
+    still IDENTITY through its ids, which a real change of artist moves.
+
+    The other direction is not a split: a list collapsing into one value loses
+    the record of where the names divide, as `fills_in_an_absent_list` says of a
+    list going away.
+    """
+    if not isinstance(before, list) or len(before) != 1 or not isinstance(before[0], str):
+        return False
+    return before[0].split(JOINED_LIST_SEPARATOR) == after
 
 
 def _absent(value: object) -> bool:

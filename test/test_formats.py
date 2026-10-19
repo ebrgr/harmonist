@@ -913,6 +913,19 @@ def test_a_fill_is_an_absence_on_the_left_and_a_value_on_the_right():
     assert fills(None, []) is False
 
 
+def test_a_split_is_one_joined_value_on_the_left_and_its_parts_on_the_right():
+    """The contract `tagger.LOWERED_WHEN` reads this helper through (#804).
+
+    The shape `significance_of`'s tests leave out: an absent left is a fill,
+    which is `fills_in_an_absent_list`'s to answer, not a split of nothing.
+    """
+    from harmonist.formats.owned import splits_a_joined_list as splits
+
+    assert splits(["Hauschka/Hildur Guðnadóttir"], ["Hauschka", "Hildur Guðnadóttir"]) is True
+    assert splits(None, ["Hauschka", "Hildur Guðnadóttir"]) is False
+    assert splits([], ["Hauschka", "Hildur Guðnadóttir"]) is False
+
+
 def test_cosmetic_is_never_declared_only_derived():
     """COSMETIC describes a pair of values, not a field.
 

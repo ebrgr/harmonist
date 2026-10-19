@@ -243,8 +243,19 @@ them. Filling one in where the single credit already said the same thing is
 MusicBrainz adding detail; names that *change* mean the album is credited to
 someone else.
 
-**Identifiers never drop below Identity**, even when the change is probably a
-merge on MusicBrainz. A release merge is provable, once, when the fetch redirects
+**A credit list split out of one joined value is Enrichment too (#804).** ID3v2.3
+can't hold several values in a frame, so Picard writes a collaboration there as
+`Astral Projection/DJ Jörg`, and its artist IDs likewise. Writing the same names
+or IDs back as a list, in the same order, credits nobody new: what arrives is
+where one artist ends and the next begins. The split must give exactly
+MusicBrainz's list, with no trimming, case folding or reordering, because
+anything looser would be guessing at who made the track. A name can itself
+contain a slash (*AC/DC*), so the names alone can't rule out a single artist
+becoming two; the IDs can, since a genuine change of artist changes them, and
+an album takes the level of its furthest-reaching change.
+
+**Identifiers never drop below Identity when they move**, even when the change is
+probably a merge on MusicBrainz. A release merge is provable, once, when the fetch redirects
 ([external services](external-services.md#merges-and-deletions)). An ID that
 simply arrives different inside a release gives no such evidence: it could be a
 merge, a re-pointing, or a track replaced outright.
