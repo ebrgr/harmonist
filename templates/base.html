@@ -49,6 +49,46 @@
             const m = e.target.parentElement;
             if (m && m.id === 'modal') m.innerHTML = '';
         }, true);
+
+        // hx-preserve across a morph swap (#802). HTMX 2.0.0 moves each preserved
+        // element into the incoming fragment before idiomorph runs; idiomorph, no
+        // longer finding that id on the page, inserts a copy, and the original,
+        // with its focus, listeners and pending settle, is discarded. So hold the
+        // originals out of the page for the swap, let the morph place the server's
+        // placeholders, and put the originals back before HTMX settles the
+        // placeholders into requests. (HTMX 2.0.11 does this only where
+        // Element.moveBefore exists, which WebKit lacks.) On window, so it runs
+        // after every document and body listener has seen the page as it was.
+        window.addEventListener('htmx:beforeSwap', function (event) {
+            const target = event.detail.target;
+            if (event.defaultPrevented || !event.detail.shouldSwap
+                    || !(target.getAttribute('hx-swap') || '').startsWith('morph')) return;
+            const incoming = document.createElement('template');
+            incoming.innerHTML = event.detail.serverResponse;
+            const held = [];
+            incoming.content.querySelectorAll('[hx-preserve][id], [data-hx-preserve][id]').forEach(placeholder => {
+                const original = document.getElementById(placeholder.id);
+                if (original && target.contains(original)) held.push(original);
+            });
+            const outermost = held.filter(el => !held.some(other => other !== el && other.contains(el)));
+            if (!outermost.length) return;
+            const focused = outermost.some(el => el.contains(document.activeElement)) ? document.activeElement : null;
+            let selection = null;
+            try {
+                if (focused && focused.selectionStart != null) selection = [focused.selectionStart, focused.selectionEnd];
+            } catch (e) {
+                // Inputs without a text selection (checkbox, radio) throw in some engines.
+            }
+            outermost.forEach(el => el.remove());
+            target.addEventListener('htmx:afterSwap', function restore(e) {
+                if (e.target !== target) return;
+                target.removeEventListener('htmx:afterSwap', restore);
+                outermost.forEach(el => document.getElementById(el.id)?.replaceWith(el));
+                if (!focused || !focused.isConnected) return;
+                focused.focus({preventScroll: true});
+                if (selection) focused.setSelectionRange(...selection);
+            });
+        });
     </script>
 
 </body>

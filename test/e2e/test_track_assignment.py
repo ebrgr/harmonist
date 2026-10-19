@@ -210,6 +210,58 @@ def test_assignment_reset_preempts_inflight_inbox_refresh(reset_demo_server, eng
         browser.close()
 
 
+def _refresh_inbox(page):
+    page.evaluate("""() => {
+        window.inboxSettled = false;
+        document.body.addEventListener('htmx:afterSettle', function settled(e) {
+            if (e.target.id !== 'task-list') return;
+            window.inboxSettled = true;
+            document.body.removeEventListener('htmx:afterSettle', settled);
+        });
+        htmx.trigger(document.body, 'tasks-changed');
+    }""")
+    page.wait_for_function("window.inboxSettled")
+
+
+@pytest.mark.parametrize("engine_name", ["chromium", "webkit"])
+def test_inbox_refresh_keeps_the_preserved_editor_and_its_focus(reset_demo_server, engine_name):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine_name).launch()
+        page = browser.new_page()
+        card = _card(page, reset_demo_server)
+        editor = card.locator(".assignment-editor")
+        edit = editor.get_by_role("button", name="Edit track assignments", exact=True)
+        edit.focus()
+        editor.evaluate("el => { el.dataset.probe = ''; window.editorBefore = el; }")
+        _refresh_inbox(page)
+        assert editor.evaluate("el => el === window.editorBefore")
+        pw.expect(edit).to_be_focused()
+        browser.close()
+
+
+@pytest.mark.parametrize("engine_name", ["chromium", "webkit"])
+def test_inbox_refresh_during_an_editor_settle_leaves_it_ready(
+    reset_demo_server, htmx_ready, engine_name
+):
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine_name).launch()
+        page = browser.new_page()
+        card = _card(page, reset_demo_server)
+        editor = card.locator(".assignment-editor")
+        # Widen htmx's 20 ms settle so the refresh reliably lands inside it.
+        page.evaluate("htmx.config.defaultSettleDelay = 1500")
+        reread = "Read this release from MusicBrainz again and reset assignment changes"
+        with page.expect_response(lambda r: "reread=true" in r.url):
+            editor.get_by_role("button", name=reread, exact=True).click()
+        pw.expect(editor.locator(".htmx-added")).not_to_have_count(0)
+        _refresh_inbox(page)
+        page.evaluate("htmx.config.defaultSettleDelay = 20")
+        edit = editor.get_by_role("button", name="Edit track assignments", exact=True)
+        pw.expect(edit).to_be_visible()
+        pw.expect(htmx_ready(edit)).to_be_visible(timeout=5_000)
+        browser.close()
+
+
 def test_column_display_toggle_survives_moves_and_reset(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()

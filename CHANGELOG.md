@@ -6,6 +6,10 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Keyboard focus in an Inbox card stays put when the Inbox refreshes** (#802).
+
 ## [1.28.0] - 2026-10-18
 
 ### Added
