@@ -239,8 +239,8 @@ changelog exists to not be. `gh` marks the newest release latest on its own.
 
 The tag fires `Publish image` (`.github/workflows/publish.yml`) alongside the
 usual CI, pushing `ghcr.io/randomphrase/harmonist` at `:X.Y.Z`, `:X.Y`, `:X`
-and `:latest`. **`linux/amd64` only** — the Synology NAS is the target and it
-only pulls; an arm64 dev box builds from source instead.
+and `:latest`, for `linux/amd64` and `linux/arm64`. The arm64 half builds
+under QEMU, so it is the slow leg and the likelier one to fail.
 
 ```
 gh run list --limit 6
