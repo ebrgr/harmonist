@@ -4,10 +4,7 @@ version = "1.28.0"
 requires-python = ">=3.12"
 # bandcampsync 0.8 reshaped Syncer.__init__ to take a BandcampSyncOptions
 # object (+ auto_run); HarmonistSyncer adapts to it in bandcamp_hook.py.
-# fastapi 0.147 reads an omitted bool Form field as False whatever its default,
-# which silently drops artwork from re-tags that leave `include_artwork` off the
-# wire (#808). Held below it until the route stops relying on that default.
-dependencies = ["mutagen", "bandcampsync~=0.8.0", "fastapi<0.147", "jinja2", "httpx", "musicbrainzngs", "pydantic", "python-multipart", "tomlkit", "uvicorn[standard]", "watchfiles"]
+dependencies = ["mutagen", "bandcampsync~=0.8.0", "fastapi", "jinja2", "httpx", "musicbrainzngs", "pydantic", "python-multipart", "tomlkit", "uvicorn[standard]", "watchfiles"]
 
 [project.optional-dependencies]
 # ruff + mypy are pinned exactly: an unpinned formatter/linter drifts between

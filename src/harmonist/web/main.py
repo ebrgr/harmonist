@@ -6034,7 +6034,7 @@ def _register_routes(app: FastAPI) -> None:
         overwrite_art: bool = Form(False),
         accept_short: bool = Form(False),
         art_plan: str = Form(""),
-        include_artwork: bool = Form(True),
+        include_artwork: Literal["true", "false"] = Form("true"),
         artwork_scope: str = Form("additions"),
         use: str = Form(""),
     ) -> Response:
@@ -6068,6 +6068,13 @@ def _register_routes(app: FastAPI) -> None:
         choice explicitly: a hidden `false` ahead of a checkbox sending `true`,
         which Starlette resolves last-wins, making all three states distinct.
 
+        It is declared as the two strings on the wire, not as a `bool`, because
+        FastAPI applies that same checkbox contract itself: from 0.147 a `bool`
+        form field the request leaves out reads as False whatever default it
+        declares (#808). That silently stripped the artwork from every caller
+        without the checkbox. A string keeps the default this route declares,
+        and anything but the two values is still refused.
+
         `artwork_scope` says which fingerprint `art_plan` was taken at, and has
         to be declared rather than inferred. The combined **Apply updates**
         control carries the plan the page drew in full — `Scope.ALL`,
@@ -6077,6 +6084,7 @@ def _register_routes(app: FastAPI) -> None:
         artwork on every press and report a page that had gone stale when
         nothing had changed at all.
         """
+        artwork_included = include_artwork == "true"
         album = _find_album(request, album_id)
         sc = album.sidecar
         if not sc or not sc.mb_release_id:
@@ -6116,7 +6124,7 @@ def _register_routes(app: FastAPI) -> None:
                 overwrite_art=overwrite_art,
                 paths=album.folders,
                 expected_artwork=art_plan or None,
-                artwork_included=include_artwork,
+                artwork_included=artwork_included,
                 # An unknown value is the ordinary scope, never an error: it can
                 # only come from a hand-made request, and a tagging that fills
                 # gaps is the safe reading of one (#482).
@@ -6175,7 +6183,7 @@ def _register_routes(app: FastAPI) -> None:
                     files=e.files,
                     tracks=e.tracks,
                     overwrite_art=overwrite_art,
-                    include_artwork=include_artwork,
+                    include_artwork=artwork_included,
                     art_plan=art_plan,
                     artwork_scope=artwork_scope,
                     use=use,
