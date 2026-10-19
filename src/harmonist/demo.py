@@ -404,7 +404,8 @@ LIBRARY: list[dict[str, Any]] = [
         "mbid": "demo-rel-blues-brothers",
         "cover": "blues.png",
         "fmt": "flac",
-        "tags": {"label": [], "catalog_number": [], "date": "2024"},
+        # Four changes, so its Inbox update card has more than it leads with.
+        "tags": {"label": [], "catalog_number": [], "date": "2024", "mb_album_country": None},
         # A Qobuz purchase: its per-track id (#634).
         "provenance": {"QBZ:TID": "7917370{n}"},
     },

@@ -6,31 +6,33 @@
 
    The change rows are History's own (`_tag_changes.html` over
    `album.update_changes`), so a waiting update reads exactly as its History
-   entry will. Two lead (`album.update_lead`); the full list, in History's
-   order, sits behind a disclosure when there is more to it. An update
-   Harmonist was trusted to apply and could not says why, since that is what to
-   look at. #}
+   entry will. Up to three lead (`album.update_lead`); past that, two do, and the
+   full list, in History's order, sits behind a button. An update Harmonist was
+   trusted to apply and could not says why, since that is what to look at. #}
 {% set why = held_reason(album) %}
 {% set changes = album.update_changes %}
+{% set whole = album.update_lead | length == changes | length %}
 <div id="task-{{ album.id }}" class="update-card">
     {% if album.has_cover %}
     <img src="/cover/{{ album.id }}" loading="lazy" onerror="this.style.visibility='hidden'" alt=""
-         width="40" height="40" class="update-card__cover">
+         width="88" height="88" class="update-card__cover">
     {% else %}
     <div class="update-card__cover" aria-hidden="true"></div>
     {% endif %}
     <div class="min-w-0">
-        <h3 class="text-sm font-bold text-ink truncate">
-            <a href="/album/{{ album.id }}" class="hover:text-accent transition">{{ album.title }}</a>
+        <h3 class="text-sm truncate">
+            <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
+            <span class="ml-1.5 text-xs text-muted">{{ album.artist }}</span>
         </h3>
-        <p class="text-xs text-muted truncate">{{ album.artist }}</p>
         {% if why %}
         <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
         {% endif %}
         {% if album.update_lead %}
-        {# Hidden while the full list is shown, which includes these. #}
+        {# Hidden while the full list is shown, which includes these. Compact
+           only when it is a glimpse: the whole list keeps its per-track
+           disclosure, since nothing else on the card carries it. #}
         <div class="update-card__lead mt-1.5">
-            {% with changes = album.update_lead, compact = true %}{% include 'partials/_tag_changes.html' %}{% endwith %}
+            {% with changes = album.update_lead, compact = not whole %}{% include 'partials/_tag_changes.html' %}{% endwith %}
         </div>
         {% elif album.update_note %}
         <p class="mt-1 text-xs text-muted">{{ album.update_note }}</p>

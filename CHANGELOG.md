@@ -18,6 +18,9 @@ versions follow [semantic versioning](https://semver.org).
   a page is being served (#793).
 - **An Inbox tag update's full change list opens with Show all / Show fewer**
   beneath its rows, instead of a disclosure triangle (#801).
+- **Inbox tag update cards are more compact**: the artist sits beside the
+  title, the cover is larger, and up to three changes show without a Show all
+  (#811).
 - **A collaboration's artists stored as one `/`-joined value rank as
   Enrichment**, not Identity, when written out as the same artists and IDs
   (#804).

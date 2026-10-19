@@ -63,6 +63,7 @@ def test_the_lead_puts_the_furthest_reaching_change_ahead_of_field_order(tmp_pat
     stored = copy.deepcopy(_release())
     stored["medium-list"][0]["track-list"][0]["title"] = "TRACK 1"
     stored["label-info-list"] = [{"label": {"name": "Warp"}, "catalog-number": "WARPCD-1"}]
+    stored["barcode"] = "5051234567890"  # a fourth row, so the lead has to choose
 
     album = _flag(tmp_path, stored)
 
@@ -79,6 +80,20 @@ def test_the_full_list_is_in_the_one_change_order(tmp_path):
 
     fields = [r.field for r in album.update_changes]
     assert fields == ["album", "media", "barcode"]
+
+
+def test_three_changes_lead_with_all_of_them_in_the_one_change_order(tmp_path):
+    """A third row costs the line a Show all button would take, so a list of
+    three is shown whole — in the order the full list uses, since nothing is
+    left out for a ranking to choose between."""
+    stored = copy.deepcopy(_release("Test Album (remastered)"))
+    stored["barcode"] = "5051234567890"
+    stored["medium-list"][0]["format"] = "CD"
+
+    album = _flag(tmp_path, stored)
+
+    assert album.update_lead == album.update_changes
+    assert len(album.update_lead) == 3
 
 
 def test_every_tag_field_has_one_place_in_the_change_order():

@@ -44,10 +44,22 @@
 /* The Inbox's tag-update rows (#273): one bordered list per group, each album a
    compact row of cover, name and the update's lead change rows. */
 .update-cards { border: 1px solid var(--color-line); border-radius: .375rem; background: #fff; }
-.update-card { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: .75rem; padding: .625rem .75rem; }
+/* The cover is as tall as a title line and three change rows, the most a card
+   shows before its Show all button. */
+.update-card { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .75rem; padding: .625rem .75rem; }
 .update-card + .update-card { border-top: 1px solid var(--color-line); }
-.update-card__cover { width: 2.5rem; height: 2.5rem; border-radius: .25rem; object-fit: cover; background: var(--color-surface); border: 1px solid var(--color-line); }
-.update-card .tag-changes { margin: 0; }
+.update-card__cover { width: 5.5rem; height: 5.5rem; border-radius: .25rem; object-fit: cover; background: var(--color-surface); border: 1px solid var(--color-line); }
+/* The label column grows with the card, so the values start nearer its middle
+   than its left edge, and Show all sits beneath them. */
+.update-card { --update-card-seam: clamp(9.5rem, 25%, 20rem); }
+.update-card .tag-changes { margin: 0; grid-template-columns: var(--update-card-seam) minmax(0, 1fr); }
+.update-card__more { margin-left: calc(var(--update-card-seam) + .9rem); }
+@media (width < 40rem) {
+  .update-card { grid-template-columns: 3rem minmax(0, 1fr); }
+  .update-card__cover { width: 3rem; height: 3rem; }
+  .update-card .tag-changes { grid-template-columns: minmax(0, 1fr); }
+  .update-card__more { margin-left: 0; }
+}
 /* Show all / Show fewer (#801): the full list replaces the lead rows while
    expanded, and the button stays beneath whichever is showing. */
 .update-card__all,

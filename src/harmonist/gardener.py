@@ -393,7 +393,8 @@ def _change_rows(
     """History's rows for the changes in `plan` that count as an update, in
     History's order, and the `LEAD_ROWS` of them to lead with: the
     furthest-reaching first and, within a level, in the order every change list
-    uses (`tag_history.field_rank`).
+    uses (`tag_history.field_rank`). One row more than that leads with all of
+    them, as they are: the row costs the line a Show all button would take.
 
     The same rows History will show once the update is taken (`from_plan`), so
     the Inbox describes a waiting update in the words and order its History
@@ -416,6 +417,8 @@ def _change_rows(
         ],
         tagger.change_names(release),
     )
+    if len(rows) <= LEAD_ROWS + 1:
+        return rows, rows
     lead = sorted(
         rows, key=lambda row: (-owned.ranked(levels[row.field]), tag_history.field_rank(row.field))
     )

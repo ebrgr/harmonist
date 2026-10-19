@@ -542,7 +542,8 @@ class Album:
     # the flag.
     update_changes: tuple[FieldChange, ...] = ()
     # The two of those rows the Inbox leads with: furthest-reaching first, then
-    # in the order every change list uses (`tag_history.field_rank`).
+    # in the order every change list uses (`tag_history.field_rank`). All of
+    # them when there are three or fewer (`gardener.LEAD_ROWS`).
     update_lead: tuple[FieldChange, ...] = ()
     # Why there are no rows for an update that is still there: the tracklist no
     # longer fits the files, so the plan was refused before any field diff
