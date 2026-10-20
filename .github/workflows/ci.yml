@@ -85,7 +85,18 @@ jobs:
         run: mypy
 
       - name: Tests
-        run: pytest test/ -q
+        env:
+          PYTEST_ADDOPTS: "-q --junitxml=pytest-results.xml"
+        run: make test
+
+      - name: Upload Python test results and timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-results-${{ matrix.python-version }}
+          path: pytest-results.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The browser suite (test/e2e/), which `check` collects and skips: the only
   # layer that sees whether a click produced a request, where focus landed, or

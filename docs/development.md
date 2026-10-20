@@ -50,6 +50,12 @@ make check
 make demo
 ```
 
+`make check` and `make test` run the Python suite across four processes, matching
+CI, and report the slowest test phases. `make check TEST_WORKERS=0` runs serially
+for debugging or a machine with less memory. Each supported Python version's CI
+job retains a `pytest-results-<version>` JUnit artifact, including successful runs.
+These checks run without browser dependencies; `make e2e` remains separate.
+
 Open http://localhost:8000 on the Docker host. The port is published on host
 loopback only. Demo mode supplies sample albums and mocks Bandcamp/MusicBrainz;
 no account or music files are needed. `make demo` enables live reload and keeps

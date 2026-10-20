@@ -20,8 +20,11 @@ browser-assets:
 	npm ci --ignore-scripts --no-audit --no-fund
 	npm run build
 
+# Match CI's worker count; use TEST_WORKERS=0 for serial debugging.
+TEST_WORKERS ?= 4
+
 test:
-	pytest test/
+	pytest test/ -n $(TEST_WORKERS) --durations=30
 
 # Test line coverage of the package.
 coverage:
