@@ -199,7 +199,10 @@ ticked in at most one column:
   reverses it; only tags are written, never artwork.
 - **Inbox**: ticks run down from Structure. By default that is
   Structure alone, since a changed tracklist can call the match itself into
-  question.
+  question. Updates other than Structure can be applied from the Inbox several
+  at once. As with automatic applying, only tags are written, each album gets
+  its own History entry and Undo, and an update that changed on MusicBrainz
+  after it was selected is left for another look.
 - A level ticked in neither is left in the Library, under the **Tag updates**
   filter.
 

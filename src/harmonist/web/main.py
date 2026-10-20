@@ -835,6 +835,8 @@ def create_app(
     # Widest-reaching first, as the Library's update menu lists them (#273).
     templates.env.globals["update_levels"] = tuple(reversed(owned.ORDER))
     templates.env.globals["held_reason"] = auto_apply.held_reason
+    templates.env.globals["update_queued"] = auto_apply.queued
+    templates.env.globals["applying_updates"] = auto_apply.is_applying
     templates.env.globals["store_name"] = store_name
     templates.env.globals["display_path"] = _display_path
     templates.env.globals["rel_path"] = _rel_path
@@ -3417,15 +3419,6 @@ def _auto_apply_if_idle(
         log.debug("Skipping auto-apply: the library has not been scanned yet")
         return "the library hasn't finished scanning yet"
 
-    def refresh(album: Album) -> None:
-        """Publish even partially written albums, including on network mounts."""
-        try:
-            if scan_runner.refresh_album(album.folders, notify=True):
-                return
-        except Exception:
-            log.exception("Could not refresh automatically tagged album %s", album.path)
-        scan_runner.request_scan()
-
     def _run() -> None:
         try:
             auto_apply.apply_due(
@@ -3433,7 +3426,7 @@ def _auto_apply_if_idle(
                 app.state.cfg,
                 app.state.tagger,
                 _ignored_updates(),
-                on_processed=refresh,
+                on_processed=_refresher(scan_runner),
             )
         except Exception:
             # Boundary catch: the pass holds the albums it cannot write, so
@@ -3442,6 +3435,60 @@ def _auto_apply_if_idle(
             log.exception("auto-apply pass failed")
 
     threading.Thread(target=_run, name="harmonist-auto-apply", daemon=True).start()
+    return None
+
+
+def _refresher(scan_runner: ScanRunner) -> Callable[[Album], None]:
+    """What an apply pass calls after each album it attempts."""
+
+    def refresh(album: Album) -> None:
+        """Publish even partially written albums, including on network mounts."""
+        try:
+            if scan_runner.refresh_album(album.folders, notify=True):
+                return
+        except Exception:
+            log.exception("Could not refresh tagged album %s", album.path)
+        scan_runner.request_scan()
+
+    return refresh
+
+
+def _start_bulk_apply(app: FastAPI, chosen: Mapping[str, str | None]) -> str | None:
+    """Write the Inbox updates the user selected (#814), in the background.
+    `None` when the pass was started, otherwise why not.
+
+    Stands aside as the auto-apply pass does, for a sync or reconcile and until
+    the first scan, and for a pass already writing. Unlike that pass it says so
+    to the user, who pressed the button and can press it again.
+    """
+    state = app.state
+    if state.sync_runner.is_running or state.reconcile_runner.is_running:
+        return "A sync or reconcile is running"
+    if not state.scan_runner.has_completed():
+        return "The library hasn't finished scanning yet"
+    scan_runner = state.scan_runner
+    # Claimed here rather than in the thread, so the Inbox this response
+    # refreshes already shows the selection queued.
+    todo = auto_apply.claim(scan_runner.albums(), chosen)
+    if todo is None:
+        return "Updates are already being applied"
+
+    def _run() -> None:
+        try:
+            auto_apply.write_claimed(
+                todo,
+                chosen,
+                state.cfg,
+                state.tagger,
+                _ignored_updates(),
+                on_processed=_refresher(scan_runner),
+            )
+        except Exception:
+            # Boundary catch: the pass reports the albums it cannot write, so
+            # anything arriving here is a defect.
+            log.exception("bulk apply pass failed")
+
+    threading.Thread(target=_run, name="harmonist-bulk-apply", daemon=True).start()
     return None
 
 
@@ -7963,6 +8010,38 @@ def _register_routes(app: FastAPI) -> None:
             "listed again when MusicBrainz next changes the release",
             album=album,
             oob=_update_ignore_oob(request, album, ignored=True),
+        )
+
+    @app.post("/updates/apply", response_class=HTMLResponse)
+    def apply_updates(request: Request, album: list[str] = Form(default=[])) -> Response:
+        """Apply the Inbox tag updates the user selected (#814), in the background.
+
+        Each `album` is an album id and the MusicBrainz version its card was
+        drawn at, as `id:version`: the version is what the user reviewed, and
+        the pass leaves alone any update that has moved past it. The pass
+        refreshes each album as it goes, so the Inbox drops them one at a time,
+        and the status bar shows its progress; this only starts it.
+        """
+        chosen: dict[str, str | None] = {}
+        for value in album:
+            album_id, _, version = value.rpartition(":")
+            if album_id:
+                chosen[album_id] = version or None
+        if not chosen:
+            return _flash_response(
+                "Nothing applied",
+                "no updates were selected",
+                level=Level.WARNING,
+                tasks_changed=False,
+            )
+        refused = _start_bulk_apply(request.app, chosen)
+        if refused is not None:
+            return _flash_response("Not applied", refused, level=Level.WARNING, tasks_changed=False)
+        # The Inbox re-renders now so the selected cards show they are queued;
+        # each album's own refresh then takes it out as it is written.
+        count = len(chosen)
+        return _flash_response(
+            "Applying updates", f"{count} album{'s' if count != 1 else ''} selected"
         )
 
     @app.post("/surrender/{album_id}/keep", response_class=HTMLResponse)

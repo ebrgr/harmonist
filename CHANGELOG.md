@@ -11,6 +11,9 @@ versions follow [semantic versioning](https://semver.org).
 - **MusicBrainz IDs in tag changes show as names**, linked to MusicBrainz, in
   History, on the album page and in the Inbox; an ID the release no longer
   carries shows shortened (#801).
+- **Inbox tag updates can be applied several at once**: tick them, or a whole
+  level, and press Apply. Each album is written in turn, tags only, with its
+  own History entry and Undo; Structure updates stay on the album page (#814).
 
 ### Changed
 

@@ -8,11 +8,23 @@
    `album.update_changes`), so a waiting update reads exactly as its History
    entry will. Up to three lead (`album.update_lead`); past that, two do, and the
    full list, in History's order, sits behind a button. An update Harmonist was
-   trusted to apply and could not says why, since that is what to look at. #}
+   trusted to apply and could not says why, since that is what to look at.
+
+   In a group that can be applied from here (`pickable`, #814), a checkbox in
+   the left gutter selects it, carrying the MusicBrainz version this card was
+   drawn at: that is what the user reviewed. While a selection is being applied
+   each of its cards says whether it waits its turn or is being written. #}
 {% set why = held_reason(album) %}
 {% set changes = album.update_changes %}
 {% set whole = album.update_lead | length == changes | length %}
-<div id="task-{{ album.id }}" class="update-card">
+{% set place = update_queued(album) %}
+<div id="task-{{ album.id }}" class="update-card{% if place %} update-card--{{ place }}{% endif %}">
+    {% if pickable %}
+    <label class="update-card__pick">
+        <input type="checkbox" class="update-pick" name="album" value="{{ album.id }}:{{ album.mb_version }}"
+               aria-label="Select {{ album.title }}"{% if place %} checked{% endif %}{% if applying %} disabled{% endif %}>
+    </label>
+    {% endif %}
     {% if album.has_cover %}
     <img src="/cover/{{ album.id }}" loading="lazy" onerror="this.style.visibility='hidden'" alt=""
          width="88" height="88" class="update-card__cover">
@@ -23,6 +35,9 @@
         <h3 class="text-sm truncate">
             <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
             <span class="ml-1.5 text-xs text-muted">{{ album.artist }}</span>
+            {% if place %}
+            <span class="update-card__place" role="status">{{ 'Applying…' if place == 'applying' else 'Queued' }}</span>
+            {% endif %}
         </h3>
         {% if why %}
         <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>

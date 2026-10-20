@@ -143,6 +143,33 @@ Harmonist restarts.
 **One action per album.** Each write opens its own action scope, so its History
 entry carries its own tag changes and its own Undo.
 
+### Applying a selection
+
+Updates waiting in the Inbox can be selected and applied together. It is the
+same write as the unattended one, for the same reasons, with three
+differences that follow from someone having looked.
+
+**The selection is a review, so it is checked like one.** Each card was drawn
+against one version of the stored release, and that version travels with the
+selection. An update whose release has moved since is left alone, as a
+reviewed confirmation refuses a release that changed under its review. The
+apply threshold doesn't apply: the user chose these.
+
+**Never Structure, still.** Selecting a card shows its field changes, but a
+changed tracklist can need its assignments reviewed, which the album page does
+and a list can't. Structure updates aren't selectable.
+
+**A failure is reported, not held.** The unattended pass holds a failure so it
+isn't retried every ten minutes. Here nothing retries: the reason goes to
+Activity, and the card stays, unticked, so it is looked at again before it is
+selected again.
+
+**One pass at a time**, shared with the unattended pass, so no album is written
+twice. A selection made while a pass runs is refused with a reason rather than
+queued, since the Inbox it was made from may not survive that pass. The pass is
+claimed before the request returns, so the Inbox the response redraws already
+shows each selected card waiting its turn.
+
 ### Where an update waits
 
 **A threshold, not a choice per level.** The user picks the lowest level that

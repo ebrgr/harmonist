@@ -203,25 +203,47 @@
 
 {# Library albums whose update reaches the review level (#273), one group per
    level, widest first. Derived from the update check's flags; the album page
-   is where each is applied or ignored. #}
+   is where each is applied or ignored, and every level but Structure can also
+   be applied from here, several at once (#814): a tracklist change can need its
+   assignments reviewed, which only its page can do. #}
 {% if updates|default([]) and not reconciling %}
+{% set applying = applying_updates() %}
 <section id="inbox-updates" class="space-y-6 mt-6">
     {% for level in update_levels %}
     {% set group = updates | selectattr('update_significance', 'equalto', level) | list %}
     {% if group %}
-    <div class="space-y-3">
+    {% set pickable = level.value != 'structure' %}
+    {# A form, so the selection posts as the platform posts checkboxes: each
+       ticked, enabled card's `album`. #}
+    {# Its id keeps the morph from turning one level's group into another's
+       when a group empties: each group is matched to itself, or leaves. #}
+    <form id="update-group-{{ level.value }}" class="update-group space-y-3" hx-post="/updates/apply" hx-swap="none"
+          hx-disabled-elt="find .update-group__apply">
         <div id="inbox-updates-{{ level.value }}" class="rounded-md border-l-4 border-mb-purple bg-mb-purple/10 px-3 py-2">
-            <h3 class="text-sm font-bold text-mb-purple flex items-center gap-2">
+            <h3 class="text-sm font-bold text-mb-purple flex items-center gap-2 min-h-7">
+                {% if pickable %}
+                <input type="checkbox" class="update-group__all"
+                       aria-label="Select every {{ level.value }} update"{% if applying %} disabled{% endif %}>
+                {% endif %}
                 Tag updates {{ severity_chip(level) }}
                 <span class="text-muted font-normal">· {{ group|length }}</span>
+                {% if pickable %}
+                {% if applying %}
+                <span class="ml-auto text-xs font-normal text-muted" role="status">Applying…</span>
+                {% else %}
+                <button type="submit" class="album-finding__act update-group__apply ml-auto">
+                    Apply <span class="update-group__count"></span>
+                </button>
+                {% endif %}
+                {% endif %}
             </h3>
         </div>
         {# Never collapsed, unlike the state groups above: these are the updates
            the user asked to review, and the rows are compact enough to list. #}
-        <div class="update-cards">
+        <div id="update-cards-{{ level.value }}" class="update-cards{% if pickable %} update-cards--pickable{% endif %}">
             {% for album in group %}{% include 'partials/task_card_update.html' %}{% endfor %}
         </div>
-    </div>
+    </form>
     {% endif %}
     {% endfor %}
 </section>
@@ -249,6 +271,79 @@
             if (button) button.setAttribute('aria-expanded', 'true');
         });
     });
+
+    // The selection to apply (#814), by album id, so a refresh of the list
+    // (which draws every box unticked) keeps it. A card the server draws
+    // queued has been handed to the pass and leaves the selection: if it comes
+    // back, not applied, it comes back unticked, to be looked at again.
+    const picked = new Set();
+    const albumOf = box => box.value.slice(0, box.value.lastIndexOf(':'));
+    function count(group) {
+        const boxes = [...group.querySelectorAll('.update-pick:enabled')];
+        const on = boxes.filter(box => box.checked).length;
+        const all = group.querySelector('.update-group__all');
+        if (all) {
+            all.checked = on > 0 && on === boxes.length;
+            all.indeterminate = on > 0 && on < boxes.length;
+        }
+        const label = group.querySelector('.update-group__count');
+        if (label) label.textContent = on === 1 ? '1 update' : on + ' updates';
+    }
+    function restore() {
+        document.querySelectorAll('.update-pick').forEach(function (box) {
+            if (box.disabled) {
+                if (box.checked) picked.delete(albumOf(box));
+            } else {
+                box.checked = picked.has(albumOf(box));
+            }
+        });
+        document.querySelectorAll('.update-group').forEach(count);
+    }
+    document.addEventListener('change', function (e) {
+        const box = e.target;
+        const group = box.closest && box.closest('.update-group');
+        if (!group) return;
+        if (box.classList.contains('update-group__all')) {
+            group.querySelectorAll('.update-pick:enabled').forEach(function (pick) {
+                pick.checked = box.checked;
+                if (box.checked) { picked.add(albumOf(pick)); } else { picked.delete(albumOf(pick)); }
+            });
+        } else if (box.classList.contains('update-pick')) {
+            if (box.checked) { picked.add(albumOf(box)); } else { picked.delete(albumOf(box)); }
+        } else {
+            return;
+        }
+        count(group);
+    });
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        if (evt.detail.target.id === 'task-list') restore();
+    });
+    restore();
+
+    // An applied update's card folds away rather than vanishing, so the cards
+    // below slide up instead of jumping. The morph would remove it; this keeps
+    // it, inert, while it collapses, then removes it. The same for a group or
+    // the whole section when its last card goes. Not with reduced motion.
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const callbacks = Idiomorph.defaults.callbacks;
+    const before = callbacks.beforeNodeRemoved;
+    callbacks.beforeNodeRemoved = function (node) {
+        if (before && before(node) === false) return false;
+        if (!(node instanceof Element) || still.matches
+                || !node.matches('.update-card, .update-group, #inbox-updates')) return true;
+        if (node.dataset.leaving) return false;
+        node.dataset.leaving = 'true';
+        // Keeps its id: without one, a morph landing mid-fold could match it
+        // to some other id-less element and morph the leaving card into that.
+        node.inert = true;
+        node.style.overflow = 'hidden';
+        const from = {height: node.offsetHeight + 'px', opacity: 1};
+        const to = {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
+                    marginTop: '0px', borderTopWidth: '0px'};
+        node.animate([from, to], {duration: 300, easing: 'ease-in-out'})
+            .finished.finally(function () { node.remove(); });
+        return false;
+    };
 })();
 </script>
 {% endif %}

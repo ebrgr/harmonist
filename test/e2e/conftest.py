@@ -178,6 +178,13 @@ def library_filters_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator
 
 
 @pytest.fixture(scope="module")
+def bulk_apply_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    yield from _run_demo_server(
+        tmp_path_factory.mktemp("e2e-bulk-apply"), app_module="test.e2e.bulk_apply_app:app"
+    )
+
+
+@pytest.fixture(scope="module")
 def stale_cache_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """A demo server whose stored MusicBrainz releases are stale the moment they
     are written (#387).
