@@ -199,6 +199,44 @@ def test_an_update_card_shows_its_first_two_changes_and_counts_the_rest(web, mon
     )
 
 
+def test_an_update_cards_lead_shows_one_line_of_a_per_track_change(web, monkeypatch):
+    """#820: the lead rows are a glimpse, so a field whose tracks changed
+    differently shows its first track there and folds the rest; the full list
+    beneath shows the first three, as History does."""
+    titles = tag_history.FieldChange(
+        field="title",
+        label="Title",
+        before=None,
+        after=None,
+        tracks=8,
+        total=28,
+        scope=owned.SCOPE[owned.Owned.TITLE],
+        variants=tuple(
+            tag_history.TrackChange(f"{i:02d}.m4a", str(i), f"Song {i}", f"Song {i} (mix)")
+            for i in range(1, 9)
+        ),
+    )
+    changes = (
+        titles,
+        _row("album", "Album", "Old", "New"),
+        _row("date", "Date", "2020", "2020-05-01"),
+        _row("label", "Label", None, "Warp"),
+    )
+    cfg, client = web
+    _inbox_library(cfg, monkeypatch, 1, changes)
+
+    lead, _, rest = _updates_section(client).partition('class="update-card__all')
+
+    def shown(markup: str) -> int:
+        dd = re.search(r"<dt>Title</dt>\s*<dd>(.*?)</dd>", markup, re.DOTALL)
+        assert dd is not None
+        return dd.group(1).partition("<details")[0].count('class="tag-changes__line"')
+
+    assert (shown(lead), shown(rest)) == (1, 3)
+    assert "<summary>and 7 more tracks</summary>" in lead
+    assert "<summary>and 5 more tracks</summary>" in rest
+
+
 def test_an_update_card_carries_no_path_badges_or_format(web, monkeypatch):
     cfg, client = web
     albums = _inbox_library(cfg, monkeypatch, 1, (_row("album", "Album", "Old", "New"),))

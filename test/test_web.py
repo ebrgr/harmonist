@@ -4114,16 +4114,79 @@ def test_album_page_shows_what_a_tagging_changed_under_its_activity_entry(client
     # Album-scoped and track-scoped changes are annotated differently — the
     # #149 split made visible.
     assert "album" in body and "all tracks" in body
-    # A field that differs per track gets the expansion; one that doesn't, doesn't.
-    assert "Show which tracks" in body
-    assert "rec-1" in body and "rec-2" in body
-    # ...and its own row states how many answers there are rather than passing
-    # track 1's off as the album's (#185). The values live in the expansion.
-    assert "2 different values" in body
-    assert body.index("2 different values") < body.index("rec-1")
+    # A field that differs per track lists each track's value under its own row
+    # (#820), rather than passing track 1's off as the album's (#185).
+    lines = _track_lines(body, "Recording")
+    assert [(n, 'title="rec-1"' in v or 'title="rec-2"' in v) for n, v in lines] == [
+        ("1", True),
+        ("2", True),
+    ]
 
     # Anchored to the activity entry, so it renders ONCE, not once per file.
     assert body.count('class="tag-changes"') == 1
+
+
+def _track_lines(body: str, label: str) -> list[tuple[str, str]]:
+    """The per-track lines under one field's row of a change list, as (position,
+    value markup), in the order shown — lines folded behind "and N more" too."""
+    dd = re.search(rf"<dt>{label}</dt>\s*<dd>(.*?)</dd>", body, re.DOTALL)
+    assert dd is not None, f"no {label} row"
+    return re.findall(
+        r'<li class="tag-changes__line"><span class="tag-changes__num"[^>]*>([^<]*)</span>(.*?)</li>',
+        dd.group(1),
+        re.DOTALL,
+    )
+
+
+def _record_tagging(album_id: str, per_file: Sequence[dict[str, list[Any]]]) -> None:
+    """One tagging of `album_id`, writing `per_file[i]` for track i + 1."""
+    from harmonist import audit
+
+    with activity_store.action():
+        activity.record("Re-tagged", album_id=album_id, album_label="Artist — Tracks")
+        for i, changes in enumerate(per_file, start=1):
+            name = f"{i:02d} t.m4a"
+            event_id = audit.record("tag.track", album_id=album_id, file=name)
+            assert event_id is not None
+            activity_store.record_tag_changes(event_id, file=name, changes=changes, position=str(i))
+
+
+def test_a_long_per_track_change_shows_a_few_lines_and_folds_the_rest(client, cfg):
+    """#820: eight mix names arriving on a compilation. The first lines show
+    where the values would be; the rest sit behind "and N more tracks" on that
+    row, so the list's height stays bounded by its fields, not its tracks."""
+    d = _make_album(cfg, "Tracks")
+    sc.write(d, Sidecar(store_url="https://x.bandcamp.com/album/t", mb_release_id="rel-trk"))
+    album_id = _id_for(cfg, d)
+    activity_store.clear()
+    _record_tagging(
+        album_id,
+        [
+            {"title": [f"Song {i}", f"Song {i} (mix)"]}
+            | ({"artist": [f"A{i}", f"B{i}"]} if i <= 4 else {})
+            for i in range(1, 6)
+        ],
+    )
+
+    body = client.get(f"/album/{album_id}").text
+
+    # One line over the cap shows them all: "and 1 more track" would cost the
+    # line the track itself takes.
+    artist = re.search(r"<dt>Artist</dt>\s*<dd>(.*?)</dd>", body, re.DOTALL)
+    assert artist is not None
+    assert artist.group(1).count('class="tag-changes__line"') == 4
+    assert "<details" not in artist.group(1)
+
+    lines = _track_lines(body, "Title")
+    assert [n for n, _ in lines] == ["1", "2", "3", "4", "5"]
+    # Each line marks what changed within it, as a uniform row's pair does.
+    assert all('<em class="diff-run"> (mix)</em>' in v for _, v in lines)
+    dd = re.search(r"<dt>Title</dt>\s*<dd>(.*?)</dd>", body, re.DOTALL)
+    assert dd is not None
+    shown, _, folded = dd.group(1).partition('<details class="tag-changes__more">')
+    assert shown.count('class="tag-changes__line"') == 3
+    assert "<summary>and 2 more tracks</summary>" in folded
+    assert folded.count('class="tag-changes__line"') == 2
 
 
 def test_added_tags_render_without_a_before_arrow(client, cfg):
@@ -4160,8 +4223,7 @@ def test_added_tags_render_without_a_before_arrow(client, cfg):
 
     assert body.count("tag-changes__arrow") == 1, "only the replacement keeps its arrow"
     assert "Warp Records" in body, "the added value is still shown"
-    # The em-dash standing in for "absent" is gone from the change rows. It
-    # remains legitimate in the per-track table, which has a Before column.
+    # The em-dash standing in for "absent" is gone from the change rows.
     assert 'class="tag-changes__absent" title="Not present before this tagging"' not in body
 
 

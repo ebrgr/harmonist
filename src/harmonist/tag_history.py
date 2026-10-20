@@ -102,6 +102,11 @@ ID_ENTITIES: dict[str, str] = {
     Owned.MB_RELEASE_TRACK_ID.value: "track",
 }
 
+#: How many tracks a partial change names in its reach before counting them
+#: instead (#820). Past three, "tracks 2, 5, 9, 14" is harder to read than the
+#: count it replaces.
+NAMED_TRACKS = 3
+
 #: How a stored value joins several ids: `display`'s "; " for a list, and the
 #: "/" some taggers put inside a single value. Captured so a row can keep them,
 #: since one slash-joined value becoming two values is itself the change.
@@ -155,12 +160,16 @@ def _id_tokens(value: str | None) -> list[str]:
 
 @dataclass(frozen=True)
 class TrackChange:
-    """What one file's copy of a field did, for the per-track expansion."""
+    """What one file's copy of a field did, as its own line under the field."""
 
     file: str
     position: str | None
     before: str | None
     after: str | None
+    #: The same in-value emphasis a uniform row's pair gets (#820): each line is
+    #: read on its own, so what changed within it is what the reader looks for.
+    before_runs: tuple[Run, ...] = ()
+    after_runs: tuple[Run, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,8 +197,12 @@ class FieldChange:
     #: Every file's version of this change, in the order recorded. Populated
     #: only when they DIFFER — when the whole album moved the same way, the
     #: pair above already says everything. When they differ, these are the only
-    #: honest values there are: the row shows `varied_summary` instead.
+    #: honest values there are, and the row shows them, one line per track.
     variants: tuple[TrackChange, ...] = ()
+    #: Where each track this change reached sits on the album, in file order —
+    #: what `reach` names when there are few of them (#820). None for a track
+    #: whose position is unknown.
+    positions: tuple[str | None, ...] = ()
     #: The folder cover's name, when this artwork change reached it too. It is
     #: not a track, so it is named beside the track count rather than counted
     #: in it (#469).
@@ -224,24 +237,6 @@ class FieldChange:
         return tuple(p for p in self.parts(value) if isinstance(p, IdRef))
 
     @property
-    def varied_summary(self) -> str:
-        """What to show in place of the values when the files DON'T agree.
-
-        Showing one file's pair as though it were the album's is a guess
-        dressed as a fact, and `reach` can't take it back — a field that
-        reached every track with a different value each time is annotated
-        exactly like one that reached every track with the same value (#185).
-        Identifier fields make it plainest: 38 tracks legitimately carry 38
-        different recording MBIDs, and none of them is the album's.
-
-        So the count goes where the value would be. It's a fact about the
-        change that holds for the whole row, and the per-track disclosure
-        underneath carries the values themselves — which is where a list that
-        long belongs anyway.
-        """
-        return f"{len({(v.before, v.after) for v in self.variants})} different values"
-
-    @property
     def summary(self) -> str:
         """What to show in place of the values, for a row whose values are not
         readable. "Replaced" and "added" are different facts to a user deciding
@@ -262,13 +257,21 @@ class FieldChange:
         gets the count, whatever its scope, because that is the case where the
         album has no single answer.
 
+        Up to `NAMED_TRACKS` of them are named instead, when the change was the
+        same on each (#820): "Coma → COMA, 1 of 28 tracks" left the reader to
+        go and find track 6. A change that differed per track numbers its own
+        lines, so naming the tracks here too would say it twice.
+
         The folder cover is named rather than counted: "cover.jpg" alone when
         it was the only thing an artwork change reached, and after the tracks
         when it was one of several.
         """
         if self.cover is not None and not self.tracks:
             return self.cover
-        if self.tracks < self.total:
+        named = [p for p in self.positions if p is not None]
+        if self.uniform and self.tracks < self.total and len(named) == self.tracks <= NAMED_TRACKS:
+            reach = f"track {named[0]}" if len(named) == 1 else f"tracks {', '.join(named)}"
+        elif self.tracks < self.total:
             reach = f"{self.tracks} of {self.total} tracks"
         elif self.scope is Scope.ALBUM:
             reach = "album"
@@ -520,20 +523,19 @@ def from_plan(plan: Any, album_dir: Path, files: Sequence[Path]) -> tuple[FieldC
     `reach` renders. Passing only the changed files would report "all tracks"
     for a field that moved on three of twenty-seven.
 
-    `position` is the file's place in track order rather than a tag read. The
-    plan does not carry track numbers, and this value reaches exactly one place
-    — the "#" column of the per-track disclosure — where the album's own file
-    order is what the reader is looking at anyway.
+    `position` is the one the tagging would record (`AlbumPlan.positions`), so
+    each per-track line is numbered as its History record will be — "2-1" for
+    the first track of a second disc, which file order called "3" (#820).
     """
     naming = album_files.Naming(album_dir, files)
     return summarise(
         [
             _PlannedFile(
                 file=naming.name_of(path),
-                position=str(i),
+                position=plan.positions.get(path),
                 changes=plan.changes.get(path, {}),
             )
-            for i, path in enumerate(files, start=1)
+            for path in files
         ]
     )
 
@@ -578,32 +580,24 @@ def _row(field: str, entries: list[tuple[str, str | None, Any, Any]], total: int
     pairs = [(display(b), display(a)) for _, _, b, a in entries]
     before, after = _representative(pairs)
 
+    opaque = field == ARTWORK
+    # Two sha256 digests differ in nearly every character, so emphasis on them
+    # would be noise on top of noise; so do two MusicBrainz ids, which a row
+    # names rather than spells out (#801).
+    emphasised = not opaque and field not in ID_ENTITIES
+
     variants: tuple[TrackChange, ...] = ()
     if len(set(pairs)) > 1:
         # Only when they actually differ — a compilation where every track's
         # artist changed to something different has no single answer, so the
-        # row states how many answers there are (`varied_summary`) and these
-        # carry the values.
+        # row shows each track's own line instead (#820).
         variants = tuple(
-            TrackChange(file=f, position=p, before=display(b), after=display(a))
-            for f, p, b, a in entries
+            TrackChange(f, p, b, a, *_runs(b, a, emphasised))
+            for (f, p, _, _), (b, a) in zip(entries, pairs, strict=True)
         )
 
-    opaque = field == ARTWORK
-    before_runs: tuple[Run, ...] = ()
-    after_runs: tuple[Run, ...] = ()
-    if (
-        before is not None
-        and after is not None
-        and not opaque
-        and not variants
-        and field not in ID_ENTITIES
-    ):
-        # Two sha256 digests differ in nearly every character, so emphasis on
-        # them would be noise on top of noise; so do two MusicBrainz ids, which
-        # a row names rather than spells out (#801). And a row whose files
-        # disagree shows no pair to emphasise.
-        before_runs, after_runs = diff_runs(before, after)
+    # A row whose files disagree shows no pair to emphasise.
+    before_runs, after_runs = _runs(before, after, emphasised and not variants)
 
     return FieldChange(
         field=field,
@@ -618,7 +612,18 @@ def _row(field: str, entries: list[tuple[str, str | None, Any, Any]], total: int
         before_runs=before_runs,
         after_runs=after_runs,
         variants=variants,
+        positions=tuple(p for f, p, _, _ in entries if _is_track(f)),
     )
+
+
+def _runs(
+    before: str | None, after: str | None, emphasised: bool
+) -> tuple[tuple[Run, ...], tuple[Run, ...]]:
+    """The emphasis for one before-and-after pair: none unless both sides exist
+    and the field is one that emphasis helps."""
+    if before is None or after is None or not emphasised:
+        return (), ()
+    return diff_runs(before, after)
 
 
 def _representative(pairs: list[tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
@@ -626,7 +631,8 @@ def _representative(pairs: list[tuple[str | None, str | None]]) -> tuple[str | N
 
     When every file agrees this is trivially that pair — the ordinary case, and
     the only one the value cell renders since #185: a row whose files disagree
-    shows `varied_summary` instead, because no single pair is the album's.
+    shows each track's own line instead (#820), because no single pair is the
+    album's.
 
     It still resolves the disagreeing case for **artwork**, whose row shows
     what happened rather than a value, and whose `before` decides whether the

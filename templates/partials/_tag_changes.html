@@ -7,6 +7,37 @@
 {%- endfor -%}
 {%- endmacro %}
 
+{# One value as written: named ids for an id row, otherwise the value with what
+   changed in it marked (`runs`, empty when there is nothing useful to mark). #}
+{% macro value_of(c, value, runs) -%}
+{%- if c.is_id %}{{ id_value(c, value) }}{% else %}{% with value = value %}{% include 'partials/_diff_runs.html' %}{% endwith %}{% endif -%}
+{%- endmacro %}
+
+{# A before-and-after pair. A field with nothing before it shows only what was
+   written. On a first tagging that is EVERY row, so "— →" would prefix the whole
+   list with two columns of chrome, and the em-dash reads as a value rather than
+   as the absence of one. The arrow stays where it carries the meaning: a
+   replacement has two real sides, and a removal has to say what went. #}
+{% macro pair(c, before, after, before_runs, after_runs) -%}
+{%- if before is not none -%}
+<span class="tag-changes__before">{{ value_of(c, before, before_runs) }}</span>
+<span class="tag-changes__arrow" aria-label="became">→</span>
+{%- endif -%}
+{%- if after is none -%}
+<span class="tag-changes__absent" title="Removed by this tagging">removed</span>
+{%- else -%}
+<span class="tag-changes__after">{{ value_of(c, after, after_runs) }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{# One track's line under a field whose tracks changed differently (#820): its
+   position, then its own pair. The file name is the number's tooltip, for a
+   track with no position or two that share one. #}
+{% macro track_line(c, v, reach=none) -%}
+<li class="tag-changes__line"><span class="tag-changes__num" title="{{ v.file }}">{{ v.position or '—' }}</span><span class="tag-changes__pair">{{ pair(c, v.before, v.after, v.before_runs, v.after_runs) }}
+{%- if reach %}<span class="tag-changes__reach">{{ reach }}</span>{% endif %}</span></li>
+{%- endmacro %}
+
 {# What one tagging changed, field by field (#86).
 
    Field-first, not track-first: the records are stored per FILE so they stay
@@ -16,12 +47,19 @@
    inverts them and the height here is bounded by the number of fields that
    moved rather than by the size of the album.
 
+   A field whose tracks changed differently shows each track's line under it
+   (#820), up to `cap` of them, and the rest behind "and N more tracks" on that
+   row. So a release switch rewriting 38 recording ids still costs a few lines
+   per field, and a compilation's eight new mix names are read where the value
+   would be, not behind a disclosure at the foot of the list.
+
    Open by default. A record nobody expands is close to a record that doesn't
    exist, and the whole point of these rows is that a re-tag stops being opaque.
-   The per-track breakdown IS behind a disclosure — it's the part that scales
-   with the tracklist.
 
-   Expects `changes` (a tuple of tag_history.FieldChange) from the caller. #}
+   Expects `changes` (a tuple of tag_history.FieldChange) from the caller, and
+   optionally `compact`: the Inbox's lead rows are a glimpse, so they show one
+   line per field before folding the rest. #}
+{% set cap = 1 if compact|default(false) else 3 %}
 
 {# The tagging's own Undo is not here: it sits on the History entry's headline
    line, from `_tag_undo.html` (#261). The artwork row's Undo, below, stays on
@@ -65,69 +103,44 @@
         {% endif %}
 
         {% elif not c.uniform %}
-        {# The files disagree, so there is no value to put here — 38 tracks
+        {# The files disagree, so no one value is the album's — 38 tracks
            legitimately carry 38 different recording MBIDs, and printing the
            first one beside "all tracks" reads as though the whole album got it
-           (#185). The count is the fact that holds for the row; the values are
-           in the disclosure below, which is where a list that long belongs. #}
-        <span class="tag-changes__opaque">{{ c.varied_summary }}</span>
+           (#185). Each track's own line says what it got instead (#820).
 
-        {% else %}
-        {# A field with nothing before it shows only what was written. On a first
-           tagging that is EVERY row, so "— →" would prefix the whole list with
-           two columns of chrome, and the em-dash reads as a value rather than as
-           the absence of one. The arrow stays where it carries the meaning: a
-           replacement has two real sides, and a removal has to say what went. #}
-        {% if c.before is not none %}
-        <span class="tag-changes__before">{% if c.is_id %}{{ id_value(c, c.before) }}{% else %}{% with runs = c.before_runs, value = c.before %}{% include 'partials/_diff_runs.html' %}{% endwith %}{% endif %}</span>
-        <span class="tag-changes__arrow" aria-label="became">→</span>
+           One line more than the cap shows them all: "and 1 more track" would
+           cost the line the track itself takes. The reach rides on the first
+           line, where a uniform row carries it beside its pair. #}
+        {% set shown = c.variants if c.variants | length <= cap + 1 else c.variants[:cap] %}
+        <ol class="tag-changes__lines">
+            {% for v in shown %}{{ track_line(c, v, c.reach if loop.first else none) }}{% endfor %}
+        </ol>
+        {% if c.variants | length > shown | length %}
+        {% set rest = c.variants[shown | length:] %}
+        {# <details>, not a click handler toggling `hidden` — the native element
+           brings its own keyboard handling and disclosure semantics (web-ui
+           rule 1). Per row, so opening one field's tracks leaves the others as
+           they were. #}
+        <details class="tag-changes__more">
+            <summary>and {{ rest | length }} more track{{ '' if rest | length == 1 else 's' }}</summary>
+            <ol class="tag-changes__lines">
+                {% for v in rest %}{{ track_line(c, v) }}{% endfor %}
+            </ol>
+        </details>
         {% endif %}
 
-        {% if c.after is none %}
-        <span class="tag-changes__absent" title="Removed by this tagging">removed</span>
         {% else %}
-        <span class="tag-changes__after">{% if c.is_id %}{{ id_value(c, c.after) }}{% else %}{% with runs = c.after_runs, value = c.after %}{% include 'partials/_diff_runs.html' %}{% endwith %}{% endif %}</span>
-        {% endif %}
+        {{ pair(c, c.before, c.after, c.before_runs, c.after_runs) }}
         {% endif %}
 
         {# How far the change reached. An album-scoped field that moved
            everywhere reads "album" — one logical change; "all 18 tracks" would
-           invite the reader to go and check 18 things. Anything partial gets
-           the count, because that's where the album has no single answer. #}
+           invite the reader to go and check 18 things. Anything partial says
+           which part, because that's where the album has no single answer. A
+           row of per-track lines carries it on its first line instead. #}
+        {% if c.uniform or c.opaque %}
         <span class="tag-changes__reach">{{ c.reach }}</span>
+        {% endif %}
     </dd>
     {% endfor %}
 </dl>
-
-{# `compact` leaves the per-track disclosure out: the Inbox's lead rows are a
-   glimpse, and the full list beneath them carries it. #}
-{% set varied = changes | selectattr('variants') | list %}
-{% if varied and not compact|default(false) %}
-{# <details>, not a click handler toggling `hidden` — the native element brings
-   its own keyboard handling and disclosure semantics (web-ui rule 1). #}
-<details class="tag-changes__tracks">
-    <summary>Show which tracks</summary>
-    <table>
-        <thead>
-            <tr>
-                <th scope="col">#</th>
-                <th scope="col">Field</th>
-                <th scope="col">Before</th>
-                <th scope="col">After</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for c in varied %}
-            {% for v in c.variants %}
-            <tr>
-                <td class="tag-changes__num" title="{{ v.file }}">{{ v.position or '—' }}</td>
-                <td>{{ c.label }}</td>
-                <td>{% if v.before is none %}<span class="tag-changes__absent">—</span>{% elif c.is_id %}{{ id_value(c, v.before) }}{% else %}{{ v.before }}{% endif %}</td>
-                <td class="tag-changes__after">{% if v.after is none %}<span class="tag-changes__absent">removed</span>{% elif c.is_id %}{{ id_value(c, v.after) }}{% else %}{{ v.after }}{% endif %}</td>
-            </tr>
-            {% endfor %}
-            {% endfor %}
-        </tbody>
-    </table>
-</details>
-{% endif %}

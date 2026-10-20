@@ -918,7 +918,47 @@ def test_reach_counts_every_file_not_just_the_changed_ones(tmp_path):
     assert plan is not None
     rows = tag_history.from_plan(plan, album.path, sorted(album.path.glob("*.m4a")))
 
-    assert [(r.label, r.reach) for r in rows] == [("Title", "1 of 3 tracks")]
+    # Named rather than counted since #820, which it can only be while the
+    # total is larger than the changed files: with only those it reads "1 track".
+    assert [(r.label, r.reach) for r in rows] == [("Title", "track 2")]
+
+
+def test_a_planned_change_names_its_track_by_disc_and_position(tmp_path):
+    """#820: each per-track line of a waiting update is numbered as its History
+    record will be, disc and track, not by the file's place in the folder: the
+    first track of a second disc is "2-1", where file order called it "3"."""
+    from harmonist import tag_history
+
+    release = _release(tracks=2)
+    release["medium-list"].append(
+        {
+            "position": "2",
+            "format": "Digital Media",
+            "track-list": [
+                {
+                    "id": f"rt-{i:03d}",
+                    "position": str(i - 2),
+                    "title": f"Track {i}",
+                    "recording": {"id": f"rec-{i:03d}", "title": f"Track {i}"},
+                }
+                for i in (3, 4)
+            ],
+        }
+    )
+    album = _tagged(tmp_path, release, tracks=4)
+    retitled = copy.deepcopy(release)
+    retitled["medium-list"][0]["track-list"][1]["title"] = "Track 2 (edit)"
+    retitled["medium-list"][1]["track-list"][0]["title"] = "Track 3 (edit)"
+
+    plan = gardener.refresh_flag(album, retitled).plan
+    assert plan is not None
+    rows = tag_history.from_plan(plan, album.path, sorted(album.path.glob("*.m4a")))
+
+    title = next(r for r in rows if r.field == "title")
+    assert [(v.position, v.after) for v in title.variants] == [
+        ("1-2", "Track 2 (edit)"),
+        ("2-1", "Track 3 (edit)"),
+    ]
 
 
 def test_the_album_page_explains_an_update_the_comparison_cannot_show(engaged, monkeypatch):

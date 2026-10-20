@@ -1207,9 +1207,9 @@ button.library-update-option:focus-visible { background: var(--color-surface); c
 .tag-changes__after { color: var(--color-mb-purple); }
 .tag-changes__arrow { color: var(--color-muted); margin: 0 .35rem; }
 .tag-changes__absent { color: var(--color-muted); font-style: italic; }
-/* Stands in for the values on a row that has none to show: artwork (what
-   happened, not two sha256s that would swamp every row near it) and a field
-   whose files disagree (how many answers there are, not one track's). */
+/* Stands in for the values on a row that has none to show: artwork, which says
+   what happened rather than reciting two sha256s that would swamp every row
+   near it. */
 .tag-changes__opaque { color: var(--color-ink); }
 /* On a phone the label column alone is about as wide as the whole entry, which
    left the values a sliver to wrap into and ran them off the card (#708). So
@@ -1270,62 +1270,46 @@ button.library-update-option:focus-visible { background: var(--color-surface); c
   white-space: nowrap;
 }
 
-/* The per-track breakdown — the one part that DOES scale with the tracklist, so
-   it's the one part behind a disclosure. <details>, so the keyboard and
-   accessibility semantics come from the platform. */
-.tag-changes__tracks { margin-top: .4rem; }
-.tag-changes__tracks summary {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  cursor: pointer;
-  font-size: .68rem;
-  color: var(--color-accent);
-  list-style: none;
-  font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif);
-}
-.tag-changes__tracks summary::-webkit-details-marker { display: none; }
-/* Full size, not shrunk: at .7em the glyph rendered as an illegible speck that
-   read as a bullet rather than a disclosure arrow. */
-.tag-changes__tracks summary::before { content: "▸"; }
-.tag-changes__tracks[open] summary::before { content: "▾"; }
-.tag-changes__tracks table {
-  margin-top: .35rem;
-  border-collapse: collapse;
-  font-size: .72rem;
-  font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif);
-}
-.tag-changes__tracks th {
-  text-align: left;
-  font-size: .6rem;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  color: var(--color-muted);
-  font-weight: 700;
-  padding: .2rem .7rem .2rem 0;
-  border-bottom: 1px solid var(--color-line);
-}
-.tag-changes__tracks td {
-  padding: .18rem .7rem .18rem 0;
-  border-bottom: 1px solid var(--color-line);
-  vertical-align: baseline;
-  color: var(--color-ink);
-}
-.tag-changes__tracks tr:last-child td { border-bottom: 0; }
-/* Specificity, not repetition: `.tag-changes__tracks td` above is (0,2,1) and
-   would otherwise beat the (0,1,0) `.tag-changes__after`, so every new value in
-   the table rendered as plain ink while the same value rendered purple in the
-   field list two lines above it. */
-.tag-changes__tracks td.tag-changes__after { color: var(--color-mb-purple); }
-/* Track numbers line up as a column, so tabular figures. */
+/* A field whose tracks changed differently, one line per track under it (#820).
+   Each line lays out like a uniform row's value, so a pair reads the same in
+   either; the list takes the value cell's whole width. */
+.tag-changes__lines,
+.tag-changes__more { flex-basis: 100%; min-width: 0; }
+.tag-changes__lines { margin: 0; padding: 0; list-style: none; }
+/* The number and the pair are two columns, so a pair that wraps on a phone
+   stays to the right of its number rather than running back under it. */
+.tag-changes__line { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .4rem; align-items: baseline; }
+.tag-changes__pair { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 .1rem; min-width: 0; }
+/* Track numbers line up as a column, so tabular figures, and wide enough for a
+   two-digit track so the values beside them start together. */
 .tag-changes__num {
+  min-width: 1.4rem;
+  font-size: .68rem;
   font-variant-numeric: tabular-nums;
   color: var(--color-muted);
   text-align: right;
 }
+/* The rest of a long field's tracks, behind its own disclosure. <details>, so
+   the keyboard and accessibility semantics come from the platform. Indented to
+   the values, so it reads as part of the list rather than a new row. */
+.tag-changes__more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: 1.8rem;
+  cursor: pointer;
+  font-size: .68rem;
+  color: var(--color-accent);
+  list-style: none;
+}
+.tag-changes__more summary::-webkit-details-marker { display: none; }
+/* Full size, not shrunk: at .7em the glyph rendered as an illegible speck that
+   read as a bullet rather than a disclosure arrow. */
+.tag-changes__more summary::before { content: "▸"; }
+.tag-changes__more[open] summary::before { content: "▾"; }
 
 /* Additional info's tags (#634): literal tag names beside their values, headed
-   like the tag-changes table above. Names are printed as the files spell them —
+   in the uppercase, muted register of the tag-changes labels above. Names are printed as the files spell them —
    `QBZ:TID`, `AccurateRipResult` — so they read as keys, not as the Album
    section's field labels, which name what a tag means. Child combinators
    throughout: a row's odd-tracks popover holds a list of its own. */

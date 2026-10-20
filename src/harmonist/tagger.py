@@ -443,10 +443,12 @@ def plan_album(
     )
     changes: dict[Path, dict[str, list[Any]]] = {}
     supported: dict[Path, dict[str, frozenset[Any]]] = {}
+    positions: dict[Path, str | None] = {}
     for file_path, (medium, track_pos_in_medium, track) in prep.pairs:
         tagset = _build_tagset(
             release, medium, track_pos_in_medium, track, prep.media_total, tagging
         )
+        positions[file_path] = _tagset_position(tagset)
         supported[file_path] = _supported_spellings(
             release, medium, track_pos_in_medium, track, prep.media_total
         )
@@ -463,12 +465,14 @@ def plan_album(
         ):
             changes[file_path] = file_changes
     for path, target in prep.unassigned.items():
+        positions[path] = _history_position(target)
         if file_changes := owned.diff(formats.read_owned(path), target):
             changes[path] = file_changes
     return AlbumPlan(
         changes=changes,
         supported_spellings=supported,
         accepted_countries=prep.accepted_countries,
+        positions=positions,
     )
 
 
@@ -550,6 +554,10 @@ class AlbumPlan:
     )
     #: Every country the release names (#346), which no setting chooses between.
     accepted_countries: frozenset[str] = frozenset()
+    #: Per file, the position a tagging would record for it in History (#820),
+    #: so a waiting update numbers its tracks as the History entry it becomes
+    #: will, not by the files' order in the folder.
+    positions: Mapping[Path, str | None] = dataclasses.field(default_factory=dict)
 
     def is_second_spelling(self, field: str, before: object) -> bool:
         """Whether this entry is a value that was already right, not an update.
@@ -1067,11 +1075,16 @@ def _record_changes(
         changes=changes,
         track_ref=tagset.mb_release_track_id,
         rec_ref=tagset.mb_track_id,
-        position=(
-            f"{tagset.disc_num}-{tagset.track_num}"
-            if tagset.disc_total > 1
-            else str(tagset.track_num)
-        ),
+        position=_tagset_position(tagset),
+    )
+
+
+def _tagset_position(tagset: TagSet) -> str:
+    """Where a tagset puts its track, in tagging history's notation: "2-1" on a
+    multi-disc release, "7" otherwise. One function for the record a tagging
+    writes and the plan that previews it, so the two number a track alike."""
+    return (
+        f"{tagset.disc_num}-{tagset.track_num}" if tagset.disc_total > 1 else str(tagset.track_num)
     )
 
 

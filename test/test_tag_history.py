@@ -59,9 +59,9 @@ def test_reach_distinguishes_album_wide_from_partial_and_per_track():
     # A track-scoped field that moved everywhere did move on every track.
     assert _row(rows, "artist").reach == "all tracks"
     assert _row(rows, "artist").scope is Scope.TRACK
-    # Partial always gets the count, whatever the scope: this is the case where
-    # the album has no single answer.
-    assert _row(rows, "title").reach == "1 of 18 tracks"
+    # Partial always says which part, whatever the scope: this is the case where
+    # the album has no single answer. One track is named rather than counted.
+    assert _row(rows, "title").reach == "track 9"
 
 
 def test_a_folder_cover_in_a_tagging_is_named_not_counted():
@@ -132,27 +132,58 @@ def test_a_field_that_changed_differently_per_track_keeps_every_version():
     assert row.variants[0].position == "1"
 
 
-def test_a_field_whose_files_disagree_counts_the_answers_instead_of_picking_one():
+def test_a_field_whose_files_disagree_has_no_album_pair_to_emphasise():
     """#185: 38 tracks legitimately carry 38 different recording MBIDs, and
     printing the first one beside "all tracks" reads as though the whole album
-    got it. The reach can't take that back — it says the same thing whether the
-    value was the same on every track or different on every track."""
+    got it. Each track's own line carries its value instead (#820)."""
     records = _album(38, lambda i: {"mb_track_id": [None, f"mbid-{i}"]})
 
     row = _row(summarise(records), "mb_track_id")
 
-    assert row.varied_summary == "38 different values"
     assert row.reach == "all tracks"
-    # No emphasis runs either: there is no pair on show to emphasise.
     assert row.before_runs == () and row.after_runs == ()
 
 
-def test_the_answer_count_is_of_distinct_values_not_of_files():
-    """Four tracks that moved two different ways is two answers, not four —
-    the count says how many things happened, not how many files there were."""
-    records = _album(4, lambda i: {"artist": ["A", "X" if i < 3 else "Y"]})
+def test_each_tracks_line_marks_what_changed_within_its_value():
+    """#820: a compilation's mix names arriving on eight titles. Each track's
+    line is read on its own, so it gets the emphasis a uniform row's pair gets:
+    the added "(Patrice Bäumel mix)" is what the reader is looking for."""
+    records = _album(
+        2,
+        lambda i: {"title": [f"Song {i}", f"Song {i} (mix {i})"]},
+    )
 
-    assert _row(summarise(records), "artist").varied_summary == "2 different values"
+    variant = _row(summarise(records), "title").variants[0]
+
+    assert "".join(run.text for run in variant.after_runs) == "Song 1 (mix 1)"
+    assert [run.text for run in variant.after_runs if run.changed] == [" (mix 1)"]
+    assert "".join(run.text for run in variant.before_runs) == "Song 1"
+
+
+def test_an_id_tracks_line_is_named_not_emphasised():
+    """Two MusicBrainz ids differ in nearly every character, so emphasis on them
+    is noise; the row names them instead (#801), per track as for the album."""
+    records = _album(2, lambda i: {"mb_track_id": [f"old-{i}", f"new-{i}"]})
+
+    variant = _row(summarise(records), "mb_track_id").variants[0]
+
+    assert variant.before_runs == () and variant.after_runs == ()
+
+
+def test_a_partial_change_names_the_few_tracks_it_reached():
+    """#820: "Coma → COMA, 1 of 28 tracks" left the reader to find track 6. A
+    change that reached a handful of tracks names them; past that the count is
+    the readable form, and a change that differs per track numbers its own
+    lines, so its reach stays a count."""
+
+    def reach(changed: dict[int, list[str]], n: int = 28) -> str:
+        records = _album(n, lambda i: {"artist": changed[i]} if i in changed else {})
+        return _row(summarise(records), "artist").reach
+
+    assert reach({6: ["Coma", "COMA"]}) == "track 6"
+    assert reach({5: ["A", "B"], 6: ["A", "B"]}) == "tracks 5, 6"
+    assert reach({i: ["A", "B"] for i in (1, 2, 3, 4)}) == "4 of 28 tracks"
+    assert reach({5: ["A", "B"], 6: ["C", "D"]}) == "2 of 28 tracks"
 
 
 def test_a_uniform_field_still_shows_its_value():

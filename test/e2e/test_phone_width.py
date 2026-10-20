@@ -6,8 +6,7 @@ sideways. Whether a row wraps is decided by layout, which only a browser does;
 `test_web.py` sees the same class list either way.
 
 Scoped to the two rows rather than the whole page: the History field list (#708)
-and the per-track table behind "Show which tracks" still overflow on a phone, and
-a whole-page assertion would be measuring them.
+is not what this measures, and a whole-page assertion would be measuring it.
 """
 
 from __future__ import annotations

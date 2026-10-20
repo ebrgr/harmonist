@@ -44,8 +44,10 @@
         {% endif %}
         {% if album.update_lead %}
         {# Hidden while the full list is shown, which includes these. Compact
-           only when it is a glimpse: the whole list keeps its per-track
-           disclosure, since nothing else on the card carries it. #}
+           only when it is a glimpse, so a field whose tracks changed
+           differently shows one of them here; when the lead is the whole list
+           it shows as many as History would, since nothing else on the card
+           does. #}
         <div class="update-card__lead mt-1.5">
             {% with changes = album.update_lead, compact = not whole %}{% include 'partials/_tag_changes.html' %}{% endwith %}
         </div>

@@ -17,6 +17,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **A tag change that differs per track lists each track's value under its
+  field**, in History and the Inbox, instead of "N different values" (#820).
 - **The startup update check runs about five times faster**, pausing only while
   a page is being served (#793).
 - **An Inbox tag update's full change list opens with Show all / Show fewer**

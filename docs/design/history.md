@@ -63,11 +63,24 @@ already correct" is a different fact from "never ran", but it needs one line,
 not one per file.
 
 **The history is shown by field, not by file**: one row per field that changed,
-saying how far it reached ("all tracks", "3 of 18 tracks"). Nobody asks what
-happened to track 9; they ask what changed, and a per-file listing of an
-eighteen-track album buries the answer in near-identical rows. Where tracks
-disagree, the row shows the most common before-and-after *pair*, kept as a pair
-so the display can't invent a transition no track made.
+saying how far it reached ("all tracks", "track 9", "4 of 18 tracks"). Nobody
+asks what happened to track 9; they ask what changed, and a per-file listing of
+an eighteen-track album buries the answer in near-identical rows.
+
+**Where tracks disagree, no one value is the album's**, so the row lists each
+track's own before and after beneath the field instead of passing one track's
+off as the album's. Picking the commonest pair, or counting the distinct ones,
+were both tried: the first is a guess dressed as a fact, and the second (a count
+beside a count of tracks) said nothing about the change. The lines are capped
+per field, with the rest folded on that row, so a release switch that rewrites
+every recording ID still costs a few lines per field and the list's height stays
+bounded by its fields.
+
+The rejected alternative is grouping those changes by track, one entry per track
+listing the fields that moved. It tells some updates' story better (a track
+moved to a remix recording changes title, ISRC and recording together) but its
+height grows with the tracklist on a release switch, and it would set a second
+layout beside the field rows on every list.
 
 The records use the owned tags' names, which makes those names a permanent
 vocabulary: a record written today may name a field a later version has renamed.
