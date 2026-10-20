@@ -152,7 +152,7 @@ def test_an_offered_image_opens_full_size(browser_factory, reset_carousel_server
 
 
 def test_a_section_swap_does_not_scroll_the_page_in_webkit(
-    browser_factory, reset_carousel_server: str
+    browser_factory, reset_carousel_server: str, htmx_complete
 ) -> None:
     """WebKit scrolls the window, synchronously, when the section's form is
     replaced — tens of pixels, with nothing on the page changing size (#659).
@@ -167,16 +167,14 @@ def test_a_section_swap_does_not_scroll_the_page_in_webkit(
     page.wait_for_selector("#album-artwork .art-pick__picker")
     page.wait_for_function(SETTLED)
     page.locator("#album-artwork .art-pick__picker").scroll_into_view_if_needed()
-    page.evaluate("window.scrollBy(0, 200)")
-    page.wait_for_timeout(300)
+    page.evaluate("window.scrollBy({top: 200, behavior: 'instant'})")
     before = page.evaluate("scrollY")
 
-    page.evaluate(
-        """() => htmx.ajax('GET', location.pathname + '/artwork',
+    with htmx_complete(page, "album-artwork"):
+        page.evaluate(
+            """() => htmx.ajax('GET', location.pathname + '/artwork',
                               {target: '#album-artwork', swap: 'innerHTML settle:0ms'})"""
-    )
-    page.wait_for_timeout(500)
-    page.wait_for_function(SETTLED)
+        )
 
     assert page.evaluate("scrollY") == before
     page.context.close()
@@ -250,15 +248,19 @@ def test_a_late_archive_check_leaves_the_picker_where_it_was_moved(
     _browser, page = _open(browser_factory, reset_carousel_server)
     section = page.locator("#album-artwork")
     held = []
-    page.route("**/artwork?reread=1*", lambda route: held.append((route, route.fetch())))
+
+    def hold(route):
+        held.append((route, route.fetch()))
+        page.evaluate("window.__archiveHeld = true")
+
+    page.route("**/artwork?reread=1*", hold)
     page.locator('[hx-target="#album-artwork"][hx-get$="?reread=1"]').click()
     page.wait_for_function("() => document.querySelector('.htmx-request')")
 
     section.locator(".art-row").nth(1).locator(".art-row__select").click()
     section.get_by_role("checkbox", name="Front only").uncheck()
     section.get_by_role("button", name="Next image").click()  # 101 → 102, the back
-    while not held:
-        page.wait_for_timeout(50)
+    page.wait_for_function("window.__archiveHeld === true")
     route, response = held.pop()
     with page.expect_response(lambda r: "reread=1" in r.url):
         route.fulfill(response=response)

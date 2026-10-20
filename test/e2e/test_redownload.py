@@ -12,10 +12,6 @@ Playwright auto-dismisses unless a handler accepts it, and a dismissed confirm
 looks identical from the server's side to a button that never fired. So the
 assertion is on the request itself, not on the aftermath.
 
-Drives a browser via `sync_playwright()` opened per test, like every other module
-here — see test_release_gone.py for why mixing in the pytest-playwright `page`
-fixture kills the rest of the session.
-
 Runs LAST-ish by filename and in its own module so the module-scoped
 `demo_server` is its own process: this test genuinely deletes an album from the
 demo library, which is not a thing to hand to a neighbouring test.
@@ -82,8 +78,12 @@ def test_dismissing_the_dialog_posts_nothing(browser_factory, demo_server: str) 
 
     page.goto(f"{demo_server}/album/{UNTOUCHED_ALBUM_ID}")
     page.wait_for_load_state("networkidle")
-    page.get_by_role("button", name="Re-download").click()
-    page.wait_for_timeout(500)
+    with page.expect_event("dialog") as confirmation:
+        page.get_by_role("button", name="Re-download").click()
+    assert confirmation.value.type == "confirm"
+    # confirm() blocks the click handler until dismissal. Its return decides
+    # synchronously whether HTMX sends the write; the accepted case above is
+    # the positive control.
 
     assert not [u for u in posts if "redownload" in u]
     assert page.url.endswith(f"/album/{UNTOUCHED_ALBUM_ID}"), "still on the album page"

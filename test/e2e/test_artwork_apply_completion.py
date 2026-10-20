@@ -55,7 +55,8 @@ def test_slow_apply_blocks_competing_requests_and_refreshes_album(
     page.route("**/artwork/update", lambda route: held.append(route))
     requests = []
     page.on("request", lambda request: requests.append(request.url))
-    (top if primary else bottom).click()
+    with page.expect_request(lambda r: r.url.endswith("/artwork/update")):
+        (top if primary else bottom).click()
     pw.expect(page.locator(f"#tagging-{aid}")).to_be_visible()
     pw.expect(page.locator(f"#tagging-{aid}")).to_contain_text("Applying artwork…")
     pw.expect(page.locator("button:visible:enabled")).to_have_count(0)
@@ -65,15 +66,24 @@ def test_slow_apply_blocks_competing_requests_and_refreshes_album(
     pw.expect(bottom).to_have_text("Applying artwork…", use_inner_text=True, ignore_case=True)
     # Native clicks and programmatic submissions must not send a second
     # write, and a refresh must not become the latest artwork request.
-    page.evaluate(
+    blocked = page.evaluate(
         """id => {
+                const blocked = [];
+                const observe = event => {
+                    if (event.detail.requestConfig.path.includes('/artwork')) {
+                        blocked.push(event.defaultPrevented);
+                    }
+                };
+                document.addEventListener('htmx:beforeRequest', observe);
                 document.querySelectorAll('form[hx-post$="/artwork/update"]')
                     .forEach(form => form.requestSubmit());
                 htmx.ajax('GET', '/album/' + id + '/artwork', '#album-artwork');
+                document.removeEventListener('htmx:beforeRequest', observe);
+                return blocked;
             }""",
         aid,
     )
-    page.wait_for_timeout(100)
+    assert blocked and all(blocked), "a competing artwork request passed the busy guard"
     assert len([url for url in requests if "/artwork" in url]) == 1
     assert len(held) == 1
     route = held.pop()

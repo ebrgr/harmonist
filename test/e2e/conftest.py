@@ -8,6 +8,7 @@ Run via `make e2e`.
 from __future__ import annotations
 
 import itertools
+import json
 import os
 import re
 import shutil
@@ -19,6 +20,7 @@ import urllib.error
 import urllib.request
 import warnings
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +55,7 @@ def _browser_pool(playwright):
 
 
 @pytest.fixture
-def browser_factory(_browser_pool, _trace_on_failure, monkeypatch):
+def browser_factory(_browser_pool, _trace_on_failure, monkeypatch, request):
     """Reuse processes, but close every test's isolated contexts before tracing ends.
 
     Browser.new_page creates a fresh context, so cookies, storage, routes, clocks,
@@ -66,9 +68,14 @@ def browser_factory(_browser_pool, _trace_on_failure, monkeypatch):
         # A route.fetch callback can still be reading its response when the test
         # ends. Finish it before disposal; otherwise its error reaches the next
         # test through the shared driver. Removing routes also stops new work.
+        report = request.node.stash.get(_CALL_REPORT, None)
+        # A failed route callback can be the frame unwinding the test itself.
+        # Waiting for that frame here deadlocks. The failure is already reported;
+        # discard only subsequent disposal errors from its abandoned callbacks.
+        behavior = "ignoreErrors" if report is not None and report.failed else "wait"
         for page in self.pages:
-            page.unroute_all(behavior="wait")
-        self.unroute_all(behavior="wait")
+            page.unroute_all(behavior=behavior)
+        self.unroute_all(behavior=behavior)
         return close_context(self, *args, **kwargs)
 
     monkeypatch.setattr(playwright_sync.BrowserContext, "close", close)
@@ -173,6 +180,38 @@ def _trace_on_failure(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     report = request.node.stash.get(_CALL_REPORT, None)
     if report is not None and not report.failed:
         shutil.rmtree(out, ignore_errors=True)
+
+
+@pytest.fixture
+def htmx_complete():
+    """Arm a scoped lifecycle observation before the action that must complete."""
+
+    @contextmanager
+    def observe(page, target: str, event: str = "htmx:afterSettle"):
+        completed = page.evaluate_handle(
+            """([target, event]) => {
+                const state = {done: false, xhr: null};
+                const started = e => {
+                    if (e.detail.target?.id !== target || state.xhr) return;
+                    state.xhr = e.detail.xhr;
+                    document.removeEventListener('htmx:beforeRequest', started);
+                };
+                const listener = e => {
+                    if (!state.xhr || e.detail.xhr !== state.xhr) return;
+                    state.done = true;
+                    document.removeEventListener(event, listener);
+                };
+                document.addEventListener('htmx:beforeRequest', started);
+                document.addEventListener(event, listener);
+                return state;
+            }""",
+            [target, event],
+        )
+        yield
+        page.wait_for_function("state => state.done", arg=completed, timeout=10_000)
+        completed.dispose()
+
+    return observe
 
 
 @pytest.fixture
@@ -475,6 +514,20 @@ def _reset_demo_library(base: str) -> None:
     )
     deadline = time.monotonic() + 30
     while True:
+        # A rejected POST still schedules a scan. Repeating it while busy
+        # perpetually restarts the work reset is waiting for. Observe readiness
+        # through the read-only endpoint before each attempt instead.
+        while time.monotonic() < deadline:
+            with urllib.request.urlopen(f"{base}/status", timeout=10) as response:
+                status = json.load(response)
+            if (
+                status["sync"]["state"] != "running"
+                and status["reconcile"]["state"] != "running"
+                and status["scan"]["state"] != "scanning"
+            ):
+                break
+        else:
+            pytest.fail(f"demo remained busy before reset: {status}")
         try:
             with urllib.request.urlopen(req, timeout=30):
                 break
@@ -484,12 +537,10 @@ def _reset_demo_library(base: str) -> None:
             if error.code != 409 or time.monotonic() >= deadline:
                 raise
             error.close()
-            time.sleep(0.1)
     # The reset kicks a rescan; the Library is empty until it lands.
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         with urllib.request.urlopen(f"{base}/library", timeout=10) as r:
             if 'data-total-done="0"' not in r.read().decode():
                 return
-        time.sleep(0.5)
     pytest.fail("demo library did not re-seed with terminal albums")

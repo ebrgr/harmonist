@@ -21,7 +21,9 @@ pytestmark = pytest.mark.skipif(
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
 
-def test_loading_older_activity_survives_the_poll(browser_factory, demo_server: str) -> None:
+def test_loading_older_activity_survives_the_poll(
+    browser_factory, demo_server: str, htmx_complete
+) -> None:
     """#14: paging and a 2s poll are in direct conflict — the poll replaces the
     whole container, so without pausing it, the pages you just loaded are
     discarded a second or two later, mid-read.
@@ -30,6 +32,7 @@ def test_loading_older_activity_survives_the_poll(browser_factory, demo_server: 
     """
     browser = browser_factory("chromium")
     page = browser.new_page()
+    page.clock.install()
     page.goto(demo_server)
     page.click('[data-tab="activity"]')
 
@@ -61,15 +64,26 @@ def test_loading_older_activity_survives_the_poll(browser_factory, demo_server: 
     page.evaluate("window.harmonistFeedPaged = false")
     page.evaluate("document.getElementById('feed-version').dataset.version = 'stale'")
     page.evaluate(add_sentinel)
-    page.wait_for_timeout(4500)
+    with htmx_complete(page, "activity-feed"):
+        page.clock.run_for(2100)
     assert page.locator("#paged-sentinel").count() == 0, (
         "no poll swapped — the rest of this test would be vacuous"
     )
 
     # The real assertion: once paged, the poll is paused and content stays.
     page.evaluate("window.harmonistFeedPaged = true")
+    page.evaluate(
+        """() => {
+            document.getElementById('feed-version').dataset.version = 'stale';
+            window.__feedRequests = 0;
+            document.addEventListener('htmx:beforeRequest', e => {
+                if (e.detail.target.id === 'activity-feed') window.__feedRequests++;
+            });
+        }"""
+    )
     page.evaluate(add_sentinel)
-    page.wait_for_timeout(4500)
+    page.clock.run_for(4500)
+    assert page.evaluate("window.__feedRequests") == 0, "paging did not pause the live poll"
     assert page.locator("#paged-sentinel").count() == 1, (
         "a poll discarded the pages that had been loaded"
     )
@@ -77,43 +91,9 @@ def test_loading_older_activity_survives_the_poll(browser_factory, demo_server: 
     page.context.close()
 
 
-# Start watching: stash the pill node, and arm a watcher on the runner states.
-# A runner changing state is the one thing that legitimately rewrites the bar —
-# a running sync, reconcile or scan OUTRANKS the action flash (see the priority
-# order in index.html), so a dir-watcher rescan starting mid-window swaps the
-# flash out for "Scanning…" and back, and the restored flash is a new node with
-# identical markup. That is the display working as designed, and it is
-# indistinguishable from the #93 flicker by node identity alone — so measure
-# only across windows where nothing moved, and say so when nothing moved.
-#
-# Watch the three runner-state attributes and nothing else. #app-status is the
-# element that ISSUES the 1.5s poll, so htmx puts `htmx-request` on it and takes
-# it off again every cycle — an unfiltered observer reports that as churn and
-# never sees a quiet window. And compare oldValue, because the poll re-assigns
-# all three dataset attributes every time: assigning an identical value still
-# raises a mutation record.
-_ARM_WATCH = """
-    window.__pill = document.querySelector('#harmonist-status').firstElementChild;
-    window.__opsMoved = false;
-    const app = document.querySelector('#app-status');
-    new MutationObserver(function (records) {
-        for (const r of records) {
-            if (r.oldValue !== app.getAttribute(r.attributeName)) window.__opsMoved = true;
-        }
-    }).observe(app, {
-        attributes: true,
-        attributeOldValue: true,
-        attributeFilter: ['data-sync', 'data-reconcile', 'data-scan'],
-    });
-"""
-
-_READ_WATCH = """[
-    window.__opsMoved,
-    document.querySelector('#harmonist-status').firstElementChild === window.__pill,
-]"""
-
-
-def test_status_pill_is_not_rebuilt_when_unchanged(browser_factory, demo_server: str) -> None:
+def test_status_pill_is_not_rebuilt_when_unchanged(
+    browser_factory, demo_server: str, htmx_complete
+) -> None:
     """#93: the header status pill must not be re-rendered on every 1.5s poll.
 
     `renderStatus()` assigned innerHTML unconditionally, which destroys and
@@ -124,7 +104,21 @@ def test_status_pill_is_not_rebuilt_when_unchanged(browser_factory, demo_server:
     """
     browser = browser_factory("chromium")
     page = browser.new_page()
+    page.clock.install()
+    # Hold the inputs constant: a real background job changing state SHOULD
+    # replace the pill, which made a timed quiet-window assertion ambiguous.
+    page.route(
+        "**/status",
+        lambda route: route.fulfill(
+            json={
+                "sync": {"state": "idle"},
+                "reconcile": {"state": "idle"},
+                "scan": {"state": "done", "seq": 1},
+            }
+        ),
+    )
     page.goto(demo_server)
+    page.wait_for_function("document.getElementById('app-status').dataset.sync === 'idle'")
 
     # Fire the event the action routes emit, so a pill exists to watch.
     page.evaluate(
@@ -134,21 +128,19 @@ def test_status_pill_is_not_rebuilt_when_unchanged(browser_factory, demo_server:
     pill = page.locator("#harmonist-status > *").first
     pill.wait_for(state="attached")
 
-    for _ in range(4):
-        page.evaluate(_ARM_WATCH)
-        page.wait_for_timeout(3500)  # more than two 1.5s status polls
-        ops_moved, same_node = page.evaluate(_READ_WATCH)
-        if not ops_moved:
-            assert same_node, "the status pill was rebuilt despite unchanged content"
-            break
-    else:
-        pytest.skip("no quiet 3.5s window — a background runner kept changing state")
+    page.evaluate("window.__pill = document.querySelector('#harmonist-status').firstElementChild")
+    for _ in range(2):
+        with htmx_complete(page, "app-status"):
+            page.clock.run_for(1500)
+        assert page.evaluate(
+            "document.querySelector('#harmonist-status').firstElementChild === window.__pill"
+        ), "the status pill was rebuilt despite unchanged content"
 
     page.context.close()
 
 
 def test_feed_poll_patches_the_dom_instead_of_rebuilding_it(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     """#91: the 2s re-poll must morph, not replace.
 
@@ -163,6 +155,7 @@ def test_feed_poll_patches_the_dom_instead_of_rebuilding_it(
     """
     browser = browser_factory("chromium")
     page = browser.new_page()
+    page.clock.install()
     page.goto(demo_server)
     page.click('[data-tab="activity"]')
 
@@ -170,8 +163,10 @@ def test_feed_poll_patches_the_dom_instead_of_rebuilding_it(
     row.wait_for(state="visible")
     page.evaluate("window.__firstRow = document.querySelector('#activity-feed li')")
 
-    # Wait for at least one poll cycle (2s) to land.
-    page.wait_for_timeout(3000)
+    # Force an actual morph: a 204 response cannot prove node preservation.
+    page.evaluate("document.getElementById('feed-version').dataset.version = 'stale'")
+    with htmx_complete(page, "activity-feed"):
+        page.clock.run_for(2100)
 
     same_node = page.evaluate("document.querySelector('#activity-feed li') === window.__firstRow")
     assert same_node, "the feed rebuilt its rows instead of morphing them"
@@ -217,22 +212,30 @@ def test_the_polling_feed_is_never_dimmed_by_its_own_poll(
     page.context.close()
 
 
-def test_an_idle_feed_stops_re_sending_itself(browser_factory, demo_server: str) -> None:
+def test_an_idle_feed_stops_re_sending_itself(
+    browser_factory, demo_server: str, htmx_complete
+) -> None:
     """#118: the poll carries the version already on screen and the server
     answers 204, so an idle feed transfers nothing. Measured through the browser
     because it's the real poll — hx-vals reads the version out of the DOM."""
     browser = browser_factory("chromium")
     page = browser.new_page()
+    page.clock.install()
     page.goto(demo_server)
     page.click('[data-tab="activity"]')
     page.locator("#activity-feed li").first.wait_for(state="visible")
 
     codes: list[int] = []
-    page.on(
-        "response",
-        lambda r: codes.append(r.status) if "/activity" in r.url else None,
-    )
-    page.wait_for_timeout(7000)  # ~3 polls
+    for _ in range(10):
+        with (
+            htmx_complete(page, "activity-feed", "htmx:afterRequest"),
+            page.expect_response(lambda r: "/activity" in r.url) as polled,
+        ):
+            page.clock.run_for(2100)
+        codes.append(polled.value.status)
+        if codes[-1] == 204:
+            break
+        page.wait_for_function("() => !document.querySelector('#activity-feed.htmx-settling')")
 
     # NOT `all(...)`: demo start-up is still settling (a scan and reconcile
     # both write entries), and a poll that lands while something genuinely
@@ -246,7 +249,7 @@ def test_an_idle_feed_stops_re_sending_itself(browser_factory, demo_server: str)
 
 
 def test_show_details_checkbox_actually_reveals_the_audit_rows(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     """#123: the toggle's whole job. Only a browser exercises the real path —
     the checkbox sets a window flag, dispatches `refresh-feed`, and hx-vals reads
@@ -254,20 +257,41 @@ def test_show_details_checkbox_actually_reveals_the_audit_rows(
     and prove nothing about whether the control is wired to it."""
     browser = browser_factory("chromium")
     page = browser.new_page()
+    page.clock.install()
     page.goto(demo_server)
     # A sync gives the demo some audit rows to actually reveal.
+    # Pause incidental feed refreshes while preparing those rows. An older
+    # response must not overwrite the stale version used by the explicit
+    # refresh below; a queued refresh would then return 204 instead of swapping.
+    page.evaluate("window.harmonistFeedPaged = true")
+    previous = page.request.get(f"{demo_server}/status").json()["sync"]["finished_at"]
     page.click("#sync-button")
+    with page.expect_response(
+        lambda r: (
+            r.url.endswith("/status") and r.json()["sync"]["finished_at"] not in (None, previous)
+        )
+    ):
+        page.clock.run_for(1500)
     page.click('[data-tab="activity"]')
     page.locator("#activity-feed li").first.wait_for(state="visible")
-    page.wait_for_timeout(6000)  # let the demo sync finish writing
+    page.wait_for_function(
+        "() => !document.querySelector('#activity-feed.htmx-request, #activity-feed.htmx-settling')"
+    )
+    with htmx_complete(page, "activity-feed"):
+        page.evaluate(
+            """() => {
+                document.getElementById('feed-version').dataset.version = 'stale';
+                htmx.trigger(document.body, 'refresh-feed');
+            }"""
+        )
 
     box = page.locator("#activity-feed input[type=checkbox]")
     box.wait_for(state="visible")
     assert not box.is_checked(), "details should start off in the feed"
     before = page.locator("#activity-list li").count()
 
-    box.check()
-    page.wait_for_timeout(1500)
+    with htmx_complete(page, "activity-feed"):
+        box.check()
     after = page.locator("#activity-list li").count()
 
     assert after > before, f"checking Show details revealed nothing ({before} -> {after})"
@@ -298,8 +322,7 @@ def test_album_history_details_toggle_hides_the_audit_rows(
     full_count = page.locator(".album-history__count-full").inner_text()
 
     box.uncheck()
-    page.wait_for_timeout(200)
-    assert not audit_rows.first.is_visible(), "unchecking left the audit rows visible"
+    playwright_sync.expect(audit_rows.first).to_be_hidden()
     # The heading switches to the plain-only count, and it really is different.
     brief_count = page.locator(".album-history__count-brief").inner_text()
     assert page.locator(".album-history__count-brief").is_visible()

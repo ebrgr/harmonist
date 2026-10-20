@@ -6,13 +6,9 @@ placed it in the right elements — or whether those elements exist on the page 
 all. A typo in an id produces a perfectly correct-looking response that lands
 nowhere.
 
-Drives a browser the same way every other module here does — `sync_playwright()`
-opened per test — rather than through the pytest-playwright plugin's `page`
-fixture. Mixing the two is fatal to the run: the plugin leaves an event loop
-running for the rest of the session, and the next module to open its own
-`sync_playwright()` dies on "Sync API inside the asyncio loop" before its first
-line. That cost the three sync-popover tests, which are only guilty of sorting
-after this file.
+Uses the shared browser_factory and a fresh context, like the rest of the suite.
+Do not open a second sync_playwright session inside a test: the session fixture
+already owns the worker's event loop.
 """
 
 from __future__ import annotations

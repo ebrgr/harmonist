@@ -513,12 +513,12 @@ def test_failed_partial_confirmation_preserves_review_during_inbox_refresh(
         response = route.fetch()
         # Queue the normal Inbox refresh while acceptance is in flight.
         page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
-        page.wait_for_timeout(100)
         pw.expect(editor.locator('[name="disk_order"]')).to_have_value(before)
         route.fulfill(response=response)
 
     page.route(f"**/confirm/{aid}/accept", poll_during_accept)
-    accept.click()
+    with page.expect_response(lambda r: r.url.endswith("/tasks")):
+        accept.click()
     pw.expect(editor.get_by_role("alert")).to_contain_text("Refresh the comparison")
     pw.expect(accept).to_be_enabled()
     pw.expect(accept).to_have_css("opacity", "1")

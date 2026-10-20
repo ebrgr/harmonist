@@ -10,10 +10,6 @@ The id is derived from a content digest and truncated to twelve characters, so
 "does this button reach its own image" is a real question here rather than a
 formality: the folder cover appears on the incoming side of every replaced row,
 and it is rendered once and pointed at from each of them.
-
-Drives a browser via `sync_playwright()` opened per test, like every other
-module here — see test_release_gone.py for why mixing in the pytest-playwright
-`page` fixture kills the rest of the session.
 """
 
 from __future__ import annotations

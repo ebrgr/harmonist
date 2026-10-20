@@ -53,15 +53,6 @@ def _sync_post_body(page: Any, *, open_popover: bool, toggle: bool) -> str:
     and return the body POSTed to /sync."""
     # Only /sync's: the Inbox posts too, and a card's POST landing after the
     # sync's would otherwise be read as the sync (#832).
-    bodies: list[str] = []
-    page.on(
-        "request",
-        lambda r: (
-            bodies.append(r.post_data or "")
-            if r.method == "POST" and urlsplit(r.url).path == "/sync"
-            else None
-        ),
-    )
     button = page.locator("#sync-button")
     button.wait_for(state="visible")
     if open_popover:
@@ -69,10 +60,11 @@ def _sync_post_body(page: Any, *, open_popover: bool, toggle: bool) -> str:
         page.locator("#sync-popover").wait_for(state="visible", timeout=3000)
         if toggle:
             page.locator("#sync-link-only").click()
-    button.click()
-    page.wait_for_timeout(800)
-    assert bodies, "Sync posted nothing"
-    return bodies[-1]
+    with page.expect_request(
+        lambda r: r.method == "POST" and urlsplit(r.url).path == "/sync"
+    ) as sent:
+        button.click()
+    return sent.value.post_data or ""
 
 
 def test_untouched_popover_leaves_link_only_to_the_server(
@@ -136,7 +128,7 @@ def test_popover_cannot_open_over_a_disabled_sync_button(browser_factory, demo_s
     button.evaluate("b => b.disabled = true")
 
     button.hover(force=True)
-    page.wait_for_timeout(500)  # let any hover transition settle
+    assert button.evaluate("b => b.matches(':hover')")
     assert button.is_disabled(), "poll re-enabled the button; the assertion below is moot"
     assert not page.locator("#sync-popover").is_visible()
 
@@ -161,7 +153,7 @@ def test_settings_page_ships_a_disabled_button_and_a_shut_popover(
     assert button.is_disabled()
 
     button.hover(force=True)  # force: a disabled button swallows real hovers
-    page.wait_for_timeout(500)
+    assert button.evaluate("b => b.matches(':hover')")
     assert not page.locator("#sync-popover").is_visible()
 
     page.context.close()

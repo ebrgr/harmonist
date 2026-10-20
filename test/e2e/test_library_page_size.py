@@ -68,7 +68,7 @@ def test_choosing_a_size_swaps_in_place_and_names_the_resolved_page(
 
 
 def test_a_submitted_size_does_not_fall_back_to_a_page_load(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     """The regression: HTMX must own the form's `submit`, not just its `change`.
 
@@ -82,8 +82,12 @@ def test_a_submitted_size_does_not_fall_back_to_a_page_load(
     page = browser.new_page()
     _open_library_page_two(page, demo_server)
 
-    page.eval_on_selector("#library-limit", "s => { s.value = '20'; s.form.requestSubmit(); }")
-    page.wait_for_timeout(1000)  # long enough for a navigation to have landed
+    with htmx_complete(page, "library-rows"):
+        with page.expect_response(lambda r: "limit=20" in r.url) as submitted:
+            page.eval_on_selector(
+                "#library-limit", "s => { s.value = '20'; s.form.requestSubmit(); }"
+            )
+        assert not submitted.value.request.is_navigation_request(), "native form submission"
 
     assert page.evaluate("window.__harmonistNoReload === true"), (
         "the submit navigated instead of letting HTMX swap"

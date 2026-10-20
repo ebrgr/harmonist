@@ -35,36 +35,34 @@ def _flash(page: Any, verb: str, level: str) -> None:
     )
 
 
-def _open(browser_factory: Any, base: str, sync: dict[str, Any]) -> tuple[Any, Any, list[int]]:
-    """A page whose /status reports `sync` (updated in place by the caller), and
-    a list that grows by one per poll answered."""
+def _open(browser_factory: Any, base: str, sync: dict[str, Any]) -> Any:
+    """A page whose /status reports `sync`, updated in place by the caller."""
     browser = browser_factory("chromium")
     page = browser.new_page()
     page.clock.install()
-    polls: list[int] = []
 
     def status(route: Any) -> None:
         data = route.fetch().json()
         data["sync"].update(sync)
-        polls.append(1)
         route.fulfill(json=data)
 
     page.route("**/status", status)
     page.goto(base)
     page.wait_for_function("() => document.getElementById('app-status').dataset.sync")
-    return browser, page, polls
+    page.wait_for_function(
+        "() => !document.querySelector('#app-status.htmx-request, #app-status.htmx-settling')"
+    )
+    return page
 
 
-def _await_polls(page: Any, polls: list[int], n: int) -> None:
-    target = len(polls) + n
-    while len(polls) < target:
-        page.wait_for_timeout(100)
-    # The last answer's swap and its handler run after the route returns.
-    page.wait_for_timeout(200)
+def _await_polls(page: Any, htmx_complete: Any, n: int) -> None:
+    for _ in range(n):
+        with htmx_complete(page, "app-status"):
+            page.clock.run_for(1500)
 
 
 def test_a_report_clears_itself_and_an_error_stays(browser_factory, demo_server: str) -> None:
-    _browser, page, _ = _open(browser_factory, demo_server, {})
+    page = _open(browser_factory, demo_server, {})
     bar = page.locator("#harmonist-status")
 
     _flash(page, "Re-tagged", "info")
@@ -79,37 +77,37 @@ def test_a_report_clears_itself_and_an_error_stays(browser_factory, demo_server:
 
 
 def test_last_sync_is_set_when_a_sync_ends_not_on_every_poll(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     finished = {"state": "idle", "finished_at": "2026-10-20T09:00:00+00:00", "new_items": 2}
-    _browser, page, polls = _open(browser_factory, demo_server, finished)
+    page = _open(browser_factory, demo_server, finished)
     bar = page.locator("#harmonist-status")
 
     # A sync that ended before the page opened is not news on it.
-    _await_polls(page, polls, 2)
+    _await_polls(page, htmx_complete, 2)
     pw.expect(bar).not_to_contain_text("Last sync")
 
     # Nor does it replace a newer line on the next poll.
     _flash(page, "Re-tagged", "info")
-    _await_polls(page, polls, 2)
+    _await_polls(page, htmx_complete, 2)
     pw.expect(bar).to_contain_text("Re-tagged")
 
     # A sync ending while the page is open is.
     finished["finished_at"] = "2026-10-20T09:05:00+00:00"
-    _await_polls(page, polls, 1)
+    _await_polls(page, htmx_complete, 1)
     pw.expect(bar).to_contain_text("Last sync")
     pw.expect(bar).to_contain_text("2 new")
     page.context.close()
 
 
-def test_a_failed_sync_stays(browser_factory, demo_server: str) -> None:
+def test_a_failed_sync_stays(browser_factory, demo_server: str, htmx_complete) -> None:
     sync = {"state": "idle", "finished_at": None, "last_error": None}
-    _browser, page, polls = _open(browser_factory, demo_server, sync)
+    page = _open(browser_factory, demo_server, sync)
     bar = page.locator("#harmonist-status")
-    _await_polls(page, polls, 1)
+    _await_polls(page, htmx_complete, 1)
 
     sync.update(finished_at="2026-10-20T09:05:00+00:00", last_error="Bandcamp said no")
-    _await_polls(page, polls, 1)
+    _await_polls(page, htmx_complete, 1)
     pw.expect(bar).to_contain_text("Sync failed")
     page.clock.run_for(_LONG_AFTER_MS)
     pw.expect(bar).to_contain_text("Bandcamp said no")

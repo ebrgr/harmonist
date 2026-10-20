@@ -11,10 +11,6 @@ section instead.
 are in the response. It cannot say the selector finds anything, which is the
 whole question — a control that silently does nothing is the #40 bug class, and
 #40 shipped with a green suite and 91% coverage.
-
-Drives a browser via `sync_playwright()` opened per test, like every other module
-here — see test_release_gone.py for why mixing in the pytest-playwright `page`
-fixture kills the rest of the session.
 """
 
 from __future__ import annotations

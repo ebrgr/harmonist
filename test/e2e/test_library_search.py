@@ -48,7 +48,7 @@ def _open_library(page: Any, base: str, query: str = "") -> None:
 
 
 def test_a_background_refresh_does_not_eat_a_half_typed_query(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     """The grid re-requests itself whenever a scan or sync finishes. Someone
     mid-word when that lands must not have their query replaced by the last one
@@ -61,9 +61,8 @@ def test_a_background_refresh_does_not_eat_a_half_typed_query(
     _open_library(page, demo_server, "&q=blues")
     page.fill("#library-search", "half-typed quer")
 
-    page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
-    # Long enough for the swap to have landed and settled.
-    page.wait_for_timeout(1200)
+    with htmx_complete(page, "library-rows"):
+        page.evaluate("document.body.dispatchEvent(new Event('library-refresh'))")
 
     assert page.input_value("#library-search") == "half-typed quer", (
         "the background refresh reverted the box to the submitted query"
@@ -74,7 +73,7 @@ def test_a_background_refresh_does_not_eat_a_half_typed_query(
 
 
 def test_a_submitted_search_does_not_fall_back_to_a_page_load(
-    browser_factory, demo_server: str
+    browser_factory, demo_server: str, htmx_complete
 ) -> None:
     """The #144 regression class, on a second form. Driven through
     `requestSubmit()` rather than an Enter key press: it raises the same submit
@@ -86,8 +85,10 @@ def test_a_submitted_search_does_not_fall_back_to_a_page_load(
     _open_library(page, demo_server)
 
     page.fill("#library-search", "blues")
-    page.eval_on_selector("#library-search", "i => i.form.requestSubmit()")
-    page.wait_for_timeout(1200)  # long enough for a navigation to have landed
+    with htmx_complete(page, "library-rows"):
+        with page.expect_response(lambda r: "q=blues" in r.url) as submitted:
+            page.eval_on_selector("#library-search", "i => i.form.requestSubmit()")
+        assert not submitted.value.request.is_navigation_request(), "native form submission"
 
     assert page.evaluate("window.__harmonistNoReload === true"), (
         "the submit navigated instead of letting HTMX swap"
