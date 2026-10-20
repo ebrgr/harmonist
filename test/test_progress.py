@@ -6,6 +6,7 @@ job and the closing line of the last one to finish, and the bar renders them.
 
 from __future__ import annotations
 
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -42,9 +43,65 @@ def test_a_job_is_listed_with_its_progress_while_it_runs():
     assert _running() == []
 
 
+def _in_thread(label: str, started: threading.Event, stop: threading.Event) -> threading.Thread:
+    """A job on its own thread, as independent jobs run."""
+
+    def run() -> None:
+        with progress.job(label, total=1, foreground=True):
+            started.set()
+            stop.wait(5)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert started.wait(5)
+    return thread
+
+
 def test_jobs_are_listed_in_the_order_they_started():
-    with progress.job("First", total=1), progress.job("Second", total=2):
+    stop = threading.Event()
+    first = _in_thread("First", threading.Event(), stop)
+    second = _in_thread("Second", threading.Event(), stop)
+    try:
         assert [label for label, _, _ in _running()] == ["First", "Second"]
+    finally:
+        stop.set()
+        first.join(5)
+        second.join(5)
+
+
+def test_a_job_started_inside_another_is_shown_as_its_step():
+    """Applying updates writes each album's tags as a Tagging job of its own:
+    the bar shows the album count with that album's tracks, not the tracks
+    alone with the count hidden behind them."""
+    with progress.job("Applying updates", total=3) as outer:
+        outer.item = "Rawhide"
+        with progress.job("Tagging", total=12, foreground=True) as inner:
+            inner.advance(2)
+            jobs = progress.status()["jobs"]
+        after = progress.status()["jobs"]
+
+    assert jobs == [
+        {
+            "label": "Applying updates",
+            "done": 0,
+            "total": 3,
+            "item": "Rawhide",
+            "foreground": True,
+            "step": {"label": "Tagging", "done": 2, "total": 12},
+        }
+    ]
+    assert after == [{"label": "Applying updates", "done": 0, "total": 3, "item": "Rawhide"}]
+
+
+def test_a_job_on_another_thread_is_not_a_step():
+    stop = threading.Event()
+    with progress.job("Applying updates", total=3):
+        other = _in_thread("Tagging", threading.Event(), stop)
+        try:
+            assert [label for label, _, _ in _running()] == ["Applying updates", "Tagging"]
+        finally:
+            stop.set()
+            other.join(5)
 
 
 def test_a_finished_job_leaves_its_closing_line_and_a_new_one_replaces_it():

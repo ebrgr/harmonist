@@ -21,6 +21,8 @@ versions follow [semantic versioning](https://semver.org).
 - **Inbox tag update cards are more compact**: the artist sits beside the
   title, the cover is larger, and up to three changes show without a Show all
   (#811).
+- **The status bar names the album an update pass is writing** and counts
+  its tracks: "Applying updates 2/5 · Rawhide · track 3/12" (#815).
 - **A collaboration's artists stored as one `/`-joined value rank as
   Enrichment**, not Identity, when written out as the same artists and IDs
   (#804).

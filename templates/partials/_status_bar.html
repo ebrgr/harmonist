@@ -323,13 +323,20 @@
         // The oldest running job, with a count of any others. A closing line is
         // shown only when it lands while the page is open: the first poll just
         // records where things stand, as the scan counter above does.
+        //
+        // A job's step is the job running inside it (#815), the tracks of the
+        // album it names: "1/5 · Rawhide · track 3/12". The job counts what it
+        // has done, as every job does; "track 3" names the track being written.
         const progress = data.progress || {jobs: [], finished: null};
         writeDisplay = null;
         if (progress.jobs.length) {
             const job = progress.jobs.find(job => job.foreground) || progress.jobs[0];
             const more = progress.jobs.length > 1 ? ` · ${progress.jobs.length - 1} more` : '';
             const item = job.item ? ` · ${esc(job.item)}` : '';
-            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${item}${more}`;
+            const step = job.step
+                ? ` · track ${Math.min(job.step.done + 1, job.step.total).toLocaleString()}/${job.step.total.toLocaleString()}`
+                : '';
+            const prog = `${job.done.toLocaleString()}/${job.total.toLocaleString()}${item}${step}${more}`;
             const pill = `<span class="px-3 py-0.5 bg-mb-purple/15 text-mb-purple border border-mb-purple/40 rounded-full font-bold text-xs">${esc(job.label)}</span>`;
             jobDisplay = pill + `<span class="ml-2 min-w-0 break-words text-slate-300">${prog}</span>`;
             if (job.foreground) writeDisplay = jobDisplay;

@@ -262,6 +262,34 @@ def test_the_pass_shows_in_the_status_bar_and_says_what_it_did(tmp_path, monkeyp
     assert (finished["label"], finished["message"]) == ("Applying updates", "1 album updated")
 
 
+def test_the_pass_names_the_album_it_is_writing_with_its_tracks(tmp_path, monkeypatch):
+    album = _flagged(tmp_path, _catalogued())
+    _no_musicbrainz(monkeypatch)
+    seen = []
+    original = formats.write_tags
+
+    def writing(path, *args, **kwargs):
+        seen.append(progress.status()["jobs"])
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(formats, "write_tags", writing)
+
+    auto_apply.apply_due(
+        [album], _cfg(tmp_path, apply_up_to=S.ENRICHMENT), PicardCompatibleTagger(), {}
+    )
+
+    assert seen[0] == [
+        {
+            "label": "Applying updates",
+            "done": 0,
+            "total": 1,
+            "item": album.label,
+            "foreground": True,
+            "step": {"label": "Tagging", "done": 0, "total": len(seen)},
+        }
+    ]
+
+
 # ---- routing ----------------------------------------------------------------
 
 

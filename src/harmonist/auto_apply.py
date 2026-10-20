@@ -125,7 +125,8 @@ def apply_due(
             return PassResult(applied=0, held=0)
         applied = held = 0
         with progress.job("Applying updates", total=len(todo)) as job:
-            for album in todo:
+            # Named, so the bar says which album its tracks belong to (#815).
+            for album in job.items(todo, lambda a: a.label):
                 try:
                     if _apply_one(album, cfg, tagger):
                         applied += 1
@@ -134,7 +135,6 @@ def apply_due(
                 finally:
                     if on_processed is not None:
                         on_processed(album)
-                job.advance()
             job.closing = _summary(applied, held)
         log.info("auto-apply: %d album(s) updated, %d held for review", applied, held)
         return PassResult(applied=applied, held=held)

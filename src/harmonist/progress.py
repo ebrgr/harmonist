@@ -21,6 +21,7 @@ import itertools
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +37,8 @@ class Job:
     #: the job, which knows its result; left unset when it fails, so a failure
     #: never reads as a result.
     closing: str | None = None
+    #: The job this one runs inside, if any (`_enclosing`).
+    parent: Job | None = None
 
     def advance(self, n: int = 1) -> None:
         with _lock:
@@ -62,11 +65,18 @@ _finished: dict[str, Any] | None = None
 _seq = itertools.count(1)
 
 
+#: The job this context is running inside, so a job started within another is
+#: shown as its step (#815): an album's Tagging inside Applying updates. A
+#: ContextVar, so a job on another thread is never mistaken for a step.
+_enclosing: ContextVar[Job | None] = ContextVar("progress_enclosing", default=None)
+
+
 @contextmanager
 def job(label: str, total: int, *, foreground: bool = False) -> Iterator[Job]:
     """Show `label` with `done`/`total` in the status bar while the block runs."""
     global _finished
-    current = Job(label, total, foreground=foreground)
+    current = Job(label, total, foreground=foreground, parent=_enclosing.get())
+    token = _enclosing.set(current)
     with _lock:
         _running.append(current)
     try:
@@ -75,6 +85,8 @@ def job(label: str, total: int, *, foreground: bool = False) -> Iterator[Job]:
         with _lock:
             _running.remove(current)
         raise
+    finally:
+        _enclosing.reset(token)
     with _lock:
         _running.remove(current)
         if current.closing is not None:
@@ -83,18 +95,33 @@ def job(label: str, total: int, *, foreground: bool = False) -> Iterator[Job]:
 
 def status() -> dict[str, Any]:
     """Running jobs, oldest first, and the last closing line with its sequence
-    number, which is how the bar tells a new line from one it has shown."""
+    number, which is how the bar tells a new line from one it has shown.
+
+    A job running inside another is reported as that job's `step` rather than
+    alongside it, and lends it its foreground priority: a file write inside a
+    bulk job is still a file write the bar must not hide."""
     with _lock:
-        return {
-            "jobs": [
+        jobs = []
+        for j in _running:
+            if j.parent is not None:
+                continue
+            step = next((c for c in reversed(_running) if c.parent is j), None)
+            jobs.append(
                 {
                     "label": j.label,
                     "done": j.done,
                     "total": j.total,
-                    **({"foreground": True, "item": j.item} if j.foreground else {}),
+                    **({"item": j.item} if j.item is not None else {}),
+                    **({"foreground": True} if j.foreground or (step and step.foreground) else {}),
+                    **(
+                        {"step": {"label": step.label, "done": step.done, "total": step.total}}
+                        if step is not None
+                        else {}
+                    ),
                 }
-                for j in _running
-            ],
+            )
+        return {
+            "jobs": jobs,
             "finished": dict(_finished) if _finished is not None else None,
         }
 
