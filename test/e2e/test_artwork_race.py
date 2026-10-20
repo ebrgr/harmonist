@@ -60,13 +60,20 @@ def test_apply_immediately_after_choosing_is_an_htmx_post(reset_demo_server, pri
         }""",
             primary,
         )
-        with page.expect_response(
-            lambda r: r.url.endswith("/artwork/update"), timeout=5000
-        ) as applied:
+        # The apply answers with HX-Refresh, so the album reloads after it. Wait
+        # for that reload rather than for HTMX to go idle on the old page, or the
+        # read below can land on a page being torn down.
+        with (
+            page.expect_navigation(timeout=5000),
+            page.expect_response(
+                lambda r: r.url.endswith("/artwork/update"), timeout=5000
+            ) as applied,
+        ):
             page.locator("#album-artwork button.art-pick__use:visible").click()
         assert applied.value.request.method == "POST"
         assert applied.value.request.headers.get("hx-request") == "true"
         assert CHOSEN.search(parse_qs(applied.value.request.post_data)["use"][0])
+        page.wait_for_selector("#album-artwork .art-row")
         page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
         assert page.url == f"{reset_demo_server}/album/{aid}"
         after = page.locator(
