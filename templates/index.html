@@ -155,6 +155,42 @@ document.body.addEventListener('htmx:confirm', function (event) {
     }
 });
 
+// The Library's filter menus live inside #library-rows, which the background
+// refresh (a scan finishing, an artwork change) replaces whole. A menu open at
+// that moment would come back closed, vanishing mid-choice (#823), so reopen
+// it on the fresh render, with its fresh counts, and put focus back where it
+// was. Only for that refresh: a choice made in a menu should close it.
+// Reopened on afterSwap, in the same task as the swap, so it never paints closed.
+let libraryMenu = null;
+document.body.addEventListener('htmx:beforeSwap', function (event) {
+    if (event.detail.target.id !== 'library-rows') return;
+    libraryMenu = null;
+    if (!event.detail.shouldSwap
+            || !event.detail.requestConfig.elt.matches('[data-library-refresh]')) return;
+    const menu = event.detail.target.querySelector('.library-update-menu:popover-open');
+    if (!menu) return;
+    const focused = document.activeElement;
+    const opener = document.querySelector(`[popovertarget="${menu.id}"]`);
+    const holdsFocus = focused === opener || menu.contains(focused);
+    libraryMenu = {
+        id: menu.id,
+        focusId: holdsFocus ? focused.id : '',
+        focusHref: holdsFocus ? focused.getAttribute('href') : null,
+    };
+});
+document.body.addEventListener('htmx:afterSwap', function (event) {
+    if (event.detail.target.id !== 'library-rows' || !libraryMenu) return;
+    const {id, focusId, focusHref} = libraryMenu;
+    libraryMenu = null;
+    const menu = document.getElementById(id);
+    if (!menu || menu.matches(':popover-open')) return;
+    menu.showPopover();
+    // Options without an id are links: their href names the choice.
+    const focus = focusId ? document.getElementById(focusId)
+        : Array.from(menu.querySelectorAll('a[href]')).find(a => a.getAttribute('href') === focusHref);
+    focus?.focus({preventScroll: true});
+});
+
 // Inbox / Library tabs. Both panels stay in the DOM; we only toggle which is
 // shown and restyle the active tab (ink text + accent underline).
 // `persist` is false for a deep link (?album=): it should show the Library

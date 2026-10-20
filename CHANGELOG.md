@@ -38,6 +38,8 @@ versions follow [semantic versioning](https://semver.org).
 - **Keyboard focus in an Inbox card stays put when the Inbox refreshes** (#802).
 - **An Inbox refresh while a suggestion is loading no longer loses its release
   artwork**, which could stay on "Loading artwork…" or disappear (#821).
+- **An open Library filter menu stays open when the Library refreshes** in the
+  background, such as when a scan finishes (#823).
 - **Status bar reports clear after ten seconds**, errors excepted, and no longer
   give way to **Last sync** within a second and a half once a sync has run
   (#816).

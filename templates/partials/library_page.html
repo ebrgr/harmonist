@@ -39,8 +39,10 @@
      data-limit="{{ limit }}" data-total-shown="{{ total_shown }}">
 {# A separate leaf keeps the background request's abort strategy from being
    inherited by the navigation controls. All requests share the stable target:
-   refreshes yield to pending navigation and navigation cancels older refreshes. #}
-<div hidden hx-sync="#library-rows:abort"
+   refreshes yield to pending navigation and navigation cancels older refreshes.
+   `data-library-refresh` tells index.html's script which swaps are this one, so
+   a filter menu open under it can be carried across (#823). #}
+<div hidden data-library-refresh hx-sync="#library-rows:abort"
      hx-get="/library?{{ library_query(page, limit, filter, q) }}"
      hx-trigger="library-refresh from:body, tasks-changed from:body"
      hx-target="#library-rows" hx-swap="innerHTML"></div>
