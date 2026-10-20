@@ -1,4 +1,4 @@
-.PHONY: css css-watch test coverage run lint format typecheck template-lint check e2e demo
+.PHONY: css css-watch browser-assets test coverage run lint format typecheck template-lint check e2e demo
 
 # Pin the Tailwind standalone binary so `make css` is byte-reproducible across
 # machines + CI — pytailwindcss otherwise downloads 'latest', whose minified
@@ -13,6 +13,12 @@ css:
 # Watch templates and rebuild CSS on save.
 css-watch:
 	tailwindcss -i static/input.css -o static/harmonist.css --watch
+
+# Install exactly the locked browser packages and copy their distributable files.
+# Needed after cloning or changing package-lock.json; Docker builds do this too.
+browser-assets:
+	npm ci --ignore-scripts --no-audit --no-fund
+	npm run build
 
 test:
 	pytest test/

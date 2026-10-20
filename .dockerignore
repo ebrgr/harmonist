@@ -4,6 +4,8 @@
 .devcontainer
 .dev-data
 .venv
+node_modules
+static/vendor
 venv
 __pycache__
 *.pyc

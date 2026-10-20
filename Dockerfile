@@ -1,10 +1,18 @@
 # Harmonist — Bandcamp → MusicBrainz → Plex tagging tool.
 #
 # The CSS bundle (static/harmonist.css) is pre-built and committed, so the
-# image needs no Node/Tailwind toolchain — just Python + the runtime deps.
+# runtime image needs no Node/Tailwind toolchain — just Python + runtime deps.
+# Browser JavaScript is copied from locked npm packages in a build-only stage.
 #
 # Built for linux/amd64 and linux/arm64; published to GHCR by CI. To build
 # locally: docker build -t harmonist:latest .
+FROM node:24-bookworm-slim AS browser-assets
+WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY scripts/build_browser_assets.sh ./scripts/
+RUN npm run build
+
 FROM python:3.14-slim
 
 ENV HARMONIST_MUSIC_DIR=/music \
@@ -27,6 +35,7 @@ COPY pyproject.toml LICENSE ./
 COPY src ./src
 COPY templates ./templates
 COPY static ./static
+COPY --from=browser-assets /build/static/vendor ./static/vendor
 
 RUN pip install -e .
 

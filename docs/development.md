@@ -1,9 +1,10 @@
 # Development with a devcontainer and Emacs
 
-The workspace provides Python 3.14, Git, Make, zsh, and Oh My Zsh. Emacs stays
-on the host, including when managed by Nix Home Manager. The container user is
-`vscode` (UID/GID 1000); this matches the initial developer's host user. If your
-host uses another UID/GID, adjust the image user before using direct Compose.
+The workspace provides Python 3.14, Node 24 with npm, Git, Make, zsh, and Oh My Zsh.
+Emacs stays on the host, including when managed by Nix Home Manager. The
+container user is `vscode` (UID/GID 1000); this matches the initial developer's
+host user. If your host uses another UID/GID, adjust the image user before using
+direct Compose.
 
 ## Host prerequisites
 
@@ -74,10 +75,50 @@ docker compose -f .devcontainer/compose.yaml up -d --build
 docker exec harmonist-dev bash .devcontainer/setup.sh
 ```
 
-Rerun the setup command after changing `pyproject.toml`, too. Dependencies in
-`/opt/venv` must be reinstalled when the container is recreated. The fixed name
-`harmonist-dev` supports one workspace at a time; change it and the published
-port if you need multiple checkouts running simultaneously.
+Rerun the setup command after changing `pyproject.toml` or `package-lock.json`,
+too. Dependencies in `/opt/venv` must be reinstalled when the container is
+recreated. The fixed name `harmonist-dev` supports one workspace at a time;
+change it and the published port if you need multiple checkouts running
+simultaneously.
 
 VS Code users can also use **Dev Containers: Reopen in Container**; the included
 `devcontainer.json` uses the same Compose service and runs setup automatically.
+
+## Browser dependencies
+
+HTMX and Idiomorph are pinned in `package.json` and `package-lock.json`.
+The production Docker build installs them in a separate Node stage and copies
+only their browser scripts and licenses into the Python
+image. The app serves those files locally; Node and `node_modules` are not
+runtime dependencies.
+
+The devcontainer setup builds the same files. For development outside the
+container, Node 24 or newer and npm are needed once after cloning, and after
+changes to the lockfile:
+
+```sh
+make browser-assets
+```
+
+This runs `npm ci` with package lifecycle scripts disabled, then copies the
+locked distributions into `static/vendor/`. That directory and `node_modules/`
+are generated and ignored by Git. The template uses the existing static-file
+cache versioning so a new build refreshes the browser's scripts.
+
+Dependabot checks the npm packages weekly, grouping minor and patch updates.
+Its PRs change the manifest and lockfile; the ordinary container and browser
+test builds then use those new versions. No generated JavaScript is committed
+or manually refreshed.
+
+For a deliberate version change:
+
+```sh
+npm install --save-exact --ignore-scripts htmx.org@<version> idiomorph@<version>
+npm run build
+make check
+make e2e
+```
+
+Commit the manifest and lockfile together. `npm ci` checks that they agree
+and verifies package integrity. The browser suite exercises the generated
+scripts with external requests blocked as well as the app's normal interactions.

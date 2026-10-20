@@ -1,4 +1,4 @@
-# Dependabot keeps our dependencies current across the three ecosystems this
+# Dependabot keeps our dependencies current across the ecosystems this
 # repo actually uses. Weekly cadence with grouped PRs keeps the noise low for a
 # solo-maintained project — minor/patch bumps land as one PR per ecosystem,
 # while majors (more likely to break) come through individually for review.
@@ -23,8 +23,23 @@ updates:
       python-minor-patch:
         update-types: [minor, patch]
 
-  # The Dockerfile base image (python:3.12-slim) for the NAS container build.
+  # Browser packages installed during the image build and development setup.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    versioning-strategy: increase
+    groups:
+      browser-minor-patch:
+        update-types: [minor, patch]
+
+  # Python runtime and Node asset-builder base images.
   - package-ecosystem: docker
     directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /.devcontainer
     schedule:
       interval: weekly

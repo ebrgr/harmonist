@@ -1,6 +1,12 @@
+FROM node:24-bookworm-slim AS node
 FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm
 
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
 USER root
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 # The Python devcontainer image includes zsh and Oh My Zsh via common-utils.
 RUN test -d /home/vscode/.oh-my-zsh \
     && chsh -s /usr/bin/zsh vscode \

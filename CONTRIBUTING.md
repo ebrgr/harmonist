@@ -6,6 +6,8 @@ through the project.
 ## Development workspace
 
 For a fresh clone, see [the devcontainer setup](docs/development.md).
+Outside the devcontainer, run `make browser-assets` with Node 24+ and npm before
+starting the app or browser tests. Repeat after changes to `package-lock.json`.
 
 ## Every change comes as a pull request
 

@@ -18,6 +18,9 @@ docker-compose.override.yml
 /music/
 /.dev-data/
 /.venv/
+# Browser dependencies and build output (package-lock.json is committed).
+/node_modules/
+/static/vendor/
 # Bandcamp payload captures for #289 — hold account-scoped ids and signed URLs
 /.preorder-capture/
 

@@ -37,6 +37,14 @@ jobs:
           for _ in {1..60}; do
             status=$(docker inspect --format '{{.State.Health.Status}}' harmonist-smoke)
             if [ "$status" = healthy ]; then
+              docker exec harmonist-smoke python -c '
+          import pathlib, shutil, urllib.request
+          base = "http://127.0.0.1:8000/static/vendor/"
+          for name in ("htmx.min.js", "idiomorph-ext.min.js", "htmx.LICENSE", "idiomorph.LICENSE"):
+              assert urllib.request.urlopen(base + name).read()
+          assert shutil.which("node") is None
+          assert not pathlib.Path("/app/node_modules").exists()
+          '
               exit 0
             fi
             if [ "$status" = unhealthy ] || [ "$(docker inspect --format '{{.State.Running}}' harmonist-smoke)" != true ]; then
@@ -89,6 +97,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Build browser assets
+        run: make browser-assets
 
       - uses: actions/setup-python@v7
         with:
