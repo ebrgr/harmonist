@@ -36,43 +36,43 @@ SURVIVOR = "demo-rel-folksmen"
 
 
 def test_re_tagging_a_merged_release_leaves_the_browser_on_the_surviving_one(
+    browser_factory,
     demo_server: str,
 ) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/{MERGED_AWAY}?from_page=2")
-        # The merge is discovered by the /compare fetch that lands after the
-        # paint — a redirect is something MusicBrainz does, not something the
-        # page can know at render time — so the note is what says it has arrived.
-        page.wait_for_selector("text=merged this release", timeout=20_000)
+    page.goto(f"{demo_server}/album/{MERGED_AWAY}?from_page=2")
+    # The merge is discovered by the /compare fetch that lands after the
+    # paint — a redirect is something MusicBrainz does, not something the
+    # page can know at render time — so the note is what says it has arrived.
+    page.wait_for_selector("text=merged this release", timeout=20_000)
 
-        page.get_by_role("button", name="Review assignments").click()
-        editor = page.locator("#album-track-editor")
-        # This demo merge folded the recordings together too, so neither ID on
-        # the files names a surviving track. The dead release-track IDs are
-        # set aside (#602), but a recording ID is still a claim no number may
-        # override; the user explicitly pairs each file.
-        for token, order in [(0, "-,0,-,1"), (0, "0,-,-,1"), (1, "0,-,1,-"), (1, "0,1,-,-")]:
-            editor.locator(f"#move-{MERGED_AWAY}-disk-{token}-up").click()
-            playwright_sync.expect(editor.locator('[name="disk_order"]')).to_have_value(order)
-        editor.get_by_role("button", name="Accept changes").click()
+    page.get_by_role("button", name="Review assignments").click()
+    editor = page.locator("#album-track-editor")
+    # This demo merge folded the recordings together too, so neither ID on
+    # the files names a surviving track. The dead release-track IDs are
+    # set aside (#602), but a recording ID is still a claim no number may
+    # override; the user explicitly pairs each file.
+    for token, order in [(0, "-,0,-,1"), (0, "0,-,-,1"), (1, "0,-,1,-"), (1, "0,1,-,-")]:
+        editor.locator(f"#move-{MERGED_AWAY}-disk-{token}-up").click()
+        playwright_sync.expect(editor.locator('[name="disk_order"]')).to_have_value(order)
+    editor.get_by_role("button", name="Accept changes").click()
 
-        # The address the album now lives at, not the one it was opened at.
-        #
-        # On the PATH, compared whole. A glob would not do here and the near miss
-        # is worth naming: the surviving id is a PREFIX of the merged-away one, so
-        # `**/album/demo-rel-folksmen*` matches the address this page started at
-        # and the test passes with the bug reintroduced.
-        page.wait_for_url(lambda url: urlsplit(url).path == f"/album/{SURVIVOR}", timeout=20_000)
-        # …and the way back survives the move: `from_page` is the Library page
-        # this album was opened from, and it is the only thing carrying it.
-        assert "from_page=2" in page.url, page.url
-        # The re-tag settled the merge, so the page it landed on says nothing
-        # about one. Asserted after `wait_for_url` rather than instead of it: the
-        # note is absent on a page still mid-fetch too.
-        page.wait_for_selector("#album-tracks table", timeout=20_000)
-        assert page.locator("text=merged this release").count() == 0
+    # The address the album now lives at, not the one it was opened at.
+    #
+    # On the PATH, compared whole. A glob would not do here and the near miss
+    # is worth naming: the surviving id is a PREFIX of the merged-away one, so
+    # `**/album/demo-rel-folksmen*` matches the address this page started at
+    # and the test passes with the bug reintroduced.
+    page.wait_for_url(lambda url: urlsplit(url).path == f"/album/{SURVIVOR}", timeout=20_000)
+    # …and the way back survives the move: `from_page` is the Library page
+    # this album was opened from, and it is the only thing carrying it.
+    assert "from_page=2" in page.url, page.url
+    # The re-tag settled the merge, so the page it landed on says nothing
+    # about one. Asserted after `wait_for_url` rather than instead of it: the
+    # note is absent on a page still mid-fetch too.
+    page.wait_for_selector("#album-tracks table", timeout=20_000)
+    assert page.locator("text=merged this release").count() == 0
 
-        browser.close()
+    page.context.close()

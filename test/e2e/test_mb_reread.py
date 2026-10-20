@@ -32,88 +32,86 @@ _MB_VALUE = 'dd[title^="MusicBrainz release last read"]'
 
 
 def test_read_again_issues_a_compare_request_and_refills_the_panel(
-    demo_server: str, htmx_ready
+    browser_factory, demo_server: str, htmx_ready
 ) -> None:
     """Click it and a `reread=1` request must actually go out, then land."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        requests: list[str] = []
-        page.on("request", lambda r: requests.append(r.url))
+    requests: list[str] = []
+    page.on("request", lambda r: requests.append(r.url))
 
-        page.goto(f"{demo_server}/album/{ALBUM}")
-        # The control ships with the page once anything has read this release
-        # (#355), and arrives with the /compare fetch on the very first view.
-        button = page.locator("#album-tags > header").get_by_role(
-            "button", name="Read this release from MusicBrainz again"
-        )
-        # Either way, click once the page's own comparison has landed, so there
-        # are fields to mark and the swap below can be told apart from it. A
-        # click while that comparison is in flight is test_mb_reread_race.py's
-        # case (#775).
-        fields = page.locator(f"#compare-{ALBUM} .tag-fields")
-        fields.wait_for(timeout=10_000)
-        fields.evaluate("el => { el.dataset.before = '' }")
+    page.goto(f"{demo_server}/album/{ALBUM}")
+    # The control ships with the page once anything has read this release
+    # (#355), and arrives with the /compare fetch on the very first view.
+    button = page.locator("#album-tags > header").get_by_role(
+        "button", name="Read this release from MusicBrainz again"
+    )
+    # Either way, click once the page's own comparison has landed, so there
+    # are fields to mark and the swap below can be told apart from it. A
+    # click while that comparison is in flight is test_mb_reread_race.py's
+    # case (#775).
+    fields = page.locator(f"#compare-{ALBUM} .tag-fields")
+    fields.wait_for(timeout=10_000)
+    fields.evaluate("el => { el.dataset.before = '' }")
 
-        assert not [u for u in requests if "reread=1" in u], "nothing forced yet"
+    assert not [u for u in requests if "reread=1" in u], "nothing forced yet"
 
-        with page.expect_response(lambda r: "reread=1" in r.url, timeout=10_000) as got:
-            htmx_ready(button).click()
-        assert got.value.ok
+    with page.expect_response(lambda r: "reread=1" in r.url, timeout=10_000) as got:
+        htmx_ready(button).click()
+    assert got.value.ok
 
-        # ...and the response was SWAPPED IN, not merely received: the fields
-        # marked above must be replaced. One response, several destinations
-        # (#328, #355), and a mis-targeted swap would leave any of them behind:
-        # the comparison itself lands in the Tags section in-band, while the
-        # update section and the panel's Checked date land out-of-band.
-        page.wait_for_selector(f"#compare-{ALBUM} .tag-fields:not([data-before])", timeout=10_000)
-        assert page.locator(f"#album-update-{ALBUM} .album-update__legend").is_visible()
-        # `dd[title]` is the VALUE. Since #358 the row holds a second <dd> for
-        # the re-read control, in the grid's third column, and a bare `dd` here
-        # matches both — and since #436 the block holds a Cover Art Archive date
-        # with a title of its own, so the title has to name WHICH service.
-        assert page.locator(f"#album-checked-{ALBUM} {_MB_VALUE}").is_visible()
+    # ...and the response was SWAPPED IN, not merely received: the fields
+    # marked above must be replaced. One response, several destinations
+    # (#328, #355), and a mis-targeted swap would leave any of them behind:
+    # the comparison itself lands in the Tags section in-band, while the
+    # update section and the panel's Checked date land out-of-band.
+    page.wait_for_selector(f"#compare-{ALBUM} .tag-fields:not([data-before])", timeout=10_000)
+    assert page.locator(f"#album-update-{ALBUM} .album-update__legend").is_visible()
+    # `dd[title]` is the VALUE. Since #358 the row holds a second <dd> for
+    # the re-read control, in the grid's third column, and a bare `dd` here
+    # matches both — and since #436 the block holds a Cover Art Archive date
+    # with a title of its own, so the title has to name WHICH service.
+    assert page.locator(f"#album-checked-{ALBUM} {_MB_VALUE}").is_visible()
 
-        # Both service controls must survive each other's section swaps.
-        caa = page.locator("#album-artwork header").get_by_role(
-            "button", name="Ask the Cover Art Archive about this release again"
-        )
-        with page.expect_response(lambda r: "/artwork?reread=1" in r.url) as art:
-            htmx_ready(caa).click()
-        assert art.value.ok
-        playwright_sync.expect(caa).to_be_enabled()
-        with page.expect_response(lambda r: "/compare?reread=1" in r.url) as mb:
-            htmx_ready(button).click()
-        assert mb.value.ok
-        playwright_sync.expect(button).to_be_enabled()
-        playwright_sync.expect(caa).to_be_visible()
-        playwright_sync.expect(page.locator("#album-tracks .tracklist")).to_be_visible()
+    # Both service controls must survive each other's section swaps.
+    caa = page.locator("#album-artwork header").get_by_role(
+        "button", name="Ask the Cover Art Archive about this release again"
+    )
+    with page.expect_response(lambda r: "/artwork?reread=1" in r.url) as art:
+        htmx_ready(caa).click()
+    assert art.value.ok
+    playwright_sync.expect(caa).to_be_enabled()
+    with page.expect_response(lambda r: "/compare?reread=1" in r.url) as mb:
+        htmx_ready(button).click()
+    assert mb.value.ok
+    playwright_sync.expect(button).to_be_enabled()
+    playwright_sync.expect(caa).to_be_visible()
+    playwright_sync.expect(page.locator("#album-tracks .tracklist")).to_be_visible()
 
-        browser.close()
+    page.context.close()
 
 
-def test_the_panel_reports_when_it_last_read_musicbrainz(demo_server: str) -> None:
+def test_the_panel_reports_when_it_last_read_musicbrainz(browser_factory, demo_server: str) -> None:
     """The other half of the escape hatch: the user has to be able to SEE that
     what they are looking at may be old, or they never think to force a read."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/{ALBUM}")
-        when = page.locator(f"#album-checked-{ALBUM} {_MB_VALUE}")
-        when.wait_for(timeout=10_000)
+    page.goto(f"{demo_server}/album/{ALBUM}")
+    when = page.locator(f"#album-checked-{ALBUM} {_MB_VALUE}")
+    when.wait_for(timeout=10_000)
 
-        # The elapsed time itself is the wrong thing to assert on: `ago` renders
-        # a read seconds old as "just now", so a demo server that has only just
-        # fetched says nothing containing "ago". What must hold on every run is
-        # that the value states WHICH read it is reporting — that is the claim
-        # the user checks a stale comparison against.
-        #
-        # `.first`: the block lists several dates, and this row is the first of
-        # them (#355 put it there, #436 gave the archive one of its own below).
-        assert page.locator(f"#album-checked-{ALBUM} dt").first.text_content() == "MB checked"
-        assert "MusicBrainz release last read" in (when.get_attribute("title") or "")
-        assert (when.text_content() or "").strip()
+    # The elapsed time itself is the wrong thing to assert on: `ago` renders
+    # a read seconds old as "just now", so a demo server that has only just
+    # fetched says nothing containing "ago". What must hold on every run is
+    # that the value states WHICH read it is reporting — that is the claim
+    # the user checks a stale comparison against.
+    #
+    # `.first`: the block lists several dates, and this row is the first of
+    # them (#355 put it there, #436 gave the archive one of its own below).
+    assert page.locator(f"#album-checked-{ALBUM} dt").first.text_content() == "MB checked"
+    assert "MusicBrainz release last read" in (when.get_attribute("title") or "")
+    assert (when.text_content() or "").strip()
 
-        browser.close()
+    page.context.close()

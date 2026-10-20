@@ -34,30 +34,31 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 ALBUM_ID = "demo-rel-rural-juror"
 
 
-def test_the_header_control_reveals_the_identifier_columns(demo_server: str) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+def test_the_header_control_reveals_the_identifier_columns(
+    browser_factory, demo_server: str
+) -> None:
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_load_state("networkidle")
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_load_state("networkidle")
 
-        toggle = page.locator("label:has-text('Show identifiers') input[type=checkbox]")
-        toggle.wait_for(timeout=10_000)
+    toggle = page.locator("label:has-text('Show identifiers') input[type=checkbox]")
+    toggle.wait_for(timeout=10_000)
 
-        # The heading of an identifier column, which `.tracklist--ids` governs.
-        # By CELL rather than by the word "Recording": that word is also in the
-        # sentence beside the checkbox, so matching text alone would pass with
-        # the columns still hidden — the #144 trap of asserting on a string that
-        # occurs elsewhere in the markup.
-        hidden = page.locator("th.track-diff__id").first
-        hidden.wait_for(state="attached", timeout=10_000)
-        assert not hidden.is_visible(), "identifiers start hidden, or there is nothing to reveal"
+    # The heading of an identifier column, which `.tracklist--ids` governs.
+    # By CELL rather than by the word "Recording": that word is also in the
+    # sentence beside the checkbox, so matching text alone would pass with
+    # the columns still hidden — the #144 trap of asserting on a string that
+    # occurs elsewhere in the markup.
+    hidden = page.locator("th.track-diff__id").first
+    hidden.wait_for(state="attached", timeout=10_000)
+    assert not hidden.is_visible(), "identifiers start hidden, or there is nothing to reveal"
 
-        toggle.check()
-        assert hidden.is_visible(), "the control reaches its table from the section header"
+    toggle.check()
+    assert hidden.is_visible(), "the control reaches its table from the section header"
 
-        toggle.uncheck()
-        assert not hidden.is_visible(), "and puts them back"
+    toggle.uncheck()
+    assert not hidden.is_visible(), "and puts them back"
 
-        browser.close()
+    page.context.close()

@@ -22,41 +22,38 @@ pytestmark = pytest.mark.skipif(
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
 
-def test_turning_the_check_on_shows_its_status_and_keeps_it_current(demo_server: str) -> None:
+def test_turning_the_check_on_shows_its_status_and_keeps_it_current(
+    browser_factory, demo_server: str
+) -> None:
     """Choose a level and save: the status line appears, and each minute it asks
     its route again and replaces itself — one GET, and nothing else."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.clock.install()
-        page.goto(f"{demo_server}/settings")
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.clock.install()
+    page.goto(f"{demo_server}/settings")
 
-        line = page.locator("#update-check-status")
-        playwright_sync.expect(line).to_have_count(0)  # the demo ships the check off
+    line = page.locator("#update-check-status")
+    playwright_sync.expect(line).to_have_count(0)  # the demo ships the check off
 
-        page.select_option('select[name="gardener_level"]', "review")
-        page.locator('button[type="submit"]:has-text("Save settings")').click()
-        page.wait_for_selector("text=Settings saved")
-        playwright_sync.expect(line).to_contain_text(
-            "albums checked for tag updates in the last week"
-        )
+    page.select_option('select[name="gardener_level"]', "review")
+    page.locator('button[type="submit"]:has-text("Save settings")').click()
+    page.wait_for_selector("text=Settings saved")
+    playwright_sync.expect(line).to_contain_text("albums checked for tag updates in the last week")
 
-        requests: list[tuple[str, str]] = []
-        page.on("request", lambda r: requests.append((r.method, r.url)))
-        line.evaluate("el => el.dataset.stale = 'true'")
-        with page.expect_response(lambda r: r.url.endswith("/settings/update-check")):
-            # Run the intervening timers: HTMX may still be settling the saved
-            # form and has not installed this line's poll yet. fast_forward
-            # fires that settle timer at the END of the jump, so the poll would
-            # only be scheduled for another minute later.
-            page.clock.run_for("01:05")
-        playwright_sync.expect(line).not_to_have_attribute("data-stale", "true")
-        playwright_sync.expect(line).to_contain_text(
-            "albums checked for tag updates in the last week"
-        )
-        # Less the status bar's own poll, which runs on every page since #757 and
-        # is not this line's; everything else is still asserted whole.
-        mine = [r for r in requests if r != ("GET", f"{demo_server}/status")]
-        assert mine == [("GET", f"{demo_server}/settings/update-check")]
+    requests: list[tuple[str, str]] = []
+    page.on("request", lambda r: requests.append((r.method, r.url)))
+    line.evaluate("el => el.dataset.stale = 'true'")
+    with page.expect_response(lambda r: r.url.endswith("/settings/update-check")):
+        # Run the intervening timers: HTMX may still be settling the saved
+        # form and has not installed this line's poll yet. fast_forward
+        # fires that settle timer at the END of the jump, so the poll would
+        # only be scheduled for another minute later.
+        page.clock.run_for("01:05")
+    playwright_sync.expect(line).not_to_have_attribute("data-stale", "true")
+    playwright_sync.expect(line).to_contain_text("albums checked for tag updates in the last week")
+    # Less the status bar's own poll, which runs on every page since #757 and
+    # is not this line's; everything else is still asserted whole.
+    mine = [r for r in requests if r != ("GET", f"{demo_server}/status")]
+    assert mine == [("GET", f"{demo_server}/settings/update-check")]
 
-        browser.close()
+    page.context.close()

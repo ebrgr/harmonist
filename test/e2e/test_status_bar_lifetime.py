@@ -35,10 +35,10 @@ def _flash(page: Any, verb: str, level: str) -> None:
     )
 
 
-def _open(playwright: Any, base: str, sync: dict[str, Any]) -> tuple[Any, Any, list[int]]:
+def _open(browser_factory: Any, base: str, sync: dict[str, Any]) -> tuple[Any, Any, list[int]]:
     """A page whose /status reports `sync` (updated in place by the caller), and
     a list that grows by one per poll answered."""
-    browser = playwright.chromium.launch()
+    browser = browser_factory("chromium")
     page = browser.new_page()
     page.clock.install()
     polls: list[int] = []
@@ -63,55 +63,54 @@ def _await_polls(page: Any, polls: list[int], n: int) -> None:
     page.wait_for_timeout(200)
 
 
-def test_a_report_clears_itself_and_an_error_stays(demo_server: str) -> None:
-    with pw.sync_playwright() as playwright:
-        browser, page, _ = _open(playwright, demo_server, {})
-        bar = page.locator("#harmonist-status")
+def test_a_report_clears_itself_and_an_error_stays(browser_factory, demo_server: str) -> None:
+    _browser, page, _ = _open(browser_factory, demo_server, {})
+    bar = page.locator("#harmonist-status")
 
-        _flash(page, "Re-tagged", "info")
-        pw.expect(bar).to_contain_text("Re-tagged")
-        page.clock.run_for(_LONG_AFTER_MS)
-        pw.expect(bar).to_be_empty()
+    _flash(page, "Re-tagged", "info")
+    pw.expect(bar).to_contain_text("Re-tagged")
+    page.clock.run_for(_LONG_AFTER_MS)
+    pw.expect(bar).to_be_empty()
 
-        _flash(page, "Re-tag failed", "error")
-        page.clock.run_for(_LONG_AFTER_MS)
-        pw.expect(bar).to_contain_text("Re-tag failed")
-        browser.close()
+    _flash(page, "Re-tag failed", "error")
+    page.clock.run_for(_LONG_AFTER_MS)
+    pw.expect(bar).to_contain_text("Re-tag failed")
+    page.context.close()
 
 
-def test_last_sync_is_set_when_a_sync_ends_not_on_every_poll(demo_server: str) -> None:
+def test_last_sync_is_set_when_a_sync_ends_not_on_every_poll(
+    browser_factory, demo_server: str
+) -> None:
     finished = {"state": "idle", "finished_at": "2026-10-20T09:00:00+00:00", "new_items": 2}
-    with pw.sync_playwright() as playwright:
-        browser, page, polls = _open(playwright, demo_server, finished)
-        bar = page.locator("#harmonist-status")
+    _browser, page, polls = _open(browser_factory, demo_server, finished)
+    bar = page.locator("#harmonist-status")
 
-        # A sync that ended before the page opened is not news on it.
-        _await_polls(page, polls, 2)
-        pw.expect(bar).not_to_contain_text("Last sync")
+    # A sync that ended before the page opened is not news on it.
+    _await_polls(page, polls, 2)
+    pw.expect(bar).not_to_contain_text("Last sync")
 
-        # Nor does it replace a newer line on the next poll.
-        _flash(page, "Re-tagged", "info")
-        _await_polls(page, polls, 2)
-        pw.expect(bar).to_contain_text("Re-tagged")
+    # Nor does it replace a newer line on the next poll.
+    _flash(page, "Re-tagged", "info")
+    _await_polls(page, polls, 2)
+    pw.expect(bar).to_contain_text("Re-tagged")
 
-        # A sync ending while the page is open is.
-        finished["finished_at"] = "2026-10-20T09:05:00+00:00"
-        _await_polls(page, polls, 1)
-        pw.expect(bar).to_contain_text("Last sync")
-        pw.expect(bar).to_contain_text("2 new")
-        browser.close()
+    # A sync ending while the page is open is.
+    finished["finished_at"] = "2026-10-20T09:05:00+00:00"
+    _await_polls(page, polls, 1)
+    pw.expect(bar).to_contain_text("Last sync")
+    pw.expect(bar).to_contain_text("2 new")
+    page.context.close()
 
 
-def test_a_failed_sync_stays(demo_server: str) -> None:
+def test_a_failed_sync_stays(browser_factory, demo_server: str) -> None:
     sync = {"state": "idle", "finished_at": None, "last_error": None}
-    with pw.sync_playwright() as playwright:
-        browser, page, polls = _open(playwright, demo_server, sync)
-        bar = page.locator("#harmonist-status")
-        _await_polls(page, polls, 1)
+    _browser, page, polls = _open(browser_factory, demo_server, sync)
+    bar = page.locator("#harmonist-status")
+    _await_polls(page, polls, 1)
 
-        sync.update(finished_at="2026-10-20T09:05:00+00:00", last_error="Bandcamp said no")
-        _await_polls(page, polls, 1)
-        pw.expect(bar).to_contain_text("Sync failed")
-        page.clock.run_for(_LONG_AFTER_MS)
-        pw.expect(bar).to_contain_text("Bandcamp said no")
-        browser.close()
+    sync.update(finished_at="2026-10-20T09:05:00+00:00", last_error="Bandcamp said no")
+    _await_polls(page, polls, 1)
+    pw.expect(bar).to_contain_text("Sync failed")
+    page.clock.run_for(_LONG_AFTER_MS)
+    pw.expect(bar).to_contain_text("Bandcamp said no")
+    page.context.close()

@@ -46,27 +46,30 @@ def _open_library_page_two(page: Any, base: str) -> None:
     page.evaluate(_MARK)
 
 
-def test_choosing_a_size_swaps_in_place_and_names_the_resolved_page(demo_server: str) -> None:
+def test_choosing_a_size_swaps_in_place_and_names_the_resolved_page(
+    browser_factory, demo_server: str
+) -> None:
     """Changing the size must not reload the page, and must correct the address
     bar to the page the anchor landed on — which only the server knows, so it
     arrives as an HX-Push-Url header rather than a guessed hx-push-url."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        _open_library_page_two(page, demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    _open_library_page_two(page, demo_server)
 
-        page.select_option("#library-limit", "20")
-        page.wait_for_function("document.querySelector('#library-page')?.dataset.limit === '20'")
+    page.select_option("#library-limit", "20")
+    page.wait_for_function("document.querySelector('#library-page')?.dataset.limit === '20'")
 
-        assert page.evaluate("window.__harmonistNoReload === true"), "the grid reloaded"
-        # Row 3 — the top of page 2 at size 2 — sits on page 1 at size 20.
-        assert "page=1" in page.url and "limit=20" in page.url
-        assert "anchor=" not in page.url, "a transient hint was left in the address bar"
+    assert page.evaluate("window.__harmonistNoReload === true"), "the grid reloaded"
+    # Row 3 — the top of page 2 at size 2 — sits on page 1 at size 20.
+    assert "page=1" in page.url and "limit=20" in page.url
+    assert "anchor=" not in page.url, "a transient hint was left in the address bar"
 
-        browser.close()
+    page.context.close()
 
 
-def test_a_submitted_size_does_not_fall_back_to_a_page_load(demo_server: str) -> None:
+def test_a_submitted_size_does_not_fall_back_to_a_page_load(
+    browser_factory, demo_server: str
+) -> None:
     """The regression: HTMX must own the form's `submit`, not just its `change`.
 
     Driven through `requestSubmit()` rather than a key press. It is the same
@@ -75,17 +78,16 @@ def test_a_submitted_size_does_not_fall_back_to_a_page_load(demo_server: str) ->
     implicit submission — rules that differ between engines and would make this
     test quietly stop reproducing the bug it exists for.
     """
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        _open_library_page_two(page, demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    _open_library_page_two(page, demo_server)
 
-        page.eval_on_selector("#library-limit", "s => { s.value = '20'; s.form.requestSubmit(); }")
-        page.wait_for_timeout(1000)  # long enough for a navigation to have landed
+    page.eval_on_selector("#library-limit", "s => { s.value = '20'; s.form.requestSubmit(); }")
+    page.wait_for_timeout(1000)  # long enough for a navigation to have landed
 
-        assert page.evaluate("window.__harmonistNoReload === true"), (
-            "the submit navigated instead of letting HTMX swap"
-        )
-        assert "anchor=" not in page.url
+    assert page.evaluate("window.__harmonistNoReload === true"), (
+        "the submit navigated instead of letting HTMX swap"
+    )
+    assert "anchor=" not in page.url
 
-        browser.close()
+    page.context.close()

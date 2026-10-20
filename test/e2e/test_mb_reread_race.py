@@ -26,30 +26,29 @@ ALBUM = "demo-rel-dingoes"
 
 
 def test_read_again_while_the_first_comparison_loads_is_not_dropped(
-    demo_server: str, htmx_ready
+    browser_factory, demo_server: str, htmx_ready
 ) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        # The page's own fetch carries no query string, so this holds it and
-        # lets the forced read through.
-        held = []
-        page.route(f"**/library/{ALBUM}/compare", lambda route: held.append(route))
-        with page.expect_request(lambda r: r.url.endswith(f"/library/{ALBUM}/compare")):
-            page.goto(f"{demo_server}/album/{ALBUM}")
+    # The page's own fetch carries no query string, so this holds it and
+    # lets the forced read through.
+    held = []
+    page.route(f"**/library/{ALBUM}/compare", lambda route: held.append(route))
+    with page.expect_request(lambda r: r.url.endswith(f"/library/{ALBUM}/compare")):
+        page.goto(f"{demo_server}/album/{ALBUM}")
 
-        button = page.locator("#album-tags > header").get_by_role(
-            "button", name="Read this release from MusicBrainz again"
-        )
-        htmx_ready(button).click()
+    button = page.locator("#album-tags > header").get_by_role(
+        "button", name="Read this release from MusicBrainz again"
+    )
+    htmx_ready(button).click()
 
-        assert len(held) == 1, "the first comparison is still in flight"
-        with page.expect_response(lambda r: "reread=1" in r.url, timeout=10_000) as reread:
-            held.pop().continue_()
-        assert reread.value.ok
+    assert len(held) == 1, "the first comparison is still in flight"
+    with page.expect_response(lambda r: "reread=1" in r.url, timeout=10_000) as reread:
+        held.pop().continue_()
+    assert reread.value.ok
 
-        playwright_sync.expect(button).to_be_enabled()
-        playwright_sync.expect(page.locator(f"#compare-{ALBUM} .tag-fields")).to_be_visible()
+    playwright_sync.expect(button).to_be_enabled()
+    playwright_sync.expect(page.locator(f"#compare-{ALBUM} .tag-fields")).to_be_visible()
 
-        browser.close()
+    page.context.close()

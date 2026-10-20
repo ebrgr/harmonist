@@ -34,7 +34,7 @@ def _path_is(path: str) -> Any:
     return lambda r: urlparse(r if isinstance(r, str) else r.url).path == path
 
 
-def test_the_inbox_list_reloads_when_its_count_moves(demo_server: str) -> None:
+def test_the_inbox_list_reloads_when_its_count_moves(browser_factory, demo_server: str) -> None:
     """While the count holds, the idle Inbox asks for nothing; when it moves, the
     list asks `/tasks` again, once the badge shows the new number."""
     pinned = {"inbox": 40}
@@ -45,27 +45,26 @@ def test_the_inbox_list_reloads_when_its_count_moves(demo_server: str) -> None:
         data["counts"]["inbox"] = pinned["inbox"]
         route.fulfill(response=response, json=data)
 
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.route(_path_is("/status"), status)
-        page.goto(demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.route(_path_is("/status"), status)
+    page.goto(demo_server)
 
-        app_status = page.locator("#app-status")
-        playwright_sync.expect(app_status).to_have_attribute("data-scan", "done")
-        playwright_sync.expect(app_status).to_have_attribute("data-reconcile", "idle")
-        playwright_sync.expect(page.locator("#task-list")).not_to_contain_text("Loading…")
-        playwright_sync.expect(page.locator("#inbox-count")).to_have_text("40")
+    app_status = page.locator("#app-status")
+    playwright_sync.expect(app_status).to_have_attribute("data-scan", "done")
+    playwright_sync.expect(app_status).to_have_attribute("data-reconcile", "idle")
+    playwright_sync.expect(page.locator("#task-list")).not_to_contain_text("Loading…")
+    playwright_sync.expect(page.locator("#inbox-count")).to_have_text("40")
 
-        tasks: list[str] = []
-        page.on("request", lambda r: tasks.append(r.url) if _path_is("/tasks")(r) else None)
-        for _ in range(3):
-            with page.expect_response(_path_is("/status")):
-                pass
-        assert tasks == []
+    tasks: list[str] = []
+    page.on("request", lambda r: tasks.append(r.url) if _path_is("/tasks")(r) else None)
+    for _ in range(3):
+        with page.expect_response(_path_is("/status")):
+            pass
+    assert tasks == []
 
-        with page.expect_request(_path_is("/tasks"), timeout=5_000):
-            pinned["inbox"] = 41
-        playwright_sync.expect(page.locator("#inbox-count")).to_have_text("41")
+    with page.expect_request(_path_is("/tasks"), timeout=5_000):
+        pinned["inbox"] = 41
+    playwright_sync.expect(page.locator("#inbox-count")).to_have_text("41")
 
-        browser.close()
+    page.context.close()

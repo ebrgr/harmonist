@@ -10,7 +10,7 @@ pytestmark = pytest.mark.skipif(os.environ.get("RUN_E2E") != "1", reason="e2e di
 pw = pytest.importorskip("playwright.sync_api")
 
 
-def test_public_smaller_candidate_is_explicit_and_undoable(public_demo_server):
+def test_public_smaller_candidate_is_explicit_and_undoable(browser_factory, public_demo_server):
     base, root = public_demo_server
     album = root / "Barry Jive and the Uptown Five" / "After Hours"
     files = sorted(album.glob("*.flac"))
@@ -20,40 +20,39 @@ def test_public_smaller_candidate_is_explicit_and_undoable(public_demo_server):
     before = cover.read_bytes()
     candidate = (demo.ASSETS_DIR / "barry-archive.png").read_bytes()
     assert candidate != before
-    with pw.sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        page = browser.new_page()
-        page.on("dialog", lambda dialog: dialog.accept())
-        page.goto(f"{base}/album/demo-rel-barryjive")
-        section = page.locator("#album-artwork")
-        page.wait_for_selector("#album-artwork .art-row")
-        choose = section.get_by_role("button", name="Use for All 3 tracks")
-        pw.expect(choose).to_be_visible()
-        # Looking at a smaller candidate is not permission to replace anything.
-        assert cover.read_bytes() == before
-        assert [formats.read_cover(p) for p in files] == original
-        choose.click()
-        # Each choice is previewed from the section's form, so the next must be
-        # made on the section that preview returns, not the one it replaces (#832).
-        page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
-        # The folder cover is a row of its own (#659), chosen the same way.
-        section.locator("#art-row-cover .art-row__select").click()
-        section.get_by_role("button", name="Use for cover.png").click()
-        page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
-        apply = page.locator("#album-findings-demo-rel-barryjive").get_by_role(
-            "button", name="Apply updates", exact=True
-        )
-        pw.expect(apply).to_be_visible()
-        with page.expect_response(lambda r: r.url.endswith("/artwork/update")) as response:
-            apply.click()
-        assert response.value.ok
-        pw.expect(apply).to_have_count(0)
-        assert cover.read_bytes() == candidate
-        assert all(formats.read_cover(p) == (candidate, "image/png") for p in files)
-        page.reload()
-        undo = page.get_by_role("button", name="Undo this artwork change", exact=True)
-        with page.expect_response(lambda r: "/artwork/restore/" in r.url):
-            undo.click()
-        assert cover.read_bytes() == before
-        assert [formats.read_cover(p) for p in files] == original
-        browser.close()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.goto(f"{base}/album/demo-rel-barryjive")
+    section = page.locator("#album-artwork")
+    page.wait_for_selector("#album-artwork .art-row")
+    choose = section.get_by_role("button", name="Use for All 3 tracks")
+    pw.expect(choose).to_be_visible()
+    # Looking at a smaller candidate is not permission to replace anything.
+    assert cover.read_bytes() == before
+    assert [formats.read_cover(p) for p in files] == original
+    choose.click()
+    # Each choice is previewed from the section's form, so the next must be
+    # made on the section that preview returns, not the one it replaces (#832).
+    page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
+    # The folder cover is a row of its own (#659), chosen the same way.
+    section.locator("#art-row-cover .art-row__select").click()
+    section.get_by_role("button", name="Use for cover.png").click()
+    page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
+    apply = page.locator("#album-findings-demo-rel-barryjive").get_by_role(
+        "button", name="Apply updates", exact=True
+    )
+    pw.expect(apply).to_be_visible()
+    with page.expect_response(lambda r: r.url.endswith("/artwork/update")) as response:
+        apply.click()
+    assert response.value.ok
+    pw.expect(apply).to_have_count(0)
+    assert cover.read_bytes() == candidate
+    assert all(formats.read_cover(p) == (candidate, "image/png") for p in files)
+    page.reload()
+    undo = page.get_by_role("button", name="Undo this artwork change", exact=True)
+    with page.expect_response(lambda r: "/artwork/restore/" in r.url):
+        undo.click()
+    assert cover.read_bytes() == before
+    assert [formats.read_cover(p) for p in files] == original
+    page.context.close()

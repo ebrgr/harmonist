@@ -44,22 +44,21 @@ def _tops(page, selectors: list[str]) -> list[float]:
     return tops
 
 
-def test_header_and_tracks_heading_fit_a_phone(demo_server: str) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page(viewport={"width": 375, "height": 812})
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_load_state("networkidle")
-        page.locator("label:has-text('Show identifiers')").wait_for(timeout=10_000)
+def test_header_and_tracks_heading_fit_a_phone(browser_factory, demo_server: str) -> None:
+    browser = browser_factory("chromium")
+    page = browser.new_page(viewport={"width": 375, "height": 812})
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_load_state("networkidle")
+    page.locator("label:has-text('Show identifiers')").wait_for(timeout=10_000)
 
-        width = page.evaluate("document.documentElement.clientWidth")
-        for sel, right in zip(ROWS, page.evaluate(_RIGHT_EDGES, list(ROWS)), strict=True):
-            assert right <= width, f"{sel} reaches {right}px on a {width}px screen"
+    width = page.evaluate("document.documentElement.clientWidth")
+    for sel, right in zip(ROWS, page.evaluate(_RIGHT_EDGES, list(ROWS)), strict=True):
+        assert right <= width, f"{sel} reaches {right}px on a {width}px screen"
 
-        browser.close()
+    page.context.close()
 
 
-def test_from_sm_up_each_row_stays_on_one_line(demo_server: str) -> None:
+def test_from_sm_up_each_row_stays_on_one_line(browser_factory, demo_server: str) -> None:
     """Wrapping is for phones: from `sm` up the nav sits beside the logo, and
     Show identifiers beside Edit track assignments, as before #710.
 
@@ -67,22 +66,21 @@ def test_from_sm_up_each_row_stays_on_one_line(demo_server: str) -> None:
     on the Tracks row wraps at 640 and 768 too — flex wraps on an item's
     max-content width, long before anything overflows — while every wider
     screen still looks right."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page(viewport={"width": 640, "height": 900})
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_load_state("networkidle")
-        page.locator("label:has-text('Show identifiers')").wait_for(timeout=10_000)
+    browser = browser_factory("chromium")
+    page = browser.new_page(viewport={"width": 640, "height": 900})
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_load_state("networkidle")
+    page.locator("label:has-text('Show identifiers')").wait_for(timeout=10_000)
 
-        logo, nav = _tops(page, ["header a[href='/']", "header nav"])
-        assert abs(logo - nav) < 2, "the nav dropped below the logo"
-        edit, label = _tops(
-            page,
-            [
-                "#album-track-view button[aria-label='Edit track assignments']",
-                "label:has-text('Show identifiers')",
-            ],
-        )
-        assert abs(edit - label) < 2, "Show identifiers dropped below the heading"
+    logo, nav = _tops(page, ["header a[href='/']", "header nav"])
+    assert abs(logo - nav) < 2, "the nav dropped below the logo"
+    edit, label = _tops(
+        page,
+        [
+            "#album-track-view button[aria-label='Edit track assignments']",
+            "label:has-text('Show identifiers')",
+        ],
+    )
+    assert abs(edit - label) < 2, "Show identifiers dropped below the heading"
 
-        browser.close()
+    page.context.close()

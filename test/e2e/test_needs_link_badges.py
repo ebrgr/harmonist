@@ -15,80 +15,75 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 @pytest.mark.parametrize("on_album", [False, True], ids=["inbox", "album"])
 @pytest.mark.parametrize("action", ["rematch", "manual"])
 def test_needs_link_badge_action(
-    reset_demo_server: str, on_album: bool, action: str, htmx_ready
+    browser_factory, reset_demo_server: str, on_album: bool, action: str, htmx_ready
 ) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.set_default_timeout(5000)
-        page.goto(reset_demo_server)
-        card = page.locator("#task-demo-rel-dingoes")
-        card.wait_for(state="visible")
-        if on_album:
-            card.get_by_role("link", name="Little Bit o' Hoot, Whole Lotta Nanny").click()
-            page.wait_for_url("**/album/demo-rel-dingoes")
-            host = page.locator("main")
-        else:
-            host = card
-        label = (
-            "Wrong MusicBrainz match — pick the correct release"
-            if action == "rematch"
-            else "Mark purchased elsewhere"
-        )
-        button = htmx_ready(host.get_by_role("button", name=label, exact=True))
-        # Each control and its external badge remain one visual group.
-        badge = button.locator("..").get_by_role("link")
-        expected_url = (
-            "https://musicbrainz.org/release/demo-rel-dingoes"
-            if action == "rematch"
-            else "https://dingoes.bandcamp.com/album/little-bit-o-hoot"
-        )
-        assert badge.get_attribute("href") == expected_url
-        assert badge.get_attribute("target") == "_blank"
-        assert button.get_attribute("title")
-        dialogs: list[str] = []
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.set_default_timeout(5000)
+    page.goto(reset_demo_server)
+    card = page.locator("#task-demo-rel-dingoes")
+    card.wait_for(state="visible")
+    if on_album:
+        card.get_by_role("link", name="Little Bit o' Hoot, Whole Lotta Nanny").click()
+        page.wait_for_url("**/album/demo-rel-dingoes")
+        host = page.locator("main")
+    else:
+        host = card
+    label = (
+        "Wrong MusicBrainz match — pick the correct release"
+        if action == "rematch"
+        else "Mark purchased elsewhere"
+    )
+    button = htmx_ready(host.get_by_role("button", name=label, exact=True))
+    # Each control and its external badge remain one visual group.
+    badge = button.locator("..").get_by_role("link")
+    expected_url = (
+        "https://musicbrainz.org/release/demo-rel-dingoes"
+        if action == "rematch"
+        else "https://dingoes.bandcamp.com/album/little-bit-o-hoot"
+    )
+    assert badge.get_attribute("href") == expected_url
+    assert badge.get_attribute("target") == "_blank"
+    assert button.get_attribute("title")
+    dialogs: list[str] = []
 
-        def confirm(dialog):
-            dialogs.append(dialog.message)
-            dialog.accept()
+    def confirm(dialog):
+        dialogs.append(dialog.message)
+        dialog.accept()
 
-        page.on("dialog", confirm)
-        button.focus()
+    page.on("dialog", confirm)
+    button.focus()
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith(f"/{action}")
+    ) as response:
+        page.keyboard.press("Enter")
+    assert response.value.ok
+    assert len(dialogs) == (0 if action == "rematch" else 1)
+    if action == "rematch":
+        corrected = (
+            page.locator("#album-inbox-actions")
+            if on_album
+            else page.get_by_role(
+                "link", name="Little Bit o' Hoot, Whole Lotta Nanny", exact=True
+            ).locator("xpath=ancestor::div[starts-with(@id, 'task-')][1]")
+        )
+        # Rematching deliberately offers no candidate for the release just
+        # rejected. Search is available directly; no dismissal is needed.
+        corrected.get_by_role("radio", name="By name", exact=True).check()
         with page.expect_response(
-            lambda r: r.request.method == "POST" and r.url.endswith(f"/{action}")
-        ) as response:
-            page.keyboard.press("Enter")
-        assert response.value.ok
-        assert len(dialogs) == (0 if action == "rematch" else 1)
-        if action == "rematch":
-            corrected = (
-                page.locator("#album-inbox-actions")
-                if on_album
-                else page.get_by_role(
-                    "link", name="Little Bit o' Hoot, Whole Lotta Nanny", exact=True
-                ).locator("xpath=ancestor::div[starts-with(@id, 'task-')][1]")
-            )
-            # Rematching deliberately offers no candidate for the release just
-            # rejected. Search is available directly; no dismissal is needed.
-            corrected.get_by_role("radio", name="By name", exact=True).check()
-            with page.expect_response(
-                lambda r: r.request.method == "POST" and r.url.endswith("/search")
-            ) as search:
-                htmx_ready(corrected.get_by_role("button", name="Search", exact=True)).click()
-            assert search.value.ok
-            playwright_sync.expect(
-                corrected.locator('[id^="mbid-results-"]').get_by_role(
-                    "button", name="Use", exact=True
-                )
-            ).to_be_visible()
-        elif on_album:
-            # Reload must expose the new state and remove the live Needs Linking control.
-            playwright_sync.expect(
-                page.get_by_role("button", name=label, exact=True)
-            ).to_have_count(0)
-            page.get_by_role(
-                "heading", name="Little Bit o' Hoot, Whole Lotta Nanny — Dingoes Ate My Baby"
-            ).wait_for()
-        else:
-            card.wait_for(state="detached")
-        browser.close()
+            lambda r: r.request.method == "POST" and r.url.endswith("/search")
+        ) as search:
+            htmx_ready(corrected.get_by_role("button", name="Search", exact=True)).click()
+        assert search.value.ok
+        playwright_sync.expect(
+            corrected.locator('[id^="mbid-results-"]').get_by_role("button", name="Use", exact=True)
+        ).to_be_visible()
+    elif on_album:
+        # Reload must expose the new state and remove the live Needs Linking control.
+        playwright_sync.expect(page.get_by_role("button", name=label, exact=True)).to_have_count(0)
+        page.get_by_role(
+            "heading", name="Little Bit o' Hoot, Whole Lotta Nanny — Dingoes Ate My Baby"
+        ).wait_for()
+    else:
+        card.wait_for(state="detached")
+    page.context.close()

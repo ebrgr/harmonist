@@ -28,46 +28,44 @@ pytestmark = pytest.mark.skipif(
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
 
-def test_the_banner_lands_and_no_retag_is_offered(demo_server: str) -> None:
+def test_the_banner_lands_and_no_retag_is_offered(browser_factory, demo_server: str) -> None:
     """Demo seeds one album whose release is absent from the catalogue."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/?tab=library")
-        page.wait_for_load_state("networkidle")
+    page.goto(f"{demo_server}/?tab=library")
+    page.wait_for_load_state("networkidle")
 
-        page.goto(f"{demo_server}/album/demo-rel-deleted")
-        # The banner arrives with the /compare fetch, not with the page.
-        banner = page.locator("text=This release is gone from MusicBrainz")
-        banner.wait_for(timeout=10_000)
+    page.goto(f"{demo_server}/album/demo-rel-deleted")
+    # The banner arrives with the /compare fetch, not with the page.
+    banner = page.locator("text=This release is gone from MusicBrainz")
+    banner.wait_for(timeout=10_000)
 
-        assert banner.is_visible(), "OOB swap landed in #album-alert-*"
+    assert banner.is_visible(), "OOB swap landed in #album-alert-*"
 
-        # No control at all, rather than a disabled one. Re-tag moved into the
-        # update section in #366, and that section draws it only where
-        # MusicBrainz actually has the release — so on a deleted one there is
-        # nothing to disable, and nothing is what the page should show.
-        assert page.locator("#retag-btn-demo-rel-deleted").count() == 0
+    # No control at all, rather than a disabled one. Re-tag moved into the
+    # update section in #366, and that section draws it only where
+    # MusicBrainz actually has the release — so on a deleted one there is
+    # nothing to disable, and nothing is what the page should show.
+    assert page.locator("#retag-btn-demo-rel-deleted").count() == 0
 
-        find = page.get_by_role("button", name="Find a new release")
-        assert find.is_visible()
+    find = page.get_by_role("button", name="Find a new release")
+    assert find.is_visible()
 
-        browser.close()
+    page.context.close()
 
 
-def test_a_healthy_album_gets_no_banner(demo_server: str) -> None:
+def test_a_healthy_album_gets_no_banner(browser_factory, demo_server: str) -> None:
     """The control — the OOB swaps must not fire for an album that is fine."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/demo-rel-rural-juror")
-        page.wait_for_selector("#album-tracks table, #album-tracks", timeout=10_000)
+    page.goto(f"{demo_server}/album/demo-rel-rural-juror")
+    page.wait_for_selector("#album-tracks table, #album-tracks", timeout=10_000)
 
-        assert page.locator("text=This release is gone from MusicBrainz").count() == 0
-        retag = page.locator("#retag-btn-demo-rel-rural-juror")
-        retag.wait_for(timeout=10_000)
-        assert not retag.is_disabled(), "the live one, on an album MusicBrainz still has"
+    assert page.locator("text=This release is gone from MusicBrainz").count() == 0
+    retag = page.locator("#retag-btn-demo-rel-rural-juror")
+    retag.wait_for(timeout=10_000)
+    assert not retag.is_disabled(), "the live one, on an album MusicBrainz still has"
 
-        browser.close()
+    page.context.close()

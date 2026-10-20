@@ -33,32 +33,33 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 ALBUM_ID = "demo-rel-dingoes"
 
 
-def test_re_tag_carries_the_fingerprint_the_artwork_section_drew(demo_server: str) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+def test_re_tag_carries_the_fingerprint_the_artwork_section_drew(
+    browser_factory, demo_server: str
+) -> None:
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_selector("#album-artwork .art-row")
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_selector("#album-artwork .art-row")
 
-        # The out-of-band half has landed where the page reserved room for it.
-        drawn = page.locator(f"#art-plan-{ALBUM_ID}").get_attribute("value")
-        assert drawn and re.fullmatch(r"[0-9a-f]{64}", drawn), drawn
+    # The out-of-band half has landed where the page reserved room for it.
+    drawn = page.locator(f"#art-plan-{ALBUM_ID}").get_attribute("value")
+    assert drawn and re.fullmatch(r"[0-9a-f]{64}", drawn), drawn
 
-        # What HTMX would submit for every control that re-tags this album. Asked
-        # of HTMX itself rather than by pressing one, which would re-tag the
-        # demo album under the next test.
-        carried = page.evaluate(
-            """() => [...document.querySelectorAll('[hx-post^="/retag/"]')]
+    # What HTMX would submit for every control that re-tags this album. Asked
+    # of HTMX itself rather than by pressing one, which would re-tag the
+    # demo album under the next test.
+    carried = page.evaluate(
+        """() => [...document.querySelectorAll('[hx-post^="/retag/"]')]
                     .map(el => htmx.values(el).art_plan)"""
-        )
-        assert carried, "no re-tag control on the page to carry anything"
-        assert set(carried) == {drawn}
+    )
+    assert carried, "no re-tag control on the page to carry anything"
+    assert set(carried) == {drawn}
 
-        browser.close()
+    page.context.close()
 
 
-def test_apply_updates_gathers_the_whole_artwork_request(demo_server: str) -> None:
+def test_apply_updates_gathers_the_whole_artwork_request(browser_factory, demo_server: str) -> None:
     """The combined control's artwork half comes from the Artwork section's own
     element, across the DOM, via `hx-include` (#488).
 
@@ -71,67 +72,65 @@ def test_apply_updates_gathers_the_whole_artwork_request(demo_server: str) -> No
     Asked of HTMX rather than by pressing, which would re-tag the demo album
     under the next test.
     """
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
+    browser = browser_factory("chromium")
+    page = browser.new_page()
 
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_selector("#album-artwork .art-row")
-        # `attached`, not visible: these are hidden inputs, and the default wait
-        # would sit here until it timed out on fields that are on the page.
-        page.wait_for_selector(f".apply-art-{ALBUM_ID}", state="attached")
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_selector("#album-artwork .art-row")
+    # `attached`, not visible: these are hidden inputs, and the default wait
+    # would sit here until it timed out on fields that are on the page.
+    page.wait_for_selector(f".apply-art-{ALBUM_ID}", state="attached")
 
-        carried = page.evaluate(
-            """(id) => {
+    carried = page.evaluate(
+        """(id) => {
                 const form = document.querySelector(`form[hx-post="/retag/${id}"]`);
                 return form ? htmx.values(form) : null;
             }""",
-            ALBUM_ID,
-        )
+        ALBUM_ID,
+    )
 
-        assert carried is not None, "no Apply updates form on the page"
-        # The scope the fingerprint was taken at, and the slot the chosen image
-        # travels in — both only reachable through `hx-include`.
-        assert carried.get("artwork_scope") == "all"
-        assert "use" in carried, "the choice slot must be on the wire, empty or not"
-        # …and the fingerprint it carries is the one that element is showing,
-        # rather than a copy this form captured when it was drawn.
-        shown = page.evaluate(
-            """(id) => document.querySelector(
+    assert carried is not None, "no Apply updates form on the page"
+    # The scope the fingerprint was taken at, and the slot the chosen image
+    # travels in — both only reachable through `hx-include`.
+    assert carried.get("artwork_scope") == "all"
+    assert "use" in carried, "the choice slot must be on the wire, empty or not"
+    # …and the fingerprint it carries is the one that element is showing,
+    # rather than a copy this form captured when it was drawn.
+    shown = page.evaluate(
+        """(id) => document.querySelector(
                    `.apply-art-${id}[name="art_plan"]`).value""",
-            ALBUM_ID,
-        )
-        assert carried.get("art_plan") == shown
+        ALBUM_ID,
+    )
+    assert carried.get("art_plan") == shown
 
-        browser.close()
+    page.context.close()
 
 
-def test_apply_artwork_writes_what_the_section_showed(demo_server: str) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_selector("#album-artwork .art-row")
-        section = page.locator("#album-artwork")
-        # Lower-cased: the column headings are set in capitals by CSS, and
-        # `inner_text` reports what is rendered.
-        assert "after apply" in section.inner_text().lower()
+def test_apply_artwork_writes_what_the_section_showed(browser_factory, demo_server: str) -> None:
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_selector("#album-artwork .art-row")
+    section = page.locator("#album-artwork")
+    # Lower-cased: the column headings are set in capitals by CSS, and
+    # `inner_text` reports what is rendered.
+    assert "after apply" in section.inner_text().lower()
 
-        button = section.get_by_role("button", name="Apply this album's artwork")
-        with page.expect_response(re.compile(r"/artwork/update$")) as answer:
-            button.click()
-        assert answer.value.ok
-        # The form's own fingerprint went with it…
-        assert re.search(r"plan=[0-9a-f]{64}", answer.value.request.post_data or "")
+    button = section.get_by_role("button", name="Apply this album's artwork")
+    with page.expect_response(re.compile(r"/artwork/update$")) as answer:
+        button.click()
+    assert answer.value.ok
+    # The form's own fingerprint went with it…
+    assert re.search(r"plan=[0-9a-f]{64}", answer.value.request.post_data or "")
 
-        # …and it matched: the section redrew from the files it just wrote, with
-        # nothing left to apply, rather than coming back to say the album had
-        # changed under it. The Apply button going is the sign — the After
-        # Apply heading stays while the picker is there to choose with (#659).
-        page.wait_for_function(
-            """() => !document.querySelector(
+    # …and it matched: the section redrew from the files it just wrote, with
+    # nothing left to apply, rather than coming back to say the album had
+    # changed under it. The Apply button going is the sign — the After
+    # Apply heading stays while the picker is there to choose with (#659).
+    page.wait_for_function(
+        """() => !document.querySelector(
                 '#album-artwork form[hx-post$="/artwork/update"]')"""
-        )
-        assert "changed after the page showed it" not in section.inner_text().lower()
+    )
+    assert "changed after the page showed it" not in section.inner_text().lower()
 
-        browser.close()
+    page.context.close()

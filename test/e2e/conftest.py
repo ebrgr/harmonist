@@ -37,6 +37,53 @@ _TRACE_DIR = os.environ.get("E2E_TRACE_DIR")
 _CALL_REPORT = pytest.StashKey[pytest.TestReport]()
 
 
+@pytest.fixture(scope="session")
+def _browser_pool(playwright):
+    """One driver and at most one browser per engine in each pytest worker."""
+    browsers = {}
+
+    def acquire(engine: str = "chromium"):
+        if engine not in browsers:
+            browsers[engine] = getattr(playwright, engine).launch()
+        return browsers[engine]
+
+    yield acquire
+    for browser in browsers.values():
+        browser.close()
+
+
+@pytest.fixture
+def browser_factory(_browser_pool, _trace_on_failure, monkeypatch):
+    """Reuse processes, but close every test's isolated contexts before tracing ends.
+
+    Browser.new_page creates a fresh context, so cookies, storage, routes, clocks,
+    and page listeners stay local to the test. Cleanup also runs after failures.
+    """
+    acquired = {}
+    close_context = playwright_sync.BrowserContext.close
+
+    def close(self, *args, **kwargs):
+        # A route.fetch callback can still be reading its response when the test
+        # ends. Finish it before disposal; otherwise its error reaches the next
+        # test through the shared driver. Removing routes also stops new work.
+        for page in self.pages:
+            page.unroute_all(behavior="wait")
+        self.unroute_all(behavior="wait")
+        return close_context(self, *args, **kwargs)
+
+    monkeypatch.setattr(playwright_sync.BrowserContext, "close", close)
+
+    def acquire(engine: str = "chromium"):
+        browser = _browser_pool(engine)
+        acquired[engine] = browser
+        return browser
+
+    yield acquire
+    for browser in acquired.values():
+        for context in browser.contexts:
+            context.close()
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(
     item: pytest.Item, call: pytest.CallInfo[None]
@@ -51,12 +98,9 @@ def pytest_runtest_makereport(
 def _trace_on_failure(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Trace every browser context a test opens; keep the traces if it fails.
 
-    pytest-playwright's own `--tracing` only sees its `page` fixture, and these
-    tests launch their own browsers inside `sync_playwright()`. So the methods
-    that open and close a context are wrapped instead: tracing starts when one
-    opens, and is saved before anything closes it — the context, its browser, or
-    the `with sync_playwright()` a failing assertion unwinds through, which shuts
-    the driver down with every context still open.
+    pytest-playwright's own `--tracing` only sees its `page` fixture. These tests
+    open isolated contexts on pooled browsers, so wrap context creation and
+    closure. browser_factory cleans up failed tests before this fixture ends.
     """
     if not _TRACE_DIR:
         yield

@@ -43,50 +43,48 @@ ALBUM_ID = "demo-rel-electric-mayhem"
 UNTOUCHED_ALBUM_ID = "demo-rel-rural-juror"
 
 
-def test_confirming_the_dialog_posts_the_redownload(demo_server: str) -> None:
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        # Accept htmx's confirm. Without this Playwright dismisses it, no request
-        # is made, and every assertion about the aftermath would fail for a
-        # reason that has nothing to do with the button.
-        page.on("dialog", lambda d: d.accept())
+def test_confirming_the_dialog_posts_the_redownload(browser_factory, demo_server: str) -> None:
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    # Accept htmx's confirm. Without this Playwright dismisses it, no request
+    # is made, and every assertion about the aftermath would fail for a
+    # reason that has nothing to do with the button.
+    page.on("dialog", lambda d: d.accept())
 
-        page.goto(f"{demo_server}/album/{ALBUM_ID}")
-        page.wait_for_load_state("networkidle")
+    page.goto(f"{demo_server}/album/{ALBUM_ID}")
+    page.wait_for_load_state("networkidle")
 
-        button = page.get_by_role("button", name="Re-download")
-        assert button.is_visible(), "the album is linked to a purchase, so it's offered"
+    button = page.get_by_role("button", name="Re-download")
+    assert button.is_visible(), "the album is linked to a purchase, so it's offered"
 
-        with page.expect_request(f"**/library/{ALBUM_ID}/redownload") as request:
-            button.click()
-        assert request.value.method == "POST"
+    with page.expect_request(f"**/library/{ALBUM_ID}/redownload") as request:
+        button.click()
+    assert request.value.method == "POST"
 
-        # The album has left the Library, so the page describing it must not be
-        # where the user is left standing.
-        page.wait_for_url(f"{demo_server}/", timeout=10_000)
-        browser.close()
+    # The album has left the Library, so the page describing it must not be
+    # where the user is left standing.
+    page.wait_for_url(f"{demo_server}/", timeout=10_000)
+    page.context.close()
 
 
-def test_dismissing_the_dialog_posts_nothing(demo_server: str) -> None:
+def test_dismissing_the_dialog_posts_nothing(browser_factory, demo_server: str) -> None:
     """The control: `hx-confirm` has to be able to stop the request, or the
     confirmation is decoration on an operation that deletes files."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.on("dialog", lambda d: d.dismiss())
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.on("dialog", lambda d: d.dismiss())
 
-        posts: list[str] = []
-        page.on(
-            "request",
-            lambda r: posts.append(r.url) if r.method == "POST" else None,
-        )
+    posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: posts.append(r.url) if r.method == "POST" else None,
+    )
 
-        page.goto(f"{demo_server}/album/{UNTOUCHED_ALBUM_ID}")
-        page.wait_for_load_state("networkidle")
-        page.get_by_role("button", name="Re-download").click()
-        page.wait_for_timeout(500)
+    page.goto(f"{demo_server}/album/{UNTOUCHED_ALBUM_ID}")
+    page.wait_for_load_state("networkidle")
+    page.get_by_role("button", name="Re-download").click()
+    page.wait_for_timeout(500)
 
-        assert not [u for u in posts if "redownload" in u]
-        assert page.url.endswith(f"/album/{UNTOUCHED_ALBUM_ID}"), "still on the album page"
-        browser.close()
+    assert not [u for u in posts if "redownload" in u]
+    assert page.url.endswith(f"/album/{UNTOUCHED_ALBUM_ID}"), "still on the album page"
+    page.context.close()

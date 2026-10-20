@@ -33,33 +33,34 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 _PENCIL = 'button[aria-label^="Wrong MusicBrainz match"]'
 
 
-def test_old_deep_link_lands_on_the_album_page(demo_server: str) -> None:
+def test_old_deep_link_lands_on_the_album_page(browser_factory, demo_server: str) -> None:
     """`?album=<id>` opened a dialog before there was an album page (#65). Now it
     redirects there (#103). Those links are written into durable activity
     entries, so this URL keeps arriving indefinitely and must keep working —
     followed as a real navigation, since that's what an <a href> does.
     """
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.goto(demo_server)
 
-        # Discover a real album id the way the UI exposes it (tile → detail).
-        page.click('[data-tab="library"]')
-        tile = page.locator('#panel-library a[href^="/album/"]').first
-        tile.wait_for(state="attached")
-        album_id = (tile.get_attribute("href") or "").split("/album/")[1]
-        assert album_id
+    # Discover a real album id the way the UI exposes it (tile → detail).
+    page.click('[data-tab="library"]')
+    tile = page.locator('#panel-library a[href^="/album/"]').first
+    tile.wait_for(state="attached")
+    album_id = (tile.get_attribute("href") or "").split("/album/")[1]
+    assert album_id
 
-        page.goto(f"{demo_server}/?album={album_id}")
+    page.goto(f"{demo_server}/?album={album_id}")
 
-        assert page.url.endswith(f"/album/{album_id}"), f"did not redirect: {page.url}"
-        page.locator("text=History").first.wait_for(state="visible")
+    assert page.url.endswith(f"/album/{album_id}"), f"did not redirect: {page.url}"
+    page.locator("text=History").first.wait_for(state="visible")
 
-        browser.close()
+    page.context.close()
 
 
-def test_missing_album_notice_dismisses_and_clears_the_url(demo_server: str) -> None:
+def test_missing_album_notice_dismisses_and_clears_the_url(
+    browser_factory, demo_server: str
+) -> None:
     """#71: the notice must actually go away.
 
     Both halves are invisible to pytest, which only sees the markup: whether the
@@ -67,29 +68,28 @@ def test_missing_album_notice_dismisses_and_clears_the_url(demo_server: str) -> 
     really drops `?album=` (so a refresh doesn't resurrect a message about a
     navigation that already happened).
     """
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(f"{demo_server}/?album=definitely-not-a-real-album-id")
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.goto(f"{demo_server}/?album=definitely-not-a-real-album-id")
 
-        notice = page.locator("#deep-link-notice")
-        notice.wait_for(state="visible")
-        # The parameter is gone from the address bar before any interaction...
-        assert "album=" not in page.url
-        # ...and a reload therefore does not bring the notice back.
-        page.reload()
-        assert page.locator("#deep-link-notice").count() == 0
+    notice = page.locator("#deep-link-notice")
+    notice.wait_for(state="visible")
+    # The parameter is gone from the address bar before any interaction...
+    assert "album=" not in page.url
+    # ...and a reload therefore does not bring the notice back.
+    page.reload()
+    assert page.locator("#deep-link-notice").count() == 0
 
-        # And the dismiss control removes it outright.
-        page.goto(f"{demo_server}/?album=definitely-not-a-real-album-id")
-        notice.wait_for(state="visible")
-        page.click('#deep-link-notice button[aria-label="Dismiss"]')
-        notice.wait_for(state="detached")
+    # And the dismiss control removes it outright.
+    page.goto(f"{demo_server}/?album=definitely-not-a-real-album-id")
+    notice.wait_for(state="visible")
+    page.click('#deep-link-notice button[aria-label="Dismiss"]')
+    notice.wait_for(state="detached")
 
-        browser.close()
+    page.context.close()
 
 
-def test_activity_album_link_actually_opens_the_album(demo_server: str) -> None:
+def test_activity_album_link_actually_opens_the_album(browser_factory, demo_server: str) -> None:
     """The full round trip that shipped broken: do an action, then click the
     album link the Activity feed writes for it.
 
@@ -99,54 +99,52 @@ def test_activity_album_link_actually_opens_the_album(demo_server: str) -> None:
     that tagging had already erased, so every link landed on the "isn't in your
     library any more" notice.
     """
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.goto(demo_server)
 
-        # An action against a real album, so the feed gets an album-tagged entry.
-        # The tile is a link to the album's page now, not a dialog trigger (#129).
-        page.click('[data-tab="library"]')
-        page.locator('#panel-library a[href^="/album/"]').first.click()
-        page.locator(_PENCIL).wait_for(state="visible")
-        page.on("dialog", lambda d: d.accept())
-        with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
-            page.click(_PENCIL)
-        page.locator("#album-inbox-actions").wait_for(state="visible")
-        page.goto(demo_server)
+    # An action against a real album, so the feed gets an album-tagged entry.
+    # The tile is a link to the album's page now, not a dialog trigger (#129).
+    page.click('[data-tab="library"]')
+    page.locator('#panel-library a[href^="/album/"]').first.click()
+    page.locator(_PENCIL).wait_for(state="visible")
+    page.on("dialog", lambda d: d.accept())
+    with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
+        page.click(_PENCIL)
+    page.locator("#album-inbox-actions").wait_for(state="visible")
+    page.goto(demo_server)
 
-        # Its Activity entry must carry a link on the album name.
-        page.click('[data-tab="activity"]')
-        link = page.locator('#panel-activity a[href^="/album/"]').first
-        link.wait_for(state="visible")
-        link.click()
+    # Its Activity entry must carry a link on the album name.
+    page.click('[data-tab="activity"]')
+    link = page.locator('#panel-activity a[href^="/album/"]').first
+    link.wait_for(state="visible")
+    link.click()
 
-        # Following it lands on the album's page (#103) with its history —
-        # NOT the unresolvable-album notice.
-        page.locator("text=History").first.wait_for(state="visible")
-        assert "/album/" in page.url
-        assert "isn't in your library any more" not in page.content()
+    # Following it lands on the album's page (#103) with its history —
+    # NOT the unresolvable-album notice.
+    page.locator("text=History").first.wait_for(state="visible")
+    assert "/album/" in page.url
+    assert "isn't in your library any more" not in page.content()
 
-        browser.close()
+    page.context.close()
 
 
-def test_album_page_rematch_posts_and_opens_picker(demo_server: str) -> None:
+def test_album_page_rematch_posts_and_opens_picker(browser_factory, demo_server: str) -> None:
     """The pencil must issue its POST and continue on the album page (#743)."""
-    with playwright_sync.sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(demo_server)
+    browser = browser_factory("chromium")
+    page = browser.new_page()
+    page.goto(demo_server)
 
-        # Library tab → first tile → the album's own page.
-        page.click('[data-tab="library"]')
-        page.locator('#panel-library a[href^="/album/"]').first.click()
-        page.locator(_PENCIL).wait_for(state="visible")
-        assert "/album/" in page.url
+    # Library tab → first tile → the album's own page.
+    page.click('[data-tab="library"]')
+    page.locator('#panel-library a[href^="/album/"]').first.click()
+    page.locator(_PENCIL).wait_for(state="visible")
+    assert "/album/" in page.url
 
-        # The rematch pencil opens the picker without a preliminary warning.
-        with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
-            page.click(_PENCIL)
+    # The rematch pencil opens the picker without a preliminary warning.
+    with page.expect_request(lambda r: "/rematch" in r.url and r.method == "POST"):
+        page.click(_PENCIL)
 
-        page.locator("#album-inbox-actions").wait_for(state="visible")
-        assert "/album/" in page.url
-        browser.close()
+    page.locator("#album-inbox-actions").wait_for(state="visible")
+    assert "/album/" in page.url
+    page.context.close()
