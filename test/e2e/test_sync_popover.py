@@ -128,6 +128,10 @@ def test_popover_cannot_open_over_a_disabled_sync_button(demo_server: str) -> No
         # below is a race against the next tick — it would pass or fail
         # depending on timing, which is exactly the flake #52 cost us.
         page.evaluate("for (let i = 1; i < 10000; i++) clearInterval(i)")
+        # Clearing the timers stops the next poll, not one already sent — the
+        # page's own `load` poll, just after goto. Let it land first, or it
+        # re-enables the button after the line below disables it (#832).
+        page.wait_for_function("() => !document.querySelector('#app-status.htmx-request')")
         # Disable it the same way every real reason does — the attribute. The
         # poll JS sets exactly this during a sync, reconcile or cold-start scan,
         # and /settings renders it server-side.
