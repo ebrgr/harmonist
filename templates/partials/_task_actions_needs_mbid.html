@@ -124,8 +124,11 @@
 {% if candidate and not is_surrender %}
 <div class="candidate-review rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-3">
     <div id="assignments-{{ album.id }}-{{ candidate.mb_release_id }}" hx-preserve class="assignment-editor">
+        {# The indicator is the child, not the loader: htmx re-initialises a node
+           whose attributes change, and an Inbox refresh re-processes this card,
+           so `htmx-request` on the loader itself would fire `load` again (#821). #}
         <div hx-get="/assignments/{{ album.id }}?cancel=true&amp;on_album_page={{ 'true' if on_album else 'false' }}"
-             hx-trigger="load" hx-swap="outerHTML" class="assignment-content">
+             hx-trigger="load" hx-swap="outerHTML" hx-indicator="find [role='status']" class="assignment-content">
             <p role="status" class="text-xs text-muted">Loading track comparison…</p>
         </div>
     </div>

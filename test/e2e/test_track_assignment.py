@@ -264,6 +264,45 @@ def test_inbox_refresh_during_an_editor_settle_leaves_it_ready(
         browser.close()
 
 
+@pytest.mark.parametrize("engine_name", ["chromium", "webkit"])
+def test_inbox_refresh_during_an_editor_load_reads_it_once(reset_demo_server, engine_name):
+    """A refresh re-processes the card mid-load; that must not fire its load again (#821)."""
+    with pw.sync_playwright() as playwright:
+        browser = getattr(playwright, engine_name).launch()
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        card = _card(page, reset_demo_server)
+        aid = card.get_attribute("id").removeprefix("task-")
+        held = []
+
+        def hold(route):
+            held.append((route, route.fetch()))
+            page.evaluate("window.editorReadHeld = true")
+
+        page.route(f"**/assignments/{aid}?cancel=true*", hold)
+        # A reconcile renders the Inbox without cards; the next refresh brings
+        # this one back as a fresh loader.
+        page.route(
+            "**/tasks",
+            lambda route: route.fulfill(
+                status=200, content_type="text/html", body="<p>Sorting your library</p>"
+            ),
+            times=1,
+        )
+        page.evaluate("htmx.trigger(document.body, 'tasks-changed')")
+        pw.expect(page.locator("#task-list")).to_have_text("Sorting your library")
+        _refresh_inbox(page)
+        page.wait_for_function("window.editorReadHeld === true")
+        _refresh_inbox(page)
+        for route, response in held:
+            route.fulfill(response=response)
+        pw.expect(card.locator(".assignment-artwork")).to_contain_text("CAA checked")
+        assert len(held) == 1
+        assert not errors
+        browser.close()
+
+
 def test_column_display_toggle_survives_moves_and_reset(reset_demo_server):
     with pw.sync_playwright() as playwright:
         browser = playwright.chromium.launch()

@@ -216,6 +216,23 @@ one, name **both**.
 element is legal. Neither does pytest, which sees a correct-looking string. Only
 a browser does.
 
+### 2c. A `load` trigger fires again if its element changes mid-request
+
+htmx re-initialises any node whose attributes have changed since it was last
+processed, and that clears the "already loaded" flag, so `hx-trigger="load"`
+fires a second time. With no `hx-indicator`, the element is its own indicator,
+and `htmx-request` lands on its `class` for the whole request. Anything that
+re-processes it meanwhile (every Inbox morph re-processes every card) then
+sends a duplicate request. The second response swaps into a detached element,
+throws, and can carry an `hx-preserve` panel off the page with it (#821).
+Upgrading htmx doesn't help: 2.0.11 behaves the same.
+
+So a `load` element that lives inside re-rendered content must keep its own
+attributes still: point `hx-indicator` at a child (`find [role='status']`), and
+leave `hx-disabled-elt="this"` alone (an empty `disabled` doesn't count). If it
+must change, rewrite `hx-trigger` in `hx-on::before-request`, as the release
+searches do, so a re-process finds no `load` left to fire.
+
 ## 3. Rebuild the CSS bundle after every template edit
 
 `static/harmonist.css` is a committed build artifact. Run `make css` and commit
