@@ -6,46 +6,38 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-10-20
+
 ### Added
 
-- **MusicBrainz IDs in tag changes show as names**, linked to MusicBrainz, in
-  History, on the album page and in the Inbox; an ID the release no longer
-  carries shows shortened (#801).
 - **Inbox tag updates can be applied several at once**: tick them, or a whole
-  level, and press Apply. Each album is written in turn, tags only, with its
-  own History entry and Undo; Structure updates stay on the album page (#814).
+  level, and press **Apply**; Structure updates stay on the album page (#814).
+- **MusicBrainz IDs in tag changes show as the names they identify**, linked
+  to MusicBrainz (#801).
 
 ### Changed
 
-- **Browser interactions no longer depend on a JavaScript CDN being reachable** (#825).
-- **A tag change that differs per track lists each track's value under its
-  field**, in History and the Inbox, instead of "N different values" (#820).
-- **The startup update check runs about five times faster**, pausing only while
-  a page is being served (#793).
-- **An Inbox tag update's full change list opens with Show all / Show fewer**
-  beneath its rows, instead of a disclosure triangle (#801).
-- **Inbox tag update cards are more compact**: the artist sits beside the
-  title, the cover is larger, and up to three changes show without a Show all
-  (#811).
-- **The status bar names the album an update pass is writing** and counts
-  its tracks: "Applying updates 2/5 · Rawhide · track 3/12" (#815).
-- **A collaboration's artists stored as one `/`-joined value rank as
-  Enrichment**, not Identity, when written out as the same artists and IDs
-  (#804).
+- **A tag change that differs per track lists each track's value** under its
+  field, instead of "N different values" (#820).
+- **The startup update check runs about five times faster** (#793).
+- **Inbox tag update cards are more compact**, showing up to three changes
+  before a **Show all** (#801, #811).
+- **The status bar names the album an update pass is writing** and counts its
+  tracks (#815).
+- **Browser interactions no longer depend on a JavaScript CDN being reachable**
+  (#825).
+- **Splitting a collaboration's `/`-joined artists into separate artists ranks
+  as Enrichment**, not Identity (#804).
 
 ### Fixed
 
 - **Keyboard focus in an Inbox card stays put when the Inbox refreshes** (#802).
 - **An Inbox refresh while a suggestion is loading no longer loses its release
-  artwork**, which could stay on "Loading artwork…" or disappear (#821).
+  artwork** (#821).
 - **An open Library filter menu stays open when the Library refreshes** in the
-  background, such as when a scan finishes (#823).
-- **Status bar reports clear after ten seconds**, errors excepted, and no longer
-  give way to **Last sync** within a second and a half once a sync has run
-  (#816).
-- **The startup update check reports the counts the page shows**: albums with a
-  tag update, leaving out ignored ones as the Library's filter does, and how
-  many are in the Inbox for review (#818).
+  background (#823).
+- **Status bar reports clear after ten seconds**, errors excepted (#816).
+- **The startup update check reports the counts the page shows** (#818).
 
 ## [1.28.0] - 2026-10-18
 
