@@ -392,6 +392,8 @@ def test_pending_artwork_does_not_block_tags_only_acceptance(reset_demo_server):
         page = browser.new_page()
         page.on("dialog", lambda dialog: dialog.accept())
         aid = _suggest(page, base)
+        # Leave the Inbox first, so its refresh after the assign cannot be held.
+        page.goto("about:blank")
         pending = []
         page.route("**/assignments/*/artwork?*", lambda route: pending.append(route))
         page.goto(base)
@@ -417,6 +419,9 @@ def test_current_artwork_keeps_actions_in_place_while_loading(
         page = browser.new_page(viewport={"width": width, "height": 1000})
         base = reset_public_demo_server
         aid = _suggest(page, base)
+        # Leave the Inbox first: the assign refreshes it, and its card's own
+        # artwork request could otherwise be held, mid-navigation (#828).
+        page.goto("about:blank")
         pending = []
 
         def hold(route):
