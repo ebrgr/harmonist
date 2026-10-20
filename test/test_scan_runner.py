@@ -19,14 +19,20 @@ def _album(root: Path, name: str) -> Path:
     return d
 
 
+async def _await_scan(runner: ScanRunner) -> None:
+    task = runner._task
+    assert task is not None
+    await asyncio.wait_for(task, timeout=5)
+
+
 async def _scan_to_completion(runner: ScanRunner) -> None:
     """Kick a scan in-loop and await the task itself, so "it finished" is
     certain rather than inferred from a status that a completed scan may no
     longer touch (see the seq test)."""
+    previous = runner._task
     runner._kick()
-    task = runner._task
-    assert task is not None
-    await task
+    assert runner._task is not previous, "the requested scan did not start"
+    await _await_scan(runner)
 
 
 async def _wait(predicate, *, timeout_ticks: int = 300) -> None:
@@ -34,6 +40,7 @@ async def _wait(predicate, *, timeout_ticks: int = 300) -> None:
         if predicate():
             return
         await asyncio.sleep(0.01)
+    raise AssertionError("condition did not become true before the polling limit")
 
 
 def test_scan_runner_not_engaged_before_attach(tmp_path):
@@ -87,7 +94,7 @@ def test_reset_and_rescan_no_loop_is_noop(tmp_path):
     assert len(runner.albums()) == 1
 
 
-def test_reset_and_rescan_drops_snapshot_and_reruns(tmp_path):
+def test_reset_and_rescan_drops_snapshot_and_reruns(tmp_path, monkeypatch):
     """After a nuke: reset_and_rescan clears the stale snapshot and runs a fresh
     scan, so the inbox shows 'Scanning…' then the rebuilt library."""
     music = tmp_path / "music"
@@ -97,13 +104,26 @@ def test_reset_and_rescan_drops_snapshot_and_reruns(tmp_path):
 
     async def go() -> None:
         runner.attach_loop()
-        await _wait(runner.has_completed)
+        await _await_scan(runner)
         assert len(runner.albums()) == 2
-        first = runner.status()["seq"]
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        scan_once = runner._scan_once
+
+        async def held_scan(*, visible: bool) -> None:
+            entered.set()
+            await release.wait()
+            await scan_once(visible=visible)
+
+        monkeypatch.setattr(runner, "_scan_once", held_scan)
         runner.reset_and_rescan()
-        # The snapshot is dropped promptly (the rescan then refills it).
-        await _wait(lambda: runner.albums() == [])
-        await _wait(lambda: runner.status()["seq"] > first)
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            # Observe the cleared snapshot before the rescan can refill it.
+            assert runner.albums() == []
+        finally:
+            release.set()
+        await _await_scan(runner)
 
     asyncio.run(go())
     assert len(runner.albums()) == 2  # repopulated by the fresh scan
@@ -190,11 +210,9 @@ def test_scan_runner_fires_on_first_complete_once(tmp_path):
 
     async def go() -> None:
         runner.attach_loop()
-        await _wait(runner.has_completed)
-        first = runner.status()["seq"]
-        runner.request_scan()  # a second scan must NOT re-fire the hook
-        await _wait(lambda: runner.status()["seq"] > first)
-        await asyncio.sleep(0.02)
+        await _await_scan(runner)
+        # An unchanged scan does not advance seq; await the work itself.
+        await _scan_to_completion(runner)
 
     asyncio.run(go())
     assert calls == [1]
@@ -333,15 +351,14 @@ def test_an_album_added_later_is_recorded_once_and_only_once(tmp_path):
 
     async def go() -> None:
         runner.attach_loop()
-        await _wait(lambda: len(_discovery_rows()) == 1)
+        await _await_scan(runner)
+        assert len(_discovery_rows()) == 1
         _album(music, "Arrived")
-        runner.request_scan()
-        await _wait(lambda: len(_discovery_rows()) == 2)
+        await _scan_to_completion(runner)
+        assert len(_discovery_rows()) == 2
         # A third scan with nothing new must add nothing — the scan runs
         # constantly, so a per-scan repeat would bury the feed.
-        runner.request_scan()
-        await _wait(lambda: runner.status()["seq"] >= 3)
-        await asyncio.sleep(0.05)
+        await _scan_to_completion(runner)
 
     asyncio.run(go())
 

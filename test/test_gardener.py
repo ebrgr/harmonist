@@ -1785,8 +1785,11 @@ def test_a_tick_asks_about_its_share_of_the_window_and_no_more(tmp_path, monkeyp
     1/144 at the shipped values — so 288 outstanding releases cost two requests,
     not the hundred the old cap would have spent."""
     activity_store.init(tmp_path / "activity.db")
+    # Each helper scans its root. Isolate those roots so building N albums
+    # visits N albums, rather than re-reading the growing library N times.
     albums = [
-        _tagged(tmp_path, _release(mbid=f"rel-{i:03d}"), name=f"Album {i}") for i in range(288)
+        _tagged(tmp_path / str(i), _release(mbid=f"rel-{i:03d}"), name=f"Album {i}")
+        for i in range(288)
     ]
     asked = _serving(monkeypatch, *(_release(mbid=f"rel-{i:03d}") for i in range(288)))
 
