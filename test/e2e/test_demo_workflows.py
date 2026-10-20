@@ -33,9 +33,13 @@ def test_public_smaller_candidate_is_explicit_and_undoable(public_demo_server):
         assert cover.read_bytes() == before
         assert [formats.read_cover(p) for p in files] == original
         choose.click()
+        # Each choice is previewed from the section's form, so the next must be
+        # made on the section that preview returns, not the one it replaces (#832).
+        page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
         # The folder cover is a row of its own (#659), chosen the same way.
         section.locator("#art-row-cover .art-row__select").click()
         section.get_by_role("button", name="Use for cover.png").click()
+        page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-settling')")
         apply = page.locator("#album-findings-demo-rel-barryjive").get_by_role(
             "button", name="Apply updates", exact=True
         )

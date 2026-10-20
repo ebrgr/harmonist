@@ -93,6 +93,9 @@ def test_combined_filters(library_filters_server, htmx_ready, engine, width):
 
         htmx_ready(page.locator("#library-origin-button")).click()
         htmx_ready(origins.get_by_role("link", name=re.compile(r"^Unknown"))).click()
+        # Wait for the choice to land: a menu opened before then is replaced by
+        # its response, and its options do not yet carry the new filter (#832).
+        pw.expect(page.locator("#library-origin-button")).to_contain_text("Origin: Unknown")
         htmx_ready(trigger).click()
         htmx_ready(formats.get_by_role("button", name="Mixed formats only", exact=True)).click()
         pw.expect(trigger).to_contain_text("Format: MP3 · Mixed")

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -51,10 +52,16 @@ def test_popover_opens_on_hover_when_sync_is_live(demo_server: str) -> None:
 def _sync_post_body(page: Any, *, open_popover: bool, toggle: bool) -> str:
     """Click Sync (optionally opening the popover and toggling Link-only first)
     and return the body POSTed to /sync."""
+    # Only /sync's: the Inbox posts too, and a card's POST landing after the
+    # sync's would otherwise be read as the sync (#832).
     bodies: list[str] = []
     page.on(
         "request",
-        lambda r: bodies.append(r.post_data or "") if r.method == "POST" else None,
+        lambda r: (
+            bodies.append(r.post_data or "")
+            if r.method == "POST" and urlsplit(r.url).path == "/sync"
+            else None
+        ),
     )
     button = page.locator("#sync-button")
     button.wait_for(state="visible")
