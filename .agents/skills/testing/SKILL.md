@@ -142,6 +142,19 @@ under `templates/` that alters *behaviour* (a trigger, a handler, a control's
 lifecycle) rather than wording or styling: CI tells you after the push, and the
 full run takes minutes you'd rather spend before it.
 
+**A local green says nothing about a race.** A dev machine answers a fragment
+in a few milliseconds; CI takes 100–400ms. A test that acts before the previous
+response has landed — opens the next menu, makes the next choice, counts a held
+request — passes locally every time and fails on CI now and then. Four such
+failures in a row (#823, #824, #828, #832) were each "fixed" for the one
+interleaving their trace showed, verified green locally, and failed again on CI
+somewhere else. `E2E_LATENCY_MS=300 make e2e` holds every htmx request on the
+e2e servers for 300ms first (`test/e2e/latency_app.py`, #834); run the suite
+that way to reproduce a CI race, and again to call one fixed. It found three
+of these tests in one run. Some races also need the parallel load, so run it
+four wide as CI does (`pytest test/e2e -n 4 --dist loadscope`), and more than
+once.
+
 Keep it a smoke layer. It exists to prove the wiring is live — that a click
 produces a request, that a dialog closes, that focus lands — not to re-assert
 what the Python suite already covers about the response.

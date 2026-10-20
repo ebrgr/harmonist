@@ -387,6 +387,10 @@ def _run_demo_server(
         # candidate loaded in one module cannot leak into another (#509).
         "TMPDIR": str(root),
     }
+    # CI's response times on demand: check a race fix with E2E_LATENCY_MS=300 (#834).
+    if os.environ.get("E2E_LATENCY_MS"):
+        env["E2E_APP"] = app_module
+        app_module = "test.e2e.latency_app:app"
     (root / "music").mkdir()
     (root / "config").mkdir()
     if config_toml is not None:
