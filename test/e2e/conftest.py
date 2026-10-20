@@ -150,12 +150,6 @@ def htmx_ready():
     return ready
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
 @pytest.fixture(scope="module")
 def demo_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Uvicorn in demo mode against throwaway dirs; yields the base URL."""
@@ -376,7 +370,6 @@ def _run_demo_server(
     (the cache TTLs, for one). Everything else is identical, including the demo
     library reset, so a test module choosing its own settings does not also
     quietly choose its own fixture library."""
-    port = _free_port()
     env = os.environ | {
         "HARMONIST_DEMO_MODE": "1",
         "HARMONIST_DEMO_DELAY": "0",
@@ -391,22 +384,25 @@ def _run_demo_server(
     (root / "config").mkdir()
     if config_toml is not None:
         (root / "config" / "harmonist.toml").write_text(config_toml, encoding="utf-8")
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", app_module, "--port", str(port)],
-        env=env,
-        cwd=Path(__file__).resolve().parents[2],
-    )
+    # Bind here and hand uvicorn the listening socket. Picking a free port for
+    # the server to bind later leaves a gap in which another worker's server
+    # can take it, and this fixture then resets that server mid-test (#821).
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", app_module, "--fd", str(listener.fileno())],
+            env=env,
+            cwd=Path(__file__).resolve().parents[2],
+            pass_fds=[listener.fileno()],
+        )
     base = f"http://127.0.0.1:{port}"
     try:
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=1):
-                    break
-            except OSError:
-                time.sleep(0.3)
-        else:
-            pytest.fail("demo server did not come up")
+        # Requests queue on the socket until the app has started; a server
+        # that dies first closes it, failing this instead of hanging.
+        with urllib.request.urlopen(f"{base}/status", timeout=30):
+            pass
 
         # Reset through the real route and wait for the initial scan to settle
         # before handing the seeded library to a test.
