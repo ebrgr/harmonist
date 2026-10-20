@@ -340,8 +340,11 @@
         const from = {height: node.offsetHeight + 'px', opacity: 1};
         const to = {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
                     marginTop: '0px', borderTopWidth: '0px'};
-        node.animate([from, to], {duration: 300, easing: 'ease-in-out'})
-            .finished.finally(function () { node.remove(); });
+        const leave = function () { node.remove(); };
+        node.animate([from, to], {duration: 300, easing: 'ease-in-out'}).finished.then(leave, leave);
+        // An animation only advances while the page is drawn. A tab nobody is
+        // looking at would otherwise keep the leaving card until it is.
+        setTimeout(leave, 1000);
         return false;
     };
 })();

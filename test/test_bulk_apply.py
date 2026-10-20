@@ -352,6 +352,31 @@ def test_applying_a_selection_starts_the_pass_with_each_cards_version(tmp_path, 
     )
 
 
+@pytest.mark.parametrize(
+    ("form", "refused"),
+    [
+        ({"album": ["rel-a:v1"]}, None),
+        ({"album": ["rel-a:v1"]}, "A sync or reconcile is running"),
+        ({}, None),
+    ],
+    ids=["started", "refused", "nothing selected"],
+)
+def test_applying_a_selection_never_rescans_the_library(tmp_path, monkeypatch, form, refused):
+    """The pass refreshes each album as it writes it. A full scan on top would
+    lock the Inbox for as long as it takes, for one album's tags."""
+    from harmonist.web import main as web_main
+    from test.test_auto_apply import _client
+
+    _, client = _client(tmp_path)
+    monkeypatch.setattr(web_main, "_start_bulk_apply", lambda app, chosen: refused)
+    scans = []
+    monkeypatch.setattr(client.app.state.scan_runner, "request_scan", lambda: scans.append(1))
+
+    client.post("/updates/apply", data=form)
+
+    assert scans == []
+
+
 def test_a_selection_is_not_applied_during_a_sync(tmp_path, monkeypatch):
     from test.test_auto_apply import _client
 

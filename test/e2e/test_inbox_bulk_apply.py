@@ -34,6 +34,14 @@ def test_a_selection_survives_a_refresh_and_each_album_leaves_once_applied(
     with playwright_sync.sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
+        # Every animation frozen at its start, as in a page that isn't being
+        # drawn: the fold must not be what takes an applied card out.
+        page.add_init_script(
+            "const animate = Element.prototype.animate;"
+            "Element.prototype.animate = function (...args) {"
+            "  const animation = animate.apply(this, args); animation.pause(); return animation;"
+            "};"
+        )
         expect = playwright_sync.expect
 
         # Every level to the Inbox, so the Enrichment updates are listed.

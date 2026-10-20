@@ -8021,7 +8021,13 @@ def _register_routes(app: FastAPI) -> None:
         the pass leaves alone any update that has moved past it. The pass
         refreshes each album as it goes, so the Inbox drops them one at a time,
         and the status bar shows its progress; this only starts it.
+
+        Never a library rescan, whatever the outcome: the pass refreshes each
+        album it writes, falling back to a scan itself only where a folder can't
+        be re-read, and a refused or empty request wrote nothing. A rescan here
+        would lock the Inbox for the whole library's sake while the pass runs.
         """
+        request.state.skip_rescan = True
         chosen: dict[str, str | None] = {}
         for value in album:
             album_id, _, version = value.rpartition(":")
