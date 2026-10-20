@@ -129,8 +129,16 @@ that would actually notice**, never in an assertion.
 ## 6. e2e: the browser rung
 
 `test/e2e/` holds the Playwright tests, each gated on `RUN_E2E=1` so `make
-check` stays browser-free. Setup is `uv pip install -e '.[e2e]'` + `playwright
-install chromium webkit`; run them with `make e2e`.
+check` stays browser-free. Use the checked-in devcontainer and its `/opt/venv`
+environment; [development setup](../../../docs/development.md) covers rebuilding
+it and installing the locked browser assets. After dependency changes, reinstall
+`.[dev,e2e]` and run `playwright install --with-deps chromium webkit` inside that
+container. Verify the imported checkout and installed versions before comparing
+runs: an old browser build or missing `static/vendor/` is a different environment.
+Run with `make e2e`. Use `browser_factory` and a fresh `browser.new_page(...)`
+context for each test. The fixture shares processes, closes contexts after failures,
+and preserves traces; opening another `sync_playwright()` session conflicts with
+the worker's existing driver.
 
 CI runs them in its own `e2e` job, four workers wide (`-n 4 --dist
 loadscope`), so a red browser test there is a real failure, not noise to rerun
@@ -159,7 +167,52 @@ Keep it a smoke layer. It exists to prove the wiring is live — that a click
 produces a request, that a dialog closes, that focus lands — not to re-assert
 what the Python suite already covers about the response.
 
-## 7. When not to add a test
+## 7. No sleeps for synchronization
+
+**Do not use `time.sleep`, `asyncio.sleep`, or `page.wait_for_timeout` to make a
+test ready to continue.** A fixed delay proves only that time passed. Shortening
+it makes the race easier to hit; lengthening it makes every passing run pay for
+one machine's worst case. Existing sleeps are debt, not examples to copy.
+
+Choose the evidence the next assertion actually needs:
+
+- **Requests and navigation:** arm `expect_request`, `expect_response`, or
+  `expect_navigation` before the action that triggers it. A response arriving
+  does not mean HTMX has swapped or wired the fragment. Follow it with a
+  retrying assertion on the resulting DOM or an observed, scoped HTMX lifecycle
+  event. If the expected value was already present, it cannot prove completion;
+  track the specific replacement or event instead. `htmx_ready` scopes control
+  readiness after a swap; unrelated polling must not hold up an action.
+- **UI state:** use Playwright's retrying `expect(locator)` assertions or a
+  bounded `wait_for_function` for the actual condition. Wait for image loading,
+  layout, or focus where that is what the assertion needs. A blanket
+  `networkidle` wait is a poor readiness signal on a page that polls continuously.
+- **Races:** hold a request or response with routing, observe that it reached
+  the barrier, perform the competing action, then release it. Exercise the
+  relevant response orders explicitly. Do not guess when a request is in flight.
+- **Timers and polling:** install Playwright's clock before navigation and
+  advance it deliberately. Use `run_for` when intermediate callbacks matter;
+  `fast_forward` can coalesce timers. Clock advancement does not complete HTTP
+  requests: wait for the resulting request and DOM effect as well. A test that
+  asserts a poll did not destroy something needs a control proving that the
+  poll was armed and could otherwise destroy it.
+- **Python workers and fixtures:** use an event, barrier, future, or a bounded
+  readiness-condition wait. Every wait needs a deadline and a useful failure;
+  an unbounded loop or an unsignalled `Event.wait(delay)` merely disguises the
+  sleep. Poll a read-only condition, not a mutation: even a rejected POST can
+  schedule work and keep the fixture busy forever. A readiness check must observe
+  the state being waited for, not assume it after a grace period.
+
+For a negative assertion (no navigation, duplicate write, or DOM replacement),
+first observe the completion of the action that could cause it. An immediately
+passing absence assertion is not a substitute for the old sleep. Mutation-check
+these replacements so a missing event or unchanged DOM cannot make them vacuous.
+
+Deliberate latency in `test/e2e/latency_app.py` is a simulated service condition,
+not synchronization. Keep that fault injection; the test still waits on observable
+completion, including when the response takes longer than the injected delay.
+
+## 8. When not to add a test
 
 - To reach a coverage number. Coverage measures what ran, and every escape above
   ran fine.
@@ -184,7 +237,9 @@ tells the next reader the behaviour is covered when it isn't.
    test client.
 6. Template behaviour changed? `make e2e` run locally, and the change exercised
    by hand in demo mode.
-7. `make check` green — necessary, never sufficient.
+7. Waits observe a condition or event, with a deadline; timer tests use a controlled
+   clock. No fixed sleeps stand in for completion.
+8. `make check` green — necessary, never sufficient.
 
 ## Why this exists
 

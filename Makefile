@@ -55,7 +55,7 @@ check: lint format-check typecheck template-lint test
 
 # Browser smoke tests (opt-in): pip install -e .[e2e] && playwright install chromium webkit
 e2e:
-	RUN_E2E=1 pytest test/e2e/
+	RUN_E2E=1 pytest test/e2e/ -n 4 --dist loadscope --durations=30
 
 # Local dev server. Set HARMONIST_MUSIC_DIR / HARMONIST_CONFIG_DIR as needed.
 run:

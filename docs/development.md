@@ -122,3 +122,42 @@ make e2e
 Commit the manifest and lockfile together. `npm ci` checks that they agree
 and verifies package integrity. The browser suite exercises the generated
 scripts with external requests blocked as well as the app's normal interactions.
+
+## Browser tests and timings
+
+Inside the devcontainer, install the e2e extras and their matching browser builds
+after a rebuild or Playwright upgrade:
+
+```sh
+pip install -e ".[dev,e2e]"
+playwright install --with-deps chromium webkit
+E2E_TRACE_DIR=/tmp/e2e-traces make e2e
+```
+
+`make e2e` uses the same four-worker scheduling as CI. To save a JUnit timing
+report as well:
+
+```sh
+RUN_E2E=1 E2E_TRACE_DIR=/tmp/e2e-traces pytest test/e2e -q -rs \
+  -n 4 --dist loadscope --durations=30 --junitxml=/tmp/e2e-results.xml
+```
+
+The duration report separates slow setup, test calls, and teardown. JUnit times
+include all three phases. CI retains the `e2e-results` artifact on successful
+and failed runs, and `e2e-traces` contains traces of failing tests. Summed test
+times are worker time, not elapsed time: four tests can run concurrently.
+Compare the same revision, dependency versions, worker count, and tracing mode.
+
+Each worker reuses its Playwright driver and browser processes through
+`browser_factory`. Each `browser.new_page(...)` creates an isolated context;
+the fixture closes contexts even after a failed assertion. Passing tests drain
+active route handlers; failed tests discard abandoned callbacks so cleanup cannot
+deadlock behind the failure. Server lifetimes and library resets remain fixture-scoped.
+
+Waits observe requests, DOM conditions, or scoped HTMX lifecycle events.
+`htmx_complete` arms an observation before an action and follows that request
+through its completion; `htmx_ready` waits for a particular control to be wired.
+Timer tests use Playwright's clock. The
+[testing skill](../.agents/skills/testing/SKILL.md) describes the alternatives
+to fixed sleeps, including positive controls for negative assertions. Check
+changed synchronization repeatedly with `E2E_LATENCY_MS=300` and four workers.
