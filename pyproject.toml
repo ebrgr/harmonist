@@ -1,7 +1,7 @@
 [project]
 name = "harmonist"
 version = "1.28.0"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 # bandcampsync 0.8 reshaped Syncer.__init__ to take a BandcampSyncOptions
 # object (+ auto_run); HarmonistSyncer adapts to it in bandcamp_hook.py.
 dependencies = ["mutagen", "bandcampsync~=0.8.0", "fastapi", "jinja2", "httpx", "musicbrainzngs", "pydantic", "python-multipart", "tomlkit", "uvicorn[standard]", "watchfiles"]
@@ -28,7 +28,7 @@ build-backend = "setuptools.build_meta"
 # Ruff — lint + format + idiom enforcement
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 src = ["src", "test"]
 
@@ -62,7 +62,7 @@ extend-immutable-calls = [
 # mypy — strict static type checking
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 files = ["src", "test"]
 

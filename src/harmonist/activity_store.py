@@ -654,7 +654,7 @@ def tag_changes_for(event_ids: Sequence[int]) -> dict[int, TagChanges]:
     for event_id, file, track_ref, rec_ref, position, payload in rows:
         try:
             parsed = json.loads(payload)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             log.warning("tag_changes row %s has unreadable JSON — skipping", event_id)
             continue
         if isinstance(parsed, dict):
@@ -808,7 +808,7 @@ def artwork_backups() -> list[ArtworkBackup]:
     for album_id, event_id, action_id, payload in rows:
         try:
             parsed = json.loads(payload)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             log.warning("tag_changes row %s has unreadable JSON — skipping", event_id)
             continue
         pair = parsed.get(ARTWORK) if isinstance(parsed, dict) else None
@@ -1214,7 +1214,7 @@ def cached_release(mbid: str, inc: str) -> CachedRelease | None:
     try:
         payload = json.loads(blob)
         fetched_at = datetime.fromisoformat(stamp)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # A row that cannot be parsed is a row that cannot be served. Same
         # answer as a miss — go and ask — rather than handing the tagger half a
         # release. `store_release` will overwrite it on the way back.
@@ -1243,7 +1243,7 @@ def store_release(mbid: str, inc: str, payload: Mapping[str, Any]) -> None:
     """
     try:
         blob = json.dumps(payload, sort_keys=True)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         log.exception(
             "activity_store store_release(%s) could not serialise the payload",
             mbid,
@@ -1307,7 +1307,7 @@ def release_fetch_times(inc: str) -> dict[str, datetime]:
     for mbid, stamp in rows:
         try:
             times[mbid] = datetime.fromisoformat(stamp)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # A timestamp that cannot be read leaves its album out of the map,
             # so it reads as never-fetched and gets asked about. Same direction
             # as an unparseable payload in `cached_release`: go and look.
@@ -1430,7 +1430,7 @@ def ignored_updates() -> dict[str, IgnoredUpdate]:
     for album_id, version, stamp in rows:
         try:
             ignored_at = datetime.fromisoformat(stamp)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # An unreadable timestamp: the row still says WHICH version was
             # ignored, which is the load-bearing half, so it is kept with the
             # epoch rather than dropped — dropping it would silently un-ignore

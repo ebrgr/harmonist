@@ -2717,7 +2717,7 @@ def _media_of(release: Release) -> list[compare.Medium]:
     for medium in release.get("medium-list") or []:
         try:
             position = int(medium.get("position", 0))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         out.append(
             compare.Medium(
@@ -2770,7 +2770,7 @@ def _absent_media_summary(album: Album, release: Release) -> list[tuple[int, str
     for medium in release.get("medium-list") or []:
         try:
             position = int(medium.get("position", 0))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if position in album.absent_media:
             count = mb_tracks.track_total(medium)
@@ -8478,7 +8478,7 @@ def _process_rss_bytes() -> int | None:
 
         maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return maxrss if sys.platform == "darwin" else maxrss * 1024
-    except (ImportError, OSError):
+    except ImportError, OSError:
         return None
 
 

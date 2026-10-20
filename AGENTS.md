@@ -86,7 +86,7 @@ sidecar contents.
   `issue-first` skill for the dividing line.
 - **Quality gate:** `make check` (ruff + `ruff format --check` + `mypy --strict`
   + `template-lint` + pytest) must pass before you commit; CI runs the same on
-  Python 3.12/3.13/3.14.
+  Python 3.14/3.15.
 - **Tests:** consult the `testing` skill before writing one, before fixing a bug
   (the reproduction goes in as a failing test first), and before calling anything
   proven. It decides which rung — pytest, `TestClient`, Playwright, demo mode by

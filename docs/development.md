@@ -1,6 +1,6 @@
 # Development with a devcontainer and Emacs
 
-The workspace provides Python 3.14, Node 24 with npm, Git, Make, zsh, and Oh My Zsh.
+The workspace provides Python 3.14, Node 26 with npm, Git, Make, zsh, and Oh My Zsh.
 Emacs stays on the host, including when managed by Nix Home Manager. The
 container user is `vscode` (UID/GID 1000); this matches the initial developer's
 host user. If your host uses another UID/GID, adjust the image user before using

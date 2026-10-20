@@ -124,7 +124,7 @@ def _item_id(item: Any) -> int:
     """A purchase's Bandcamp item_id as an int, 0 if it has none."""
     try:
         return int(getattr(item, "item_id", 0) or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 
@@ -139,7 +139,7 @@ def _is_preorder(item: Any) -> bool:
     """
     try:
         return bool(item.is_preorder)
-    except (KeyError, AttributeError):
+    except KeyError, AttributeError:
         return False
 
 
@@ -309,7 +309,7 @@ def survey_album_links(music_dir: Path) -> tuple[dict[str, list[Path]], list[Pat
     for f in music_dir.rglob(".harmonist.json"):
         try:
             sc = sidecar_mod.read(f.parent)
-        except (OSError, sidecar_mod.InvalidSidecarError):
+        except OSError, sidecar_mod.InvalidSidecarError:
             skipped.skip(f)
             continue
         if sc is None or not sc.store_url:
@@ -699,7 +699,7 @@ class HarmonistSyncer(_BCSyncer):  # type: ignore[misc]
         for album_dir in slugless:
             try:
                 sc = sidecar_mod.read(album_dir)
-            except (OSError, sidecar_mod.InvalidSidecarError):
+            except OSError, sidecar_mod.InvalidSidecarError:
                 skipped.skip(album_dir)
                 continue
             if sc is None or not sc.store_url:
@@ -889,7 +889,7 @@ class HarmonistSyncer(_BCSyncer):  # type: ignore[misc]
                 existing = None
                 try:
                     existing = sidecar_mod.read(existing_dir)
-                except (OSError, sidecar_mod.InvalidSidecarError):
+                except OSError, sidecar_mod.InvalidSidecarError:
                     unreadable = True
                     log.exception(
                         "could not read the sidecar at %s while linking Bandcamp "
@@ -1196,7 +1196,7 @@ class HarmonistSyncer(_BCSyncer):  # type: ignore[misc]
         for f in Path(media_dir).rglob(".harmonist.json"):
             try:
                 sc = sidecar_mod.read(f.parent)
-            except (OSError, sidecar_mod.InvalidSidecarError):
+            except OSError, sidecar_mod.InvalidSidecarError:
                 skipped.skip(f)
                 continue
             if sc and sc.bandcamp and sc.bandcamp.item_id is not None:
@@ -1206,7 +1206,7 @@ class HarmonistSyncer(_BCSyncer):  # type: ignore[misc]
         for item in self.bandcamp.purchases:
             try:
                 iid = int(item.item_id)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if iid in linked:
                 continue

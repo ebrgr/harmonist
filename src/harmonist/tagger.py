@@ -2382,7 +2382,7 @@ def _disc_num(medium: dict[str, Any]) -> int:
         return 1
     try:
         return int(medium["position"])
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 1
 
 

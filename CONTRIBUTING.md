@@ -40,7 +40,7 @@ CI can validate them. When in doubt, just open the PR; a maintainer will help.
 ## Before you commit
 
 - **`make check`** must pass — it runs `ruff`, `ruff format --check`,
-  `mypy --strict`, and the test suite. CI runs the same on Python 3.12–3.14.
+  `mypy --strict`, and the test suite. CI runs the same on Python 3.14 and 3.15.
 - **CSS is a committed build artifact.** If you touch a template, run `make css`
   and commit the regenerated `static/harmonist.css`; CI fails on drift.
 - **Changelog.** User-visible changes get a one-line entry under `[Unreleased]` in

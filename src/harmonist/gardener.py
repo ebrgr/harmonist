@@ -1351,7 +1351,7 @@ def _same_release(before: Release, after: Release) -> bool:
     """
     try:
         return _canonical(_tag_payload(before)) == _canonical(_tag_payload(after))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         log.warning(
             "update check: could not compare release payloads; reading the files instead",
             exc_info=True,
@@ -1404,7 +1404,7 @@ def release_version(release: Release) -> str | None:
     """
     try:
         return hashlib.sha256(_canonical(_tag_payload(release)).encode()).hexdigest()[:16]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         log.warning(
             "update check: could not name this version of a release payload",
             exc_info=True,

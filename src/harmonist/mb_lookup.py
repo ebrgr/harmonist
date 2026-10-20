@@ -208,7 +208,7 @@ def video_media_of(release: Release) -> tuple[int, ...]:
         if all((t.get("recording") or {}).get("video") == "true" for t in tracks):
             try:
                 positions.append(int(medium.get("position", 0)))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
     return tuple(sorted(positions))
 

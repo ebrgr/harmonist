@@ -90,7 +90,7 @@ automated checks:
 - **Every change is reviewed and approved by a human** before it lands.
 - Type-checked with **mypy `--strict`** and linted/formatted with **Ruff**, both
   enforced in CI on every push.
-- Automated tests run in CI across **Python 3.12, 3.13, and 3.14**, complemented
+- Automated tests run in CI across **Python 3.14 and 3.15**, complemented
   by browser tests and manual checks of user workflows.
 
 **Using Harmonist needs no AI.** It calls no language model and requires no AI

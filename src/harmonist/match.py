@@ -255,5 +255,5 @@ def _mb_track_length_ms(track: Track) -> int | None:
         return None
     try:
         return int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None

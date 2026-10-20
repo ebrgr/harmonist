@@ -201,7 +201,7 @@ def _binary_atom_str(audio: MP4, atom: str) -> str | None:
     try:
         decoded: str = value[0].decode("utf-8")
         return decoded
-    except (AttributeError, UnicodeDecodeError):
+    except AttributeError, UnicodeDecodeError:
         return None
 
 
@@ -410,7 +410,7 @@ def _binary_atom_list(audio: MP4, atom: str) -> list[str]:
     for value in audio.get(atom) or []:
         try:
             out.append(bytes(value).decode("utf-8"))
-        except (AttributeError, UnicodeDecodeError):
+        except AttributeError, UnicodeDecodeError:
             continue
     return out
 

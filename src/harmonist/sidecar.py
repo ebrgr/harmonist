@@ -73,7 +73,7 @@ def delete_all(music_dir: Path) -> int:
             existing = None
             try:
                 existing = read(p.parent)
-            except (OSError, InvalidSidecarError):
+            except OSError, InvalidSidecarError:
                 # Only costs us the identity FIELDS on the audit line below; the
                 # delete itself still proceeds and is still recorded against the
                 # path. Loud because a `sidecar.delete` row that can't say which
@@ -130,7 +130,7 @@ def write(album_dir: Path, sidecar: Sidecar) -> None:
     """
     try:
         old = read(album_dir)  # for the audit diff — best-effort, never blocks the write
-    except (OSError, InvalidSidecarError, UnsupportedSchemaVersionError):
+    except OSError, InvalidSidecarError, UnsupportedSchemaVersionError:
         # Still doesn't block the write — but it is NOT free, so it can't be
         # silent. `old` feeds _record_identity_alias, which returns early on None,
         # and that alias is only knowable right now: _normalise_identity is about
@@ -217,7 +217,7 @@ def album_id_for(album_dir: Path) -> str | None:
     the web layer (the reconcile runner) need it too."""
     try:
         sc = read(album_dir)
-    except (OSError, InvalidSidecarError, UnsupportedSchemaVersionError):
+    except OSError, InvalidSidecarError, UnsupportedSchemaVersionError:
         # None is also "no sidecar yet", so a caller can't tell these apart —
         # but every caller uses this to stamp `album_id=` on a log entry, and
         # neither propagating (a failed read must not abort the tagging run it
@@ -376,7 +376,7 @@ def _int_tuple(raw: object) -> tuple[int, ...] | None:
         return None
     try:
         return tuple(int(x) for x in raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

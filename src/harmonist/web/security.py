@@ -92,7 +92,7 @@ def verify_password(password: str, hash_str: str) -> bool:
         iterations = int(iter_s)
         salt = _b64decode(salt_b64)
         expected = _b64decode(hash_b64)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return hmac.compare_digest(derived, expected)
@@ -191,7 +191,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             try:
                 decoded = base64.b64decode(header[6:].encode("ascii")).decode("utf-8")
                 username, _, password = decoded.partition(":")
-            except (ValueError, UnicodeDecodeError):
+            except ValueError, UnicodeDecodeError:
                 return self._challenge()
             if hmac.compare_digest(username, self._username) and verify_password(
                 password, self._password_hash
