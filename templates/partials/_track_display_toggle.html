@@ -1,4 +1,4 @@
-<div role="radiogroup" aria-label="On-disk track display" id="{{ display_prefix }}-display-{{ album.id }}" hx-preserve
+<div role="radiogroup" aria-label="On-disk track display" id="{{ display_prefix }}-display-{{ album.id }}"{% if display_prefix == 'assignment' %} hx-preserve{% endif %}
      class="track-display-toggle inline-flex items-center">
     <label class="track-display-choice cursor-pointer">
         <input type="radio" name="{{ 'track_display' if display_prefix == 'assignment' else 'tracklist_display' }}" value="title"

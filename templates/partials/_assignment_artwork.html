@@ -45,7 +45,7 @@
         <input type="hidden" name="art_plan" value="{{ artwork.fingerprint }}">
         <h4 class="assignment-artwork__selected font-semibold" style="--art-review-row: 1">
             <label class="flex items-start gap-2">
-                <input id="assignment-include-artwork-{{ album.id }}-{{ release_fingerprint }}" hx-preserve
+                <input id="assignment-include-artwork-{{ album.id }}-{{ release_fingerprint | replace(':', '_') }}" hx-preserve
                        type="checkbox" name="include_artwork" value="true"> Use artwork from the selected release
             </label>
         </h4>

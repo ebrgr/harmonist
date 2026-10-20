@@ -212,7 +212,9 @@
             </details>
             {% endif %}
             {% if not album_tracks %}
-            <div id="assignment-artwork-{{ album.id }}-{{ release_fingerprint }}" hx-preserve
+            {# HTMX's moveBefore preservation restores by CSS selector; encode
+               fingerprint separators in the DOM id, not in the submitted value. #}
+            <div id="assignment-artwork-{{ album.id }}-{{ release_fingerprint | replace(':', '_') }}" hx-preserve
                  class="assignment-artwork py-3 border-t border-line">
                 <div hx-get="{{ review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint, replacement) }}"
                      hx-trigger="load" hx-target="closest .assignment-artwork" hx-swap="innerHTML settle:0ms"

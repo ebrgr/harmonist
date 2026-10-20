@@ -74,9 +74,10 @@ def test_changed_track_count_opens_review_and_cancel_preserves_finding(reset_dem
         browser.close()
 
 
-def test_combined_pregap_is_a_cancelable_assignment_choice(pregap_server, htmx_ready):
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_combined_pregap_is_a_cancelable_assignment_choice(pregap_server, htmx_ready, engine):
     with pw.sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
+        browser = getattr(playwright, engine).launch()
         page = browser.new_page()
         page.goto(f"{pregap_server}/album/demo-rel-electric-mayhem")
         edit = page.get_by_role("button", name="Edit track assignments", exact=True)

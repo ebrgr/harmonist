@@ -439,9 +439,10 @@
         editor.dataset.reviewOpened = 'true';
         if (automatic && opened) event.preventDefault();
     });
-    // The Tracks comparison arrives out of band, where HTMX 2.0.0 does not
-    // preserve the display controls. Carry the current choice into the new
-    // fragment before insertion; a slow refresh must keep the latest choice.
+    // Carry the latest display choice into the out-of-band comparison.
+    // Do not hx-preserve this radio group: HTMX's moveBefore pantry leaves it
+    // connected while inserting another group with the same name, which clears
+    // its checked state. The assignment editor preserves its own separate group.
     document.body.addEventListener('htmx:oobBeforeSwap', function (event) {
         if (event.detail.target.id !== 'album-track-view') return;
         const selected = event.detail.target.querySelector('input[name="tracklist_display"]:checked');

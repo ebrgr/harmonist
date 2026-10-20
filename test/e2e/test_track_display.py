@@ -26,12 +26,13 @@ pw = pytest.importorskip("playwright.sync_api")
         ),
     ],
 )
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_track_display_survives_refresh_and_edit_cancel(
-    public_demo_server, album_id, filenames, htmx_ready
+    public_demo_server, album_id, filenames, htmx_ready, engine
 ):
     base, _ = public_demo_server
     with pw.sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
+        browser = getattr(playwright, engine).launch()
         page = browser.new_page()
         page.goto(f"{base}/album/{album_id}")
         view = page.locator("#album-track-view")

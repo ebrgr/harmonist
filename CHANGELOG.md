@@ -17,6 +17,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **Browser interactions no longer depend on a JavaScript CDN being reachable** (#825).
 - **A tag change that differs per track lists each track's value under its
   field**, in History and the Inbox, instead of "N different values" (#820).
 - **The startup update check runs about five times faster**, pausing only while

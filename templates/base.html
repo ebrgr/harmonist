@@ -9,11 +9,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code&family=Inter:wght@400;500;600;700;800;900&display=swap">
     <link rel="stylesheet" href="/static/harmonist.css?v={{ static_version('harmonist.css') }}">
-    <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+    <script src="/static/vendor/htmx-2.0.11/htmx.min.js"></script>
     {# Idiomorph: DOM-diffing swaps for the inbox (#task-list) so a rescan-driven
        re-render morphs changed nodes instead of replacing the whole list — no
        flicker, and an in-progress match search keeps focus/scroll. #}
-    <script src="https://unpkg.com/idiomorph@0.7.4/dist/idiomorph-ext.min.js"></script>
+    <script src="/static/vendor/idiomorph-0.8.0/idiomorph-ext.min.js"></script>
     <script src="/static/artwork-viewer.js?v={{ static_version('artwork-viewer.js') }}" defer></script>
 </head>
 <body class="bg-white text-ink font-sans" hx-ext="morph">
@@ -50,14 +50,33 @@
             if (m && m.id === 'modal') m.innerHTML = '';
         }, true);
 
-        // hx-preserve across a morph swap (#802). HTMX 2.0.0 moves each preserved
-        // element into the incoming fragment before idiomorph runs; idiomorph, no
+        // Disabling a pregap checkbox while its draft request runs blurs it
+        // before HTMX snapshots focus. Restore keyboard focus when the request
+        // ends, unless the user has moved to another control in the meantime.
+        const assignmentFocus = new WeakMap();
+        document.body.addEventListener('htmx:beforeRequest', function (event) {
+            const focused = document.activeElement;
+            if (focused.matches('.assignment-content input[name="included_pregaps"]')
+                    && event.detail.elt.contains(focused)) {
+                assignmentFocus.set(event.detail.xhr, focused.id);
+            }
+        });
+        document.body.addEventListener('htmx:afterRequest', function (event) {
+            const id = assignmentFocus.get(event.detail.xhr);
+            assignmentFocus.delete(event.detail.xhr);
+            if (id && document.activeElement === document.body) {
+                document.getElementById(id)?.focus({preventScroll: true});
+            }
+        });
+
+        // hx-preserve across a morph swap (#802). Without Element.moveBefore,
+        // HTMX moves preserved elements into the incoming fragment; idiomorph, no
         // longer finding that id on the page, inserts a copy, and the original,
         // with its focus, listeners and pending settle, is discarded. So hold the
         // originals out of the page for the swap, let the morph place the server's
         // placeholders, and put the originals back before HTMX settles the
-        // placeholders into requests. (HTMX 2.0.11 does this only where
-        // Element.moveBefore exists, which WebKit lacks.) On window, so it runs
+        // placeholders into requests. HTMX 2.0.11 handles this natively only
+        // where Element.moveBefore exists. On window, so it runs
         // after every document and body listener has seen the page as it was.
         window.addEventListener('htmx:beforeSwap', function (event) {
             const target = event.detail.target;
