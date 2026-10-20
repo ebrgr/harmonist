@@ -28,6 +28,9 @@ versions follow [semantic versioning](https://semver.org).
 ### Fixed
 
 - **Keyboard focus in an Inbox card stays put when the Inbox refreshes** (#802).
+- **Status bar reports clear after ten seconds**, errors excepted, and no longer
+  give way to **Last sync** within a second and a half once a sync has run
+  (#816).
 
 ## [1.28.0] - 2026-10-18
 

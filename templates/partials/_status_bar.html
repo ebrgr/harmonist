@@ -22,7 +22,10 @@
 // Display priority (highest wins):
 //   file write  >  sync running  >  reconcile running  >  scan  >  background job (#757)
 //     >  most recent action flash  >  idle
-// A background job's closing line takes the action flash's slot when it lands.
+// A background job's closing line, and the end of a sync, take the action
+// flash's slot when they land while the page is open. A report there clears
+// itself after REPORT_MS (it is in the Activity feed for anyone who missed it);
+// an error or warning stays until something replaces it (#816).
 //
 // On the running→idle edge of either runner, also fires `library-refresh`
 // so the Library section pulls in any newly-Complete/Incomplete albums.
@@ -46,7 +49,10 @@
     let jobDisplay = null;        // current background-job HTML, or null
     let writeDisplay = null;      // per-file writes take priority over background work
     let lastFinishedSeq;          // last closing line seen (undefined until first poll)
+    let lastSyncFinished;         // last sync end seen (undefined until first poll)
     let latestActionMessage = null;  // last flash text from an action, or null
+    let reportTimer = null;       // clears an info flash after REPORT_MS
+    const REPORT_MS = 10000;
 
     const esc = (s) => String(s).replace(/[&<>"']/g, c => (
         {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
@@ -246,13 +252,19 @@
             syncDisplay = pill + (details ? `<span class="ml-2 text-slate-300">${details}</span>` : '');
         } else {
             syncDisplay = null;
-            if (sync.last_error) {
-                latestActionMessage = renderActionMessage('Sync failed', sync.last_error, 'error');
-            } else if (sync.finished_at) {
-                const summary = sync.new_items ? `${sync.new_items} new` : 'no new items';
-                latestActionMessage = renderActionMessage('Last sync', summary, 'info');
+            // Once, when a sync ends while the page is open — as a closing line
+            // below. Set on every idle poll, it overwrote each newer line (#816).
+            if (lastSyncFinished !== undefined && sync.finished_at
+                    && sync.finished_at !== lastSyncFinished) {
+                if (sync.last_error) {
+                    showActionMessage('Sync failed', sync.last_error, 'error');
+                } else {
+                    const summary = sync.new_items ? `${sync.new_items} new` : 'no new items';
+                    showActionMessage('Last sync', summary, 'info');
+                }
             }
         }
+        lastSyncFinished = sync.finished_at;
 
         // ----- Reconcile -----
         if (lastReconcileState === 'running' && reconcile.state === 'idle') refreshLibrary();
@@ -326,7 +338,7 @@
         }
         const finished = progress.finished;
         if (finished && lastFinishedSeq !== undefined && finished.seq !== lastFinishedSeq) {
-            latestActionMessage = renderActionMessage(finished.label, finished.message, 'info');
+            showActionMessage(finished.label, finished.message, 'info');
         }
         lastFinishedSeq = finished ? finished.seq : null;
 
@@ -353,6 +365,16 @@
         if (!rest) return pill;
         return pill + `<span class="ml-2 text-slate-300">${rest}</span>`;
     }
+    // Into the flash slot, for REPORT_MS if it is only a report. The caller
+    // renders, as the poll renders once for everything it changed.
+    function showActionMessage(verb, details, level, album) {
+        latestActionMessage = renderActionMessage(verb, details, level, album);
+        clearTimeout(reportTimer);
+        reportTimer = level === 'info' ? setTimeout(function () {
+            latestActionMessage = null;
+            renderStatus();
+        }, REPORT_MS) : null;
+    }
     document.body.addEventListener('harmonist-status', function (evt) {
         const d = evt.detail || {};
         // New payload shape: {verb, details, level}. Tolerate old shape
@@ -360,7 +382,7 @@
         const verb = d.verb !== undefined ? d.verb : (d.value !== undefined ? d.value : '');
         const details = d.details !== undefined ? d.details : null;
         const level = d.level || 'info';
-        latestActionMessage = renderActionMessage(verb, details, level, d.album || null);
+        showActionMessage(verb, details, level, d.album || null);
         renderStatus();
     });
 })();
