@@ -6,6 +6,7 @@ job and the closing line of the last one to finish, and the bar renders them.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -102,12 +103,64 @@ def test_the_startup_update_check_reports_progress_and_what_it_found(tmp_path, m
         return real(*args, **kwargs)
 
     monkeypatch.setattr(gardener, "refresh_flag", _watching)
-    gardener.warm_from_cache([album])
+    gardener.warm_from_cache([album], ignored={})
 
     assert seen == [[("Checking for tag updates", 0, 1)]]
     finished = progress.status()["finished"]
     assert finished is not None
     assert finished["message"] == "1 album has a tag update"
+
+
+def test_the_startup_check_counts_what_the_library_and_inbox_show(tmp_path):
+    """#818 through the app's own startup hook, so it fails if the ignored
+    updates or the held ones are not handed to the check, not only if the check
+    miscounts them. Two albums with an update: one the user ignored, which the
+    Library's filter leaves out, and one auto-apply held back, which the Inbox
+    shows."""
+    from harmonist import auto_apply
+    from harmonist.formats import owned
+    from harmonist.web import main
+
+    cfg = Config(
+        paths=PathsConfig(config_dir=tmp_path / "config", music_dir=tmp_path / "music"),
+        bandcamp=BandcampConfig(),
+        server=ServerConfig(),
+        test=_TestConfig(mode="fixture"),
+    )
+    cfg.gardener.apply_up_to = owned.Significance.IDENTITY
+    cfg.paths.music_dir.mkdir(parents=True)
+    cfg.paths.config_dir.mkdir(parents=True)
+    client = TestClient(create_app(cfg), headers={"HX-Request": "true"})
+    for name in ("Ignored", "Held"):
+        release = _release(mbid=f"rel-{name}")
+        _tagged(cfg.paths.music_dir, release, name=name)
+        activity_store.store_release(
+            release["id"],
+            "+".join(sorted(mb_lookup.RELEASE_INCLUDES)),
+            {**release, "title": "Test Album (remastered)"},
+        )
+    runner = client.app.state.scan_runner
+    runner.refresh_now()
+    albums = {a.path.name: a for a in runner.albums()}
+    gardener.warm_from_cache(list(albums.values()), ignored={})
+    activity_store.ignore_update(
+        albums["Ignored"].id, release_version=albums["Ignored"].mb_version or ""
+    )
+    auto_apply._hold(albums["Held"], "Track assignments need review")
+    progress.reset()
+
+    try:
+        main._start_flag_warm_up(runner)
+        for _ in range(100):
+            if progress.status()["finished"] is not None:
+                break
+            time.sleep(0.05)
+    finally:
+        auto_apply.reset()
+
+    finished = progress.status()["finished"]
+    assert finished is not None
+    assert finished["message"] == "1 album has a tag update, 1 for review"
 
 
 def test_the_settings_recheck_reports_what_it_found(tmp_path):

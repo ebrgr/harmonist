@@ -425,7 +425,12 @@ def _change_rows(
     return rows, tuple(lead[:LEAD_ROWS])
 
 
-def warm_from_cache(albums: Sequence[Album]) -> int:
+def warm_from_cache(
+    albums: Sequence[Album],
+    *,
+    ignored: Mapping[str, activity_store.IgnoredUpdate],
+    held: Callable[[Album], bool] = lambda _: False,
+) -> int:
     """Rebuild the update-available flags from stored releases. Returns how many
     albums were flagged.
 
@@ -453,13 +458,25 @@ def warm_from_cache(albums: Sequence[Album]) -> int:
     however long a whole library takes to parse, while saying nothing at all
     until it finished — so an album page that crawled during that window looked
     identical to one that had hung, with no way to tell which from the log.
+
+    **It closes with the counts the page shows** (#818): the albums the
+    Library's Tag updates filter lists and how many of them the Inbox holds,
+    which is what `ignored` and `held` are for. It counted every flag it set,
+    ignored updates included, and so named a number nothing on screen did.
     """
+
+    def closing(looked: int, flagged: int) -> str:
+        waiting = sum(waiting_by_level(albums, ignored).values())
+        review = len(for_review(albums, ignored, _routing_now(), held))
+        found = _albums(waiting, "has a tag update", "have a tag update")
+        return f"{found}, {review} for review" if review else found
+
     return _refresh_from_cache(
         albums,
         wanted=lambda _: True,
         what="warm-up",
         label="Checking for tag updates",
-        closing=lambda looked, flagged: _albums(flagged, "has a tag update", "have a tag update"),
+        closing=closing,
     )
 
 

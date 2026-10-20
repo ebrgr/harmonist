@@ -3466,7 +3466,9 @@ def _start_flag_warm_up(scan_runner: ScanRunner) -> None:
 
     def _run() -> None:
         try:
-            gardener.warm_from_cache(scan_runner.albums())
+            gardener.warm_from_cache(
+                scan_runner.albums(), ignored=_ignored_updates(), held=auto_apply.is_held
+            )
         except Exception:
             # Boundary catch: one unforeseen failure in a background hint must
             # not take down the thread silently. Loud, because nobody is

@@ -33,6 +33,9 @@ versions follow [semantic versioning](https://semver.org).
 - **Status bar reports clear after ten seconds**, errors excepted, and no longer
   give way to **Last sync** within a second and a half once a sync has run
   (#816).
+- **The startup update check reports the counts the page shows**: albums with a
+  tag update, leaving out ignored ones as the Library's filter does, and how
+  many are in the Inbox for review (#818).
 
 ## [1.28.0] - 2026-10-18
 

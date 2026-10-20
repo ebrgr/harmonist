@@ -24,7 +24,16 @@ from types import SimpleNamespace
 import pytest
 from mutagen.mp4 import MP4
 
-from harmonist import activity_store, gardener, mb_cache, mb_lookup, request_load, scanner, tagger
+from harmonist import (
+    activity_store,
+    gardener,
+    mb_cache,
+    mb_lookup,
+    progress,
+    request_load,
+    scanner,
+    tagger,
+)
 from harmonist import sidecar as sc
 from harmonist.config import GardenerConfig
 from harmonist.formats import owned
@@ -201,7 +210,7 @@ def test_the_warm_up_rebuilds_flags_without_asking_musicbrainz(tmp_path, monkeyp
 
     monkeypatch.setattr(mb_lookup, "fetch_release", _no_requests)
 
-    assert gardener.warm_from_cache([album]) == 1
+    assert gardener.warm_from_cache([album], ignored={}) == 1
     assert album.update_available is True
 
 
@@ -221,10 +230,10 @@ def test_a_second_warm_up_changes_nothing(tmp_path, monkeypatch):
         mb_lookup, "fetch_release", lambda *a, **k: pytest.fail("warm-up went to MusicBrainz")
     )
 
-    first = gardener.warm_from_cache([album])
+    first = gardener.warm_from_cache([album], ignored={})
     events_after_first = len(activity_store.recent(50))
 
-    assert gardener.warm_from_cache([album]) == first == 1
+    assert gardener.warm_from_cache([album], ignored={}) == first == 1
     assert album.update_available is True
     assert len(activity_store.recent(50)) == events_after_first
 
@@ -235,7 +244,7 @@ def test_the_warm_up_leaves_an_album_musicbrainz_was_never_asked_about(tmp_path)
     activity_store.init(tmp_path / "activity.db")
     album = _tagged(tmp_path, _release())
 
-    assert gardener.warm_from_cache([album]) == 0
+    assert gardener.warm_from_cache([album], ignored={}) == 0
     assert album.update_available is False
 
 
@@ -247,7 +256,40 @@ def test_the_warm_up_skips_an_album_with_no_release_of_its_own(tmp_path):
     album = next(a for a in scanner.scan(tmp_path) if a.path == d)
     assert album.sidecar is None
 
-    assert gardener.warm_from_cache([album]) == 0
+    assert gardener.warm_from_cache([album], ignored={}) == 0
+
+
+def test_the_warm_up_closes_with_the_counts_the_page_shows(tmp_path):
+    """The status bar's closing line counted every flag it set, so it read "286
+    albums have a tag update" beside an Inbox of 31, and neither the Inbox nor
+    the Library's Tag updates filter showed 286 (#818). It names the albums the
+    filter lists, which leaves out an ignored update, and how many of them are
+    in the Inbox, which leaves out one about to be applied and keeps one
+    auto-apply had to hold back."""
+    activity_store.init(tmp_path / "activity.db")
+    albums = {}
+    for name in ("Ignored", "Applied", "Held"):
+        release = _release(mbid=f"rel-{name}")
+        albums[name] = _tagged(tmp_path, release, name=name)
+        _store({**release, "title": "Test Album (remastered)"})
+    stored = mb_cache.stored_release("rel-Ignored")
+    assert stored is not None
+    ignored = {
+        albums["Ignored"].id: activity_store.IgnoredUpdate(
+            albums["Ignored"].id, gardener.release_version(stored) or "", datetime.now(UTC)
+        )
+    }
+
+    gardener.configure_routing(lambda: GardenerConfig(apply_up_to=owned.Significance.IDENTITY))
+
+    gardener.warm_from_cache(
+        list(albums.values()), ignored=ignored, held=lambda album: album is albums["Held"]
+    )
+
+    assert all(a.update_significance == owned.Significance.IDENTITY for a in albums.values())
+    finished = progress.status()["finished"]
+    assert finished["label"] == "Checking for tag updates"
+    assert finished["message"] == "2 albums have a tag update, 1 for review"
 
 
 async def _scan_via_runner(runner: ScanRunner) -> None:
@@ -1130,7 +1172,7 @@ def test_the_warm_up_says_it_started_and_says_it_finished(tmp_path, caplog):
     album = _tagged(tmp_path, _release())
 
     with caplog.at_level(logging.INFO, logger="harmonist.gardener"):
-        gardener.warm_from_cache([album])
+        gardener.warm_from_cache([album], ignored={})
 
     lines = [r.getMessage() for r in caplog.records]
     assert any("checking 1 albums" in m for m in lines)
@@ -1159,7 +1201,7 @@ def test_with_no_request_in_flight_the_check_runs_at_the_speed_of_its_work(tmp_p
     _slowed(monkeypatch, 0.05)
 
     started = time.monotonic()
-    gardener.warm_from_cache([album] * 4)
+    gardener.warm_from_cache([album] * 4, ignored={})
 
     # 0.2 s of work. Resting at the old quarter duty made it 0.8 s.
     assert time.monotonic() - started < 0.5
@@ -1194,7 +1236,9 @@ def test_the_check_waits_while_a_request_is_being_served(engaged, tmp_path, monk
     request = threading.Thread(target=client.get, args=("/test-hold",))
     request.start()
     assert entered.wait(5)
-    check = threading.Thread(target=gardener.warm_from_cache, args=([album, album],))
+    check = threading.Thread(
+        target=gardener.warm_from_cache, args=([album, album],), kwargs={"ignored": {}}
+    )
     check.start()
     time.sleep(0.3)  # several times what both albums take unhindered
     while_served = len(looked)
@@ -1215,7 +1259,9 @@ def test_a_request_that_never_ends_cannot_park_the_check(tmp_path, monkeypatch):
     album = _tagged(tmp_path, release)
     _store(release)
     monkeypatch.setattr(gardener, "_LONGEST_WAIT", timedelta(milliseconds=50))
-    check = threading.Thread(target=gardener.warm_from_cache, args=([album],), daemon=True)
+    check = threading.Thread(
+        target=gardener.warm_from_cache, args=([album],), kwargs={"ignored": {}}, daemon=True
+    )
 
     with request_load.serving():
         check.start()
