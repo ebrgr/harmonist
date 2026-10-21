@@ -1,10 +1,11 @@
 # Development with a devcontainer and Emacs
 
-The workspace provides Python 3.14, Node 26 with npm, Git, Make, zsh, and Oh My Zsh.
-Emacs stays on the host, including when managed by Nix Home Manager. The
-container user is `vscode` (UID/GID 1000); this matches the initial developer's
-host user. If your host uses another UID/GID, adjust the image user before using
-direct Compose.
+The workspace provides Python 3.15, uv, Node 26 with npm, Git, Make, zsh, and Oh My Zsh.
+It is defined by `.devcontainer/devcontainer.json`, so the
+[Dev Container CLI](https://github.com/devcontainers/cli) and VS Code build and
+run it the same way. Emacs stays on the host, including when managed by Nix Home
+Manager. The container user is `vscode`; on Linux hosts the CLI matches its
+UID/GID to yours, so files written in the checkout keep your ownership.
 
 ## Host prerequisites
 
@@ -24,24 +25,35 @@ docker compose version
 docker run --rm hello-world
 ```
 
+The Dev Container CLI needs Node and npm on the host:
+
+```sh
+npm install -g @devcontainers/cli
+devcontainer --version
+```
+
 Home Manager can supply client tools, but the host also needs a running Docker
-daemon. No host Python environment, Node, or Dev Container CLI is required for
-the Compose workflow below.
+daemon. No host Python environment is required.
 
 ## Create the workspace
 
 From the repository root:
 
 ```sh
-docker compose -f .devcontainer/compose.yaml up -d --build
-docker exec harmonist-dev bash .devcontainer/setup.sh
-docker exec -it harmonist-dev zsh
+devcontainer up
+devcontainer exec zsh
 ```
 
-The last command opens an interactive zsh session with Oh My Zsh. Dependencies
-are installed in `/opt/venv`, which is on PATH for both terminals and Docker exec.
-The checkout is mounted at `/workspaces/harmonist`; edits persist on the host.
-The production Dockerfile and root Compose file are for deploying the app.
+`devcontainer up` builds the image, starts the container `harmonist-dev`, and
+runs `.devcontainer/setup.sh` when the container is first created. Setup installs
+the dependencies in `/opt/venv`, which is on PATH for terminals, login shells, and
+Docker exec, and builds the browser assets. The checkout is mounted at
+`/workspaces/harmonist`; edits persist on the host. The production Dockerfile and
+root Compose file are for deploying the app.
+
+The second command opens zsh with Oh My Zsh. Personal shell configuration
+belongs in a dotfiles repository rather than the image:
+`devcontainer up --dotfiles-repository <url>` installs it in each new container.
 
 Inside the container:
 
@@ -73,22 +85,25 @@ Tailwind binary downloads on first use.
 
 ```sh
 # Stop / resume the existing workspace:
-docker compose -f .devcontainer/compose.yaml stop
-docker compose -f .devcontainer/compose.yaml start
+docker stop harmonist-dev
+devcontainer up
 
-# Rebuild after changing the Dockerfile, profile.sh, or zshrc:
-docker compose -f .devcontainer/compose.yaml up -d --build
-docker exec harmonist-dev bash .devcontainer/setup.sh
+# Rebuild after changing anything in .devcontainer/:
+devcontainer up --remove-existing-container
+
+# Reinstall after changing pyproject.toml or package-lock.json:
+devcontainer exec bash .devcontainer/setup.sh
 ```
 
-Rerun the setup command after changing `pyproject.toml` or `package-lock.json`,
-too. Dependencies in `/opt/venv` must be reinstalled when the container is
-recreated. The fixed name `harmonist-dev` supports one workspace at a time;
-change it and the published port if you need multiple checkouts running
+A rebuild creates a new container, and setup runs again in it; `/opt/venv` does
+not survive the old container. The uv download cache lives in the
+`harmonist-uv-cache` volume, so reinstalling is quick. The fixed name
+`harmonist-dev` supports one workspace at a time; change it and the published
+port in `devcontainer.json` if you need multiple checkouts running
 simultaneously.
 
-VS Code users can also use **Dev Containers: Reopen in Container**; the included
-`devcontainer.json` uses the same Compose service and runs setup automatically.
+VS Code users can also use **Dev Containers: Reopen in Container**, which reads
+the same `devcontainer.json`.
 
 ## Browser dependencies
 
@@ -135,7 +150,7 @@ Inside the devcontainer, install the e2e extras and their matching browser build
 after a rebuild or Playwright upgrade:
 
 ```sh
-pip install -e ".[dev,e2e]"
+uv pip install -e ".[dev,e2e]"
 playwright install --with-deps chromium webkit
 E2E_TRACE_DIR=/tmp/e2e-traces make e2e
 ```

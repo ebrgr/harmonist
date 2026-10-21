@@ -1,23 +1,21 @@
-FROM node:26-bookworm-slim AS node
-FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm
+FROM ghcr.io/astral-sh/uv:0.13.0 AS uv
+# Matches the release image's Python 3.15 on trixie. "dev-" tags are unreleased
+# builds of devcontainers/images; move to "3.15-trixie" once it is published.
+FROM mcr.microsoft.com/devcontainers/python:dev-3.15-trixie
 
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 USER root
-RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
-# The Python devcontainer image includes zsh and Oh My Zsh via common-utils.
-RUN test -d /home/vscode/.oh-my-zsh \
-    && chsh -s /usr/bin/zsh vscode \
-    && python3 -m venv /opt/venv \
-    && chown -R vscode:vscode /opt/venv
+RUN uv venv --seed --python /usr/local/bin/python3 /opt/venv \
+    && chown -R vscode:vscode /opt/venv \
+    && install -d -o vscode -g vscode /home/vscode/.cache /home/vscode/.cache/uv
 
 # Docker exec / TRAMP must see the same Python tools as interactive terminals.
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
+# uv sync / uv run default to ./.venv, which is the host's venv on the bind mount.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+# The uv cache is a named volume, so hardlinks into /opt/venv would cross filesystems.
+ENV UV_LINK_MODE=copy
 COPY profile.sh /etc/profile.d/99-harmonist.sh
-COPY --chown=vscode:vscode zshrc /home/vscode/.zshrc
 USER vscode
-WORKDIR /workspaces/harmonist
-CMD ["sleep", "infinity"]

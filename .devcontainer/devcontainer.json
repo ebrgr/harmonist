@@ -1,16 +1,29 @@
 {
   "name": "Harmonist",
-  "dockerComposeFile": "compose.yaml",
-  "service": "dev",
-  "workspaceFolder": "/workspaces/harmonist",
-  "remoteUser": "vscode",
-  "shutdownAction": "stopCompose",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "26"
+    }
+  },
+  // A fixed name lets TRAMP and docker exec find the container; one workspace at a time.
+  "runArgs": ["--name", "harmonist-dev"],
+  // appPort publishes from docker itself, so it works without VS Code's port forwarding.
+  "appPort": ["127.0.0.1:8000:8000"],
+  "containerEnv": {
+    "HARMONIST_MUSIC_DIR": "${containerWorkspaceFolder}/music",
+    "HARMONIST_CONFIG_DIR": "${containerWorkspaceFolder}/.dev-data/config"
+  },
+  "mounts": [
+    "source=harmonist-uv-cache,target=/home/vscode/.cache/uv,type=volume"
+  ],
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "customizations": {
     "vscode": {
       "settings": {
-        "python.defaultInterpreterPath": "/opt/venv/bin/python",
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
       }
     }
   }
