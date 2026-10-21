@@ -1642,6 +1642,98 @@ def test_manual_search_results_carry_heading(client, cfg, monkeypatch):
     assert "MusicBrainz search results" in r.text
 
 
+@pytest.mark.parametrize("on_album_page", [False, True])
+@pytest.mark.parametrize("exact", [False, True])
+def test_name_search_use_reviews_before_writing_and_confirms_without_refetching(
+    client, cfg, monkeypatch, on_album_page, exact
+):
+    """Submit the rendered choice, not a hand-built review_only request (#848)."""
+    from bs4 import BeautifulSoup
+
+    from harmonist import activity, formats, mb_cache
+
+    folder = _make_album(cfg, "Search review")
+    audio = folder / "01 Track.m4a"
+    before = audio.read_bytes()
+    aid = _id_for(cfg, folder)
+    mbid = "abc12345-1234-1234-1234-1234567890ab"
+    release = _release_for_match(mbid, n_tracks=1, length_ms=1000 if exact else 99999)
+    fetches = []
+
+    def fetch_release(release_id):
+        fetches.append(release_id)
+        return release
+
+    def unexpected_fetch(*args, **kwargs):
+        raise AssertionError("reviewed confirmation must not fetch metadata or artwork")
+
+    monkeypatch.setattr("harmonist.mb_lookup.fetch_release", fetch_release)
+    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", lambda mbid: [])
+    monkeypatch.setattr("harmonist.cover_art.front_image", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "harmonist.mb_search.search_releases",
+        lambda *args, **kwargs: [mb_lookup.release_summary(release)],
+    )
+    search = client.post(
+        f"/manual/{aid}/search",
+        data={"artist": "Artist", "title": "Title", "on_album_page": on_album_page},
+    )
+    assert search.status_code == 200
+    choice = BeautifulSoup(search.text, "html.parser").select_one("form")
+    assert choice is not None
+    fields = {field["name"]: field.get("value", "") for field in choice.select("input[name]")}
+    selected = client.post(choice["hx-post"], data=fields)
+    assert selected.status_code == 200
+    assert audio.read_bytes() == before
+    saved = sc.read(folder)
+    assert saved.mb_release_id is None
+    assert saved.mb_match_candidate.mb_release_id == mbid
+    assert saved.mb_match_candidate.confidence == ("exact" if exact else "approximate")
+    assert fetches == [mbid]
+
+    aid = _id_for(cfg, folder)
+    if on_album_page:
+        assert selected.headers["HX-Redirect"] == f"/album/{aid}"
+    else:
+        assert "HX-Redirect" not in selected.headers
+    host = client.get(f"/album/{aid}" if on_album_page else "/tasks")
+    assert f'hx-get="/assignments/{aid}?cancel=true' in host.text
+    review = client.get(
+        f"/assignments/{aid}", params={"cancel": "true", "on_album_page": on_album_page}
+    )
+    assert review.status_code == 200
+    soup = BeautifulSoup(review.text, "html.parser")
+    confirm = soup.select_one(f'button[hx-post="/confirm/{aid}/accept"]')
+    assert confirm is not None
+    assert confirm.get_text(strip=True) == "Confirm suggestion"
+    form = confirm.find_parent("form")
+    payload = {
+        field["name"]: field.get("value", "") for field in form.select('input[type="hidden"]')
+    }
+    assert payload["release_fingerprint"]
+    assert payload["include_artwork"] == "false"
+    assert audio.read_bytes() == before
+    assert fetches == [mbid]
+
+    # An expired TTL must not turn final confirmation into a new lookup.
+    monkeypatch.setattr(mb_cache, "_ttl", timedelta(seconds=-1))
+    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", unexpected_fetch)
+    monkeypatch.setattr("harmonist.cover_art.front_image", unexpected_fetch)
+    applied = client.post(confirm["hx-post"], data=payload)
+    assert applied.status_code == 200
+    assert formats.read_album_id(audio) == mbid
+    assert sc.read(folder).mb_match_candidate is None
+    assert fetches == [mbid]
+    after = audio.read_bytes()
+    replay = client.post(confirm["hx-post"], data=payload)
+    assert replay.status_code == 200
+    assert "Files changed since the review" in replay.text
+    assert audio.read_bytes() == after
+    assert fetches == [mbid]
+    matched = [event for event in activity.recent() if event.message.startswith("Matched")]
+    assert len(matched) == 1
+
+
 def test_manual_candidates_lists_store_url_releases(client, cfg, monkeypatch):
     """The Choose-release picker lists the MB releases linked to the store URL,
     with disambiguation + media, each with a Use button and MB link."""

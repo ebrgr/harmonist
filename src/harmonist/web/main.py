@@ -8137,6 +8137,7 @@ def _register_routes(app: FastAPI) -> None:
             len(results),
             heading="MusicBrainz search results",
             on_album_page=on_album_page,
+            review_only=True,
         )
 
     @app.post("/manual/{album_id}/barcode", response_class=HTMLResponse)

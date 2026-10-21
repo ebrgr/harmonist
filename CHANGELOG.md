@@ -6,6 +6,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
+
 ## [1.29.0] - 2026-10-20
 
 ### Added
