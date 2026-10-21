@@ -128,6 +128,20 @@ def album_with_tracks(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def reset_pending_downloads():
+    """Keep pending purchases and download approvals local to each test.
+
+    xdist changes which tests share a process. A pending-store test must not
+    leave a purchase rendering in a later test's otherwise empty Inbox.
+    """
+    from harmonist import pending_downloads
+
+    pending_downloads.reset()
+    yield
+    pending_downloads.reset()
+
+
+@pytest.fixture(autouse=True)
 def reset_redownloads():
     """Albums awaiting a re-download (#132) are process-level in-memory state, so
     a test that archives one would otherwise leave its card rendering in every
