@@ -399,7 +399,9 @@ def test_a_held_addition_waits_in_the_inbox_with_its_reason(client, cfg, monkeyp
     html = client.get("/tasks").text
 
     card = re.search(
-        rf'<div id="task-artwork-{re.escape(bare.id)}".*?</h3>(.*?)</p>', html, re.DOTALL
+        rf'<div id="task-artwork-{re.escape(bare.id)}".*?(?=<div id="task-artwork-|</section>)',
+        html,
+        re.DOTALL,
     )
     assert card is not None
-    assert "Not applied automatically: Couldn&#39;t be written: disk full" in card.group(1)
+    assert "Not applied automatically: Couldn&#39;t be written: disk full" in card.group(0)

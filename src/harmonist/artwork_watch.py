@@ -114,19 +114,6 @@ def excluded(sc: Sidecar | None, image: formats.EmbeddedArt | None) -> bool:
     )
 
 
-def upload_for(mbid: str, digest: str) -> str | None:
-    """The archive upload a stored listing of `mbid` names for the image with
-    `digest`, or None when no listing seen so far does. No network."""
-    return next(
-        (
-            i.candidate.image_id
-            for i in _observed.get(mbid, ())
-            if i.image is not None and i.image.digest == digest
-        ),
-        None,
-    )
-
-
 def proposal(
     sc: Sidecar | None,
     tracks: Sequence[tuple[Path, formats.EmbeddedArt | None]],

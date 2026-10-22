@@ -8,9 +8,10 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
-- **Artwork updates can wait in the Inbox.** **When an artwork update is
-  found** in Settings picks replacements, or additions as well; albums with
-  **Better artwork wanted** always wait there (#852).
+- **Artwork updates can wait in the Inbox**, as a grid of cards showing each
+  album's current and incoming artwork side by side. **When an artwork update
+  is found** in Settings picks replacements, or additions as well; albums with
+  **Better artwork wanted** always wait there (#852, #859).
 - **Artwork additions can be applied automatically**: tick **Apply** for
   Addition under **When an artwork update is found**. Replacements never are
   (#853).

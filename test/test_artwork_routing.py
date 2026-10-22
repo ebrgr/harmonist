@@ -28,7 +28,6 @@ from harmonist import (
     images,
     scanner,
 )
-from harmonist import sidecar as sidecar_mod
 from harmonist.config import GardenerConfig
 from harmonist.models import Album, AlbumState, ArtworkWatch
 from test import test_web
@@ -197,7 +196,7 @@ def test_the_inbox_groups_what_the_threshold_takes_replacements_first(
 def _sides(card: str) -> list[tuple[str | None, str]]:
     """Each side of a card's pair: the image it shows, if any, and its caption
     with the line break as a space."""
-    sides = re.findall(r'<figure class="art-update-card__side">(.*?)</figure>', card, re.DOTALL)
+    sides = re.findall(r'<figure class="art-card__side">(.*?)</figure>', card, re.DOTALL)
     out = []
     for side in sides:
         src = re.search(r'<img src="([^"]+)"', side)
@@ -220,7 +219,7 @@ def test_an_artwork_card_shows_the_change_as_two_images_with_their_facts(client,
         (None, "No artwork"),
         (f"/artwork/image/{albums['Bare'].id}/{digest}", "600×600 PNG · 2 KB"),
     ]
-    assert "1 track is missing artwork." in bare
+    assert ">Updates 1 track</p>" in bare
     # Additions and a replacement: the card shows the replacement, the folder
     # cover it would overwrite beside the archive's front.
     small_cover = images.digest((albums["Small Cover"].path / "cover.png").read_bytes())
@@ -228,7 +227,21 @@ def test_an_artwork_card_shows_the_change_as_two_images_with_their_facts(client,
         (f"/artwork/image/{albums['Small Cover'].id}/{small_cover}", "100×100 PNG · 0 KB"),
         (f"/artwork/image/{albums['Small Cover'].id}/{digest}", "600×600 PNG · 2 KB"),
     ]
-    assert "1 track is missing artwork, and better artwork is available for cover.png." in small
+    assert ">Updates 1 track and cover.png</p>" in small
+
+
+def test_a_card_counts_the_tracks_it_writes_against_the_whole_album(client, cfg):
+    image = png_bytes(600, 600)
+    _archive(image)
+    album = _tagged(cfg.paths.music_dir, _release(mbid=MBID, tracks=3), name="Gaps", tracks=3)
+    formats.write_cover(min(album.path.glob("*.m4a")), image)
+    album = next(a for a in scanner.scan(cfg.paths.music_dir) if a.path == album.path)
+    artwork_updates.warm([album])
+
+    proposal = artwork_updates.proposal(album)
+
+    assert proposal is not None
+    assert proposal.summary == "Updates 2 of 3 tracks"
 
 
 def test_the_inbox_count_includes_waiting_artwork_updates(client, library):
@@ -240,58 +253,32 @@ def test_the_inbox_count_includes_waiting_artwork_updates(client, library):
     assert client.get("/status").json()["counts"]["inbox"] == before + 2
 
 
-def test_a_card_offers_dont_suggest_only_for_an_upload_a_listing_names(
-    client, library, monkeypatch
-):
-    albums, _ = library
-    _route(client, A.ADDITION)
-    bare = albums["Bare"]
-    assert "Don't suggest this image" not in _card(_section(client.get("/tasks").text), bare)
-
-    _list_front(monkeypatch)
-
-    card = _card(_section(client.get("/tasks").text), bare)
-    assert f'hx-post="/artwork-updates/{bare.id}/dismiss"' in card
-    assert '"image_id": "300"' in card.replace("&#34;", '"')
-
-
-def _list_front(monkeypatch) -> None:
-    """The release's listing, naming the front the check already measured as
-    upload 300, stored as the album page's archive check stores it."""
-    listed = cover_art.Candidate("300", FRONT, "", ("front",), True)
-    monkeypatch.setattr(cover_art, "fetch_listing", lambda kind, mbid: [listed])
-    caa_cache.listing("release", MBID)
-    artwork_updates.observe(MBID)
-
-
-def test_dont_suggest_this_image_takes_the_card_out_of_the_inbox(client, library, monkeypatch):
-    albums, _ = library
-    _list_front(monkeypatch)
-    _route(client, A.ADDITION)
-    bare = albums["Bare"]
-    assert _card(_section(client.get("/tasks").text), bare)
-
-    response = client.post(f"/artwork-updates/{bare.id}/dismiss", data={"image_id": "300"})
-
-    assert response.status_code == 200
-    assert "tasks-changed" in response.headers["HX-Trigger"]
-    sc = sidecar_mod.read(bare.path)
-    assert sc is not None and sc.artwork_rejected == ("300",)
-    section = _section(client.get("/tasks").text)
-    assert _card(section, bare) == ""
-    # The decision is this album's: the other copy of the release keeps its card.
-    assert _card(section, albums["Small Cover"])
-
-
-def test_dont_suggest_refuses_an_upload_the_release_does_not_list(client, library, monkeypatch):
-    albums, _ = library
-    _list_front(monkeypatch)
-    response = client.post(
-        f"/artwork-updates/{albums['Bare'].id}/dismiss", data={"image_id": "999"}
+@pytest.mark.parametrize(
+    ("changed", "total", "cover", "line"),
+    [
+        (12, 12, None, "Updates all 12 tracks"),
+        (3, 12, None, "Updates 3 of 12 tracks"),
+        (1, 1, None, "Updates 1 track"),
+        (0, 12, "cover.jpg", "Updates cover.jpg only"),
+        (12, 12, "cover.jpg", "Updates all 12 tracks and cover.jpg"),
+        (3, 12, "cover.png", "Updates 3 of 12 tracks and cover.png"),
+    ],
+)
+def test_a_card_says_which_files_its_update_writes_in_one_line(changed, total, cover, line):
+    image = formats.EmbeddedArt.of(png_bytes(10, 10), "image/png")
+    proposal = artwork_updates.Proposal(
+        operation=A.REPLACEMENT,
+        before=image,
+        after=image,
+        tracks_total=total,
+        tracks_added=0,
+        tracks_replaced=changed,
+        cover=A.REPLACEMENT if cover else None,
+        cover_name=cover,
+        fingerprint="f",
     )
-    assert response.status_code == 404
-    sc = sidecar_mod.read(albums["Bare"].path)
-    assert sc is not None and sc.artwork_rejected == ()
+
+    assert proposal.summary == line
 
 
 # ---- Settings -------------------------------------------------------------

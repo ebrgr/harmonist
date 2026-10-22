@@ -197,12 +197,14 @@ describe what applying the album's page writes.
 **A watched album always waits in the Inbox.** "Better artwork wanted" was a
 request to be told when something turns up, so the threshold doesn't apply to it.
 
-**Turning down an image is the existing rejection.** There is no artwork
-equivalent of ignoring a tag update. That ignore waits for a MusicBrainz
-version to change, and the archive has no version to wait on. **Don't suggest
-this image** already names the upload, survives later checks, and is undone on
-the album page. The card offers it only when a stored listing names the image;
-the album page, which lists the release, always can.
+**Turning down an image is the existing rejection, on the album page.** There
+is no artwork equivalent of ignoring a tag update. That ignore waits for a
+MusicBrainz version to change, and the archive has no version to wait on.
+**Don't suggest this image** already names the upload and survives later
+checks. The Inbox card doesn't offer it: the card shows one change of the
+update to decide whether to take it, and refining what is taken (another image,
+a row kept, an image turned down) is the album page's, which shows every row and
+lists the release's images.
 
 **Only what the Inbox takes is announced**, and only when the check first sends
 it there, as for tag updates: an update left to the Library filter is one the

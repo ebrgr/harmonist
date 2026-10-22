@@ -334,9 +334,9 @@ def test_while_a_selection_is_applied_its_cards_say_where_they_stand(client, cfg
         auto_apply._pass_lock.release()
 
     card = re.search(rf'<div id="task-artwork-{re.escape(one.id)}"[^>]*>', html)
-    assert card is not None and "update-card--applying" in card.group(0)
+    assert card is not None and "art-card--applying" in card.group(0)
     waiting = re.search(rf'<div id="task-artwork-{re.escape(two.id)}"[^>]*>', html)
-    assert waiting is not None and "update-card--queued" in waiting.group(0)
+    assert waiting is not None and "art-card--queued" in waiting.group(0)
     assert "Applying…" in html
     boxes = re.findall(r'<input[^>]*class="update-pick"[^>]*>', html)
     assert boxes and all("disabled" in re.sub(r'"[^"]*"', '""', b) for b in boxes)

@@ -377,51 +377,49 @@ class Proposal:
     """What an album's artwork update would write, as its Inbox card says it."""
 
     operation: artwork.Operation
-    #: The images it writes, by digest, in album order: usually one.
-    images: tuple[str, ...]
     #: The change the card shows, as the two images side by side: what one
     #: target holds now, None for an addition, and what it would hold. A
     #: replacement's when there is one, since that is what the card's group is
     #: about and what someone deciding whether they mind needs to see.
     before: formats.EmbeddedArt | None
     after: formats.EmbeddedArt
+    #: How many readable tracks the album has, for "3 of 12 tracks".
+    tracks_total: int
     tracks_added: int
     tracks_replaced: int
     #: What it does to the folder cover, if anything, and the file's name.
     cover: artwork.Operation | None
     cover_name: str | None
-    #: The archive upload it writes, when it writes one image and the release's
-    #: stored listing names it: what "Don't suggest this image" rejects. None
-    #: otherwise, and the album page, which lists the release, offers it instead.
-    upload: str | None
     #: The plan's fingerprint, which a selection of this card carries (#859):
     #: what the user reviewed, so nothing else is written in its name.
     fingerprint: str
 
     @property
     def summary(self) -> str:
-        """One line, in the words the album page's own summary uses
-        (`artwork.ArtworkView.summary`), so the card and the page it links to
-        describe one update the same way: counted in files, the folder cover
-        by name."""
-        carriers = []
-        if self.tracks_replaced:
-            n = self.tracks_replaced
-            carriers.append(f"{n} track{'' if n == 1 else 's'}")
-        if self.cover is artwork.Operation.REPLACEMENT and self.cover_name:
-            carriers.append(self.cover_name)
-        parts = []
-        if self.tracks_added:
-            n = self.tracks_added
-            parts.append(f"{n} track{' is' if n == 1 else 's are'} missing artwork")
-        if carriers:
-            parts.append(f"better artwork is available for {' and '.join(carriers)}")
-        if self.cover is artwork.Operation.ADDITION and self.cover_name:
-            parts.append(f"there is no {self.cover_name}")
-        if not parts:
-            return "This album's artwork can be updated."
-        line = ", and ".join(parts)
-        return line[0].upper() + line[1:] + "."
+        """Which files it writes, short enough for one line of a grid card:
+        "Updates all 12 tracks", "Updates 3 of 12 tracks", "Updates cover.jpg
+        only", "Updates all 12 tracks and cover.jpg".
+
+        Whether it adds or replaces is the card's group heading, and the images
+        beside it say what changes; this is only where. Counted in files, the
+        folder cover by name, as the album page counts them.
+        """
+        n = self.tracks_added + self.tracks_replaced
+        total = self.tracks_total
+        if not n:
+            tracks = None
+        elif n == total and total > 1:
+            tracks = f"all {total} tracks"
+        elif n == total:
+            tracks = "1 track"
+        else:
+            tracks = f"{n} of {total} tracks"
+        cover = self.cover_name if self.cover is not None else None
+        if tracks and cover:
+            return f"Updates {tracks} and {cover}"
+        if cover:
+            return f"Updates {cover} only"
+        return f"Updates {tracks}"
 
     @property
     def before_facts(self) -> str | None:
@@ -446,27 +444,19 @@ def proposal(album: Album) -> Proposal | None:
         return None
     tracks = [c for c in changes if not c.folder_cover]
     cover = next((c for c in changes if c.folder_cover), None)
-    images = tuple(dict.fromkeys(c.after for c in changes))
     shown = next((c for c in changes if c.operation is artwork.Operation.REPLACEMENT), changes[0])
     # The plan read its before-images off these same descriptions, so a
     # replaced image is always among them.
     before = _carried(album, shown.before) if shown.before is not None else None
-    sc = album.sidecar
-    upload = (
-        artwork_watch.upload_for(sc.mb_release_id, images[0])
-        if len(images) == 1 and sc is not None and sc.mb_release_id
-        else None
-    )
     return Proposal(
         operation=op,
-        images=images,
         before=before,
         after=plan.image_for(shown).image,
+        tracks_total=len(album.artwork_local.tracks) if album.artwork_local else len(tracks),
         tracks_added=sum(1 for c in tracks if c.operation is artwork.Operation.ADDITION),
         tracks_replaced=sum(1 for c in tracks if c.operation is artwork.Operation.REPLACEMENT),
         cover=cover.operation if cover is not None else None,
         cover_name=cover.target.name if cover is not None else None,
-        upload=upload,
         fingerprint=plan.fingerprint(artwork.Scope.ALL),
     )
 

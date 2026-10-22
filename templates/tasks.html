@@ -220,7 +220,7 @@
     <form id="update-group-{{ level.value }}" class="update-group space-y-3" hx-post="/updates/apply" hx-swap="none"
           hx-disabled-elt="find .update-group__apply">
         <div id="inbox-updates-{{ level.value }}" class="rounded-md border-l-4 border-mb-purple bg-mb-purple/10 px-3 py-2">
-            <h3 class="text-sm font-bold text-mb-purple flex items-center gap-2 min-h-7">
+            <h3 class="text-sm font-bold text-mb-purple flex flex-wrap items-center gap-2 min-h-7">
                 {% if pickable %}
                 <input type="checkbox" class="update-group__all"
                        aria-label="Select every {{ level.value }} update"{% if applying %} disabled{% endif %}>
@@ -266,7 +266,7 @@
     <form id="artwork-group-{{ op.value }}" class="update-group space-y-3" hx-post="/artwork-updates/apply" hx-swap="none"
           hx-disabled-elt="find .update-group__apply">
         <div id="inbox-artwork-{{ op.value }}" class="rounded-md border-l-4 border-mb-purple bg-mb-purple/10 px-3 py-2">
-            <h3 class="text-sm font-bold text-mb-purple flex items-center gap-2 min-h-7">
+            <h3 class="text-sm font-bold text-mb-purple flex flex-wrap items-center gap-2 min-h-7">
                 <input type="checkbox" class="update-group__all"
                        aria-label="Select every artwork {{ op.value }}"{% if applying %} disabled{% endif %}>
                 Artwork updates {{ artwork_chip(op) }}
@@ -280,7 +280,7 @@
                 {% endif %}
             </h3>
         </div>
-        <div id="artwork-cards-{{ op.value }}" class="update-cards update-cards--pickable">
+        <div id="artwork-cards-{{ op.value }}" class="art-grid">
             {% for album, proposal in group %}{% include 'partials/task_card_artwork.html' %}{% endfor %}
         </div>
     </form>
@@ -377,18 +377,22 @@
     callbacks.beforeNodeRemoved = function (node) {
         if (before && before(node) === false) return false;
         if (!(node instanceof Element) || still.matches
-                || !node.matches('.update-card, .update-group, #inbox-updates, #inbox-artwork')) return true;
+                || !node.matches('.update-card, .art-card, .update-group, #inbox-updates, #inbox-artwork')) return true;
         if (node.dataset.leaving) return false;
         node.dataset.leaving = 'true';
         // Keeps its id: without one, a morph landing mid-fold could match it
         // to some other id-less element and morph the leaving card into that.
         node.inert = true;
         node.style.overflow = 'hidden';
-        const from = {height: node.offsetHeight + 'px', opacity: 1};
-        const to = {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
-                    marginTop: '0px', borderTopWidth: '0px'};
         const leave = function () { node.remove(); };
-        node.animate([from, to], {duration: 300, easing: 'ease-in-out'}).finished.then(leave, leave);
+        // An artwork card sits in a grid, where folding its height would only
+        // squash it in place; it fades, and the grid closes up after it.
+        const frames = node.matches('.art-card')
+            ? [{opacity: 1, transform: 'scale(1)'}, {opacity: 0, transform: 'scale(0.96)'}]
+            : [{height: node.offsetHeight + 'px', opacity: 1},
+               {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
+                marginTop: '0px', borderTopWidth: '0px'}];
+        node.animate(frames, {duration: 300, easing: 'ease-in-out'}).finished.then(leave, leave);
         // An animation only advances while the page is drawn. A tab nobody is
         // looking at would otherwise keep the leaving card until it is.
         setTimeout(leave, 1000);

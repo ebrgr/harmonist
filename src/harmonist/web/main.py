@@ -2892,9 +2892,8 @@ def _listed_candidate(mbid: str | None, image_id: str) -> cover_art.Candidate | 
 def _set_suggestion(
     request: Request, album_id: str, image_id: str, *, rejected: bool
 ) -> tuple[Album, str]:
-    """Stop or resume suggesting one archive upload for an album (#586), for
-    the album page's checkbox and an Inbox card's button alike. Returns the
-    album as it now is, and its release.
+    """Stop or resume suggesting one archive upload for an album (#586), from
+    the album page's checkbox. Returns the album as it now is, and its release.
 
     Only an upload the release's stored listings name, so a request cannot
     write an arbitrary id into the sidecar. The album's plan is then rebuilt
@@ -6733,20 +6732,6 @@ def _register_routes(app: FastAPI) -> None:
         )
         response.headers["HX-Trigger"] = "tasks-changed"
         return response
-
-    @app.post("/artwork-updates/{album_id}/dismiss", response_class=HTMLResponse)
-    def artwork_update_dismiss(
-        request: Request, album_id: str, image_id: str = Form(...)
-    ) -> Response:
-        """**Don't suggest this image**, from an artwork update's Inbox card (#852).
-
-        The album page's own rejection, so the decision is the same one: it
-        names the upload, survives later checks, and is undone from the album
-        page. The card leaves the Inbox when its plan no longer proposes
-        anything; another image the archive offers can take its place.
-        """
-        fresh, _ = _set_suggestion(request, album_id, image_id, rejected=True)
-        return _flash_response("Stopped suggesting this image", album=fresh, record_activity=False)
 
     @app.get("/album/{album_id}/artwork", response_class=HTMLResponse)
     def album_artwork(

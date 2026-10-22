@@ -249,8 +249,9 @@ album needs no changes. Ignoring a tag update does not hide an artwork proposal.
 - **Inbox**: replacements, or additions as well. Cards can be ticked and
   applied several at once, replacements included, each with its own History
   entry and Undo; an album whose artwork changed after it was selected is left
-  for another look. The album's page shows every image and applies one album;
-  the Inbox card can also stop suggesting the image it shows.
+  for another look. The album's page shows every image and is where an update
+  is changed before it is applied: another image chosen, a row kept as it is, or
+  an image no longer suggested.
 - Anything ticked in neither stays in the Library under **Artwork updates**,
   which is where all of them stay by default.
 

@@ -1,16 +1,16 @@
-{# A Library album whose artwork update waits in the Inbox (#852), as a compact
-   row beside the tag updates' (`task_card_update.html`). On the left, one
-   change as two images the same size: what a target holds now, or nothing for
-   an addition, and what it would hold, each with the facts the album page's
-   rows give. On the right, the album and the album page's own line for what
-   the update writes where. The group heading says whether it adds or replaces;
-   the album's title links to its page, which shows every row and applies it.
+{# A Library album whose artwork update waits in the Inbox (#852), as a card in
+   its group's grid. On top, the album, its title linking to the album's page,
+   which shows every row and is where the update is refined or applied alone.
+   Beneath, one change as two images the same size: what a target holds now, or
+   nothing for an addition, and what it would hold, each with the facts the
+   album page's rows give. Last, one line saying which files it writes. The
+   group heading says whether it adds or replaces.
 
-   **Don't suggest this image** is the album page's rejection of the same
-   upload, offered here when the release's stored listing names it. It is undone
-   from the album page, where the image stays in the picker.
+   Every card has the same parts, each one line, so a row of cards lines up:
+   the title and artist are cut short rather than wrapped, with the whole of
+   each in a tooltip.
 
-   A checkbox in the left gutter selects it to be applied with others (#859),
+   A checkbox beside the title selects it to be applied with others (#859),
    carrying the fingerprint of the plan this card shows: that is what the user
    reviewed. While a selection is being applied each of its cards says whether
    it waits its turn or is being written. #}
@@ -21,52 +21,45 @@
 {% macro facts(line) -%}
 {% set parts = line.split(' · ', 1) %}{{ parts[0] }}{% if parts|length > 1 %}<br>{{ parts[1] }}{% endif %}
 {%- endmacro %}
-<div id="task-artwork-{{ album.id }}" class="update-card art-update-card{% if place %} update-card--{{ place }}{% endif %}">
-    <label class="update-card__pick">
+<div id="task-artwork-{{ album.id }}" class="art-card{% if place %} art-card--{{ place }}{% endif %}">
+    <div class="art-card__head">
         <input type="checkbox" class="update-pick" name="album" value="{{ album.id }}:{{ proposal.fingerprint }}"
                data-pick="artwork:{{ album.id }}"
                aria-label="Select {{ album.title }}"{% if place %} checked{% endif %}{% if applying_updates() %} disabled{% endif %}>
-    </label>
-    <div class="art-update-card__pair">
-        <figure class="art-update-card__side">
+        <div class="min-w-0">
+            <h3 class="text-sm truncate" title="{{ album.title }}">
+                <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
+            </h3>
+            <p class="text-xs text-muted truncate" title="{{ album.artist }}">{{ album.artist }}</p>
+        </div>
+        {% if place %}
+        <span class="update-card__place" role="status">{{ 'Applying…' if place == 'applying' else 'Queued' }}</span>
+        {% endif %}
+    </div>
+    <div class="art-card__pair">
+        <figure class="art-card__side">
             {% if proposal.before %}
             <img src="/artwork/image/{{ album.id }}/{{ proposal.before.digest }}" loading="lazy"
-                 alt="Current artwork" width="88" height="88" class="art-update-card__image">
-            <figcaption class="art-update-card__facts">{{ facts(proposal.before_facts) }}</figcaption>
+                 alt="Current artwork" width="120" height="120" class="art-card__image">
+            <figcaption class="art-card__facts">{{ facts(proposal.before_facts) }}</figcaption>
             {% else %}
-            <div class="art-update-card__image art-update-card__image--none" aria-hidden="true"></div>
-            <figcaption class="art-update-card__facts">No artwork</figcaption>
+            <div class="art-card__image art-card__image--none" aria-hidden="true"></div>
+            <figcaption class="art-card__facts">No artwork</figcaption>
             {% endif %}
         </figure>
-        <span class="art-update-card__arrow" aria-hidden="true">→</span>
-        <figure class="art-update-card__side">
+        <span class="art-card__arrow" aria-hidden="true">→</span>
+        <figure class="art-card__side">
             <img src="/artwork/image/{{ album.id }}/{{ proposal.after.digest }}" loading="lazy"
-                 alt="Incoming artwork" width="88" height="88" class="art-update-card__image">
-            <figcaption class="art-update-card__facts">{{ facts(proposal.after_facts) }}</figcaption>
+                 alt="Incoming artwork" width="120" height="120" class="art-card__image">
+            <figcaption class="art-card__facts">{{ facts(proposal.after_facts) }}</figcaption>
         </figure>
     </div>
-    <div class="min-w-0">
-        <h3 class="text-sm truncate">
-            <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
-            <span class="ml-1.5 text-xs text-muted">{{ album.artist }}</span>
-            {% if place %}
-            <span class="update-card__place" role="status">{{ 'Applying…' if place == 'applying' else 'Queued' }}</span>
-            {% endif %}
-        </h3>
-        {% set why = artwork_held_reason(album) %}
-        {% if why %}
-        {# An update Harmonist was trusted to add and could not (#853), as a
-           held tag update's card says it. #}
-        <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
-        {% endif %}
-        <p class="mt-1 text-xs text-muted">{{ proposal.summary }}</p>
-        {% if proposal.upload %}
-        <label class="mt-1.5 text-xs text-muted inline-flex items-center gap-1">
-            <input type="checkbox"
-                   hx-post="/artwork-updates/{{ album.id }}/dismiss" hx-trigger="change"
-                   hx-vals='{"image_id": "{{ proposal.upload }}"}' hx-swap="none" hx-disabled-elt="this">
-            Don't suggest this image
-        </label>
-        {% endif %}
-    </div>
+    {% set why = artwork_held_reason(album) %}
+    {% if why %}
+    {# An update Harmonist was trusted to add and could not (#853), as a held
+       tag update's card says it. Rare, so it may make its card the tallest in
+       the row: that card is the one to look at. #}
+    <p class="text-xs text-amber-800">Not applied automatically: {{ why }}</p>
+    {% endif %}
+    <p class="text-xs text-muted truncate" title="{{ proposal.summary }}">{{ proposal.summary }}</p>
 </div>
