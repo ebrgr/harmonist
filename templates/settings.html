@@ -241,10 +241,10 @@
                 </script>
             </fieldset>
             {# The same grid for artwork updates (#852), on the scale an artwork
-               plan is judged by: what it does to the album's images. Its Inbox
-               column is driven by the script above, which works on any
-               `.update-routing`. Nothing is applied automatically yet, so the
-               Apply column says so rather than offering a tick. #}
+               plan is judged by: what it does to the album's images. Both
+               columns are driven by the script above, which works on any
+               `.update-routing`. Additions can be applied automatically (#853);
+               a replacement never is, as Structure never is for tags. #}
             <fieldset class="update-routing">
                 <legend class="block text-xs font-bold text-ink mb-1">When an artwork update is found</legend>
                 <input type="hidden" name="gardener_artwork_routing" value="1">
@@ -257,17 +257,28 @@
                 <ul class="divide-y divide-line border border-line rounded">
                     {% for op in artwork_operations %}
                     {% set n = artwork_waiting[op] %}
+                    {% set goes = artwork_outcome[op] %}
                     <li class="update-routing__row" data-operation="{{ op.value }}" data-count="{{ n }}">
                         <span class="update-routing__level">{{ artwork_chip(op) }}</span>
                         <span class="update-routing__count text-xs text-muted">{{ n }} {{ 'album' if n == 1 else 'albums' }}</span>
+                        {% if op.value == 'replacement' %}
                         <span class="update-routing__cell update-routing__cell--never text-xs text-muted">never</span>
+                        {% else %}
+                        <label class="update-routing__cell">
+                            <input type="checkbox" name="gardener_artwork_apply" value="{{ op.value }}" class="update-routing__apply sr-only"
+                                   aria-label="Apply artwork {{ op.value }}s automatically"
+                                   {{ 'checked' if goes == 'apply' }}>
+                            <span class="update-routing__tick" aria-hidden="true"></span>
+                        </label>
+                        {% endif %}
                         <label class="update-routing__cell">
                             <input type="checkbox" name="gardener_artwork_review" value="{{ op.value }}" class="update-routing__review sr-only"
                                    aria-label="Review artwork {{ op.value }}s in the Inbox"
-                                   {{ 'checked' if artwork_reviewed[op] }}>
+                                   {{ 'checked' if goes == 'review' }}>
                             <span class="update-routing__tick" aria-hidden="true"></span>
                         </label>
                         <span class="update-routing__outcome text-xs text-muted">
+                            <span class="update-routing__applied">Applied automatically</span>
                             <span class="update-routing__inbox">Sent to the Inbox</span>
                             <span class="update-routing__library">Left in the Library</span>
                         </span>

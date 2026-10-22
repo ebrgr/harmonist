@@ -39,6 +39,12 @@
             <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
             <span class="ml-1.5 text-xs text-muted">{{ album.artist }}</span>
         </h3>
+        {% set why = artwork_held_reason(album) %}
+        {% if why %}
+        {# An update Harmonist was trusted to add and could not (#853), as a
+           held tag update's card says it. #}
+        <p class="mt-1 text-xs text-amber-800">Not applied automatically: {{ why }}</p>
+        {% endif %}
         <p class="mt-1 text-xs text-muted">{{ proposal.summary }}</p>
         {% if proposal.upload %}
         <label class="mt-1.5 text-xs text-muted inline-flex items-center gap-1">

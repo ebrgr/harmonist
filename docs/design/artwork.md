@@ -206,7 +206,36 @@ the album page, which lists the release, always can.
 
 **Only what the Inbox takes is announced**, and only when the check first sends
 it there, as for tag updates: an update left to the Library filter is one the
-user chose not to be told about.
+user chose not to be told about, and one about to be applied records itself.
+
+## Applying artwork without asking
+
+**Additions only** (#853). An addition loses nothing, so it needs no backup and
+undoing it just removes the image again. A replacement overwrites something the
+user may have chosen, and "bigger" isn't "better" to someone who picked the
+cover they have. So the apply threshold stops at Addition, as the tag one stops
+short of Structure, and nothing written with nobody watching overwrites an
+image.
+
+**The whole plan or nothing.** An album whose plan would also replace anything
+waits for a person, additions and all, for the reason it is ranked as a
+replacement: half an update applied unattended would leave the card describing
+something the files no longer match.
+
+**Never a watched album.** "Better artwork wanted" asked to be shown what turns
+up, so what it finds waits in the Inbox even when it only adds.
+
+**Written from the cache, judged against the files as they are now.** The
+archive's image comes from the local cache, as on the album page, so applying
+spends no requests. The plan is rebuilt from the files and the folder cover at
+write time, because the scan that routed the album can be older than both: an
+update that has grown into a replacement since is held for a person, and only
+additions are written.
+
+**What can't be written waits in the Inbox, with the reason**, kept in memory
+against the plan it was held at, so a failure isn't retried every ten minutes,
+and is retried once the files or the archive's answer change what it would
+write.
 
 ## Watching for alternatives
 
@@ -244,9 +273,11 @@ Every write is one of two kinds, and the difference is whether anything is lost:
   folder cover the album lacks;
 - a **replacement** overwrites an existing image.
 
-**A tagging nobody reviewed makes additions only** (#418). Replacements happen
-only through an action where the user has seen what will be replaced: applying
-updates, applying artwork, or confirming a release with artwork included.
+**A tagging nobody reviewed makes additions only** (#418), and so does applying
+artwork nobody reviewed ([above](#applying-artwork-without-asking)).
+Replacements happen only through an action where the user has seen what will be
+replaced: applying updates, applying artwork, or confirming a release with
+artwork included.
 
 **A missing folder cover is suggested only if the user turns that on**, and it
 ships off. The two mistakes don't cost the same. An album without the file still

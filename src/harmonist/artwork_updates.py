@@ -32,7 +32,7 @@ from . import (
     mb_lookup,
     progress,
 )
-from .config import ArtworkReviewFrom
+from .config import ArtworkReviewFrom, GardenerConfig
 from .models import Album, AlbumState
 
 log = logging.getLogger(__name__)
@@ -128,18 +128,18 @@ _attempted: dict[str, datetime] = {}
 _failures = _Failures()
 _revision = 0
 _policy: Callable[[], artwork.FolderCoverPolicy] = lambda: artwork.FolderCoverPolicy.NEVER
-_review_from: Callable[[], ArtworkReviewFrom] = lambda: "none"
+_routing: Callable[[], GardenerConfig] = GardenerConfig
 
 
 def configure(
     policy: Callable[[], artwork.FolderCoverPolicy],
-    review_from: Callable[[], ArtworkReviewFrom] = lambda: "none",
+    routing: Callable[[], GardenerConfig] = GardenerConfig,
 ) -> None:
-    """Read the folder-cover policy and the Inbox threshold through these, so
-    a Settings save is live on the next check without reconfiguring."""
-    global _policy, _review_from, _revision, _failures
+    """Read the folder-cover policy and the routing thresholds through these,
+    so a Settings save is live on the next check without reconfiguring."""
+    global _policy, _routing, _revision, _failures
     _policy = policy
-    _review_from = review_from
+    _routing = routing
     _observed.clear()
     _attempted.clear()
     _failures = _Failures()
@@ -267,29 +267,99 @@ def reviews(op: artwork.Operation, review_from: ArtworkReviewFrom) -> bool:
     return review_from != "none" and ORDER.index(op) >= ORDER.index(review_from)
 
 
+def applies(op: artwork.Operation, apply_up_to: ArtworkReviewFrom) -> bool:
+    """Whether an artwork update doing `op` is written without asking (#853):
+    that operation and every one before it, never a replacement. The config
+    refuses replacement as a threshold, and this refuses it as an operation,
+    so nothing written with nobody watching overwrites an image."""
+    return (
+        apply_up_to != "none"
+        and op is not artwork.Operation.REPLACEMENT
+        and ORDER.index(op) <= ORDER.index(apply_up_to)
+    )
+
+
+def outcome(op: artwork.Operation, routing: GardenerConfig) -> str:
+    """Where an artwork update doing `op` goes: "apply", "review" or "library",
+    from the same rules the pass and the Inbox follow, for the Settings grid."""
+    if applies(op, routing.artwork_apply_up_to):
+        return "apply"
+    if reviews(op, routing.artwork_review_from):
+        return "review"
+    return "library"
+
+
 def waiting(album: Album) -> artwork.Operation | None:
     """A Library album's artwork update, if it has one."""
     return operation(album) if album.state in _LIBRARY_STATES else None
 
 
-def routed(album: Album, review_from: ArtworkReviewFrom) -> bool:
+def watched(album: Album) -> bool:
+    return artwork_watch.active(album.sidecar) is not None
+
+
+def routed(
+    album: Album, routing: GardenerConfig, held: Callable[[Album], bool] = lambda _: False
+) -> bool:
     """Whether this album's artwork update waits in the Inbox (#852).
 
-    One the threshold takes, and any an album's "Better artwork wanted" watch
-    found, whatever the threshold says: the watch was a request to be told.
-    Without either, no plan is built, so a threshold of "none" costs one
+    One the review threshold takes, less one about to be applied (#853), plus
+    one the apply pass had to hold back: the Inbox is where an update Harmonist
+    was trusted with and could not write turns up. Any update an album's
+    "Better artwork wanted" watch found waits there whatever the thresholds
+    say: the watch was a request to be told, and is never applied unattended.
+    Without a threshold or a watch, no plan is built, so the defaults cost one
     sidecar look per album.
     """
-    watched = artwork_watch.active(album.sidecar) is not None
-    if review_from == "none" and not watched:
+    is_watched = watched(album)
+    if (
+        routing.artwork_review_from == "none"
+        and routing.artwork_apply_up_to == "none"
+        and not is_watched
+    ):
         return False
     op = waiting(album)
-    return op is not None and (watched or reviews(op, review_from))
+    if op is None:
+        return False
+    if is_watched:
+        return True
+    if applies(op, routing.artwork_apply_up_to):
+        return held(album)
+    return reviews(op, routing.artwork_review_from)
 
 
-def for_review(albums: Sequence[Album], review_from: ArtworkReviewFrom) -> list[Album]:
+def for_review(
+    albums: Sequence[Album],
+    routing: GardenerConfig,
+    held: Callable[[Album], bool] = lambda _: False,
+) -> list[Album]:
     """The albums whose artwork update waits in the Inbox, by `routed`."""
-    return [a for a in albums if routed(a, review_from)]
+    return [a for a in albums if routed(a, routing, held)]
+
+
+def due(
+    albums: Sequence[Album], apply_up_to: ArtworkReviewFrom, held: Callable[[Album], bool]
+) -> list[Album]:
+    """Library albums whose artwork update the apply pass writes (#853): in the
+    apply range, not watched, not held. Without a threshold, no plan is built."""
+    if apply_up_to == "none":
+        return []
+    return [
+        a
+        for a in albums
+        if not watched(a)
+        and (op := waiting(a)) is not None
+        and applies(op, apply_up_to)
+        and not held(a)
+    ]
+
+
+def fingerprint(album: Album) -> str | None:
+    """What the scan says this album's artwork update would write, as a key a
+    held update is kept against: it lapses once the files or the archive's
+    answer change the plan."""
+    plan = _plan(album)
+    return plan.fingerprint(artwork.Scope.ALL) if plan is not None else None
 
 
 def waiting_by_operation(albums: Sequence[Album]) -> dict[artwork.Operation, int]:
@@ -483,7 +553,9 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
     count = limit if limit is not None else math.ceil(len(due) * TICK / _WINDOW)
     deadline = time.monotonic() + TICK.total_seconds() / 2
     checked = 0
-    review_from = _review_from()
+    # Not counting held albums: one the apply pass is about to write is not
+    # news, and one it held was already waiting in the Inbox.
+    routing = _routing()
     found: list[tuple[Album, artwork.Operation]] = []
     for _, mbid, width in due[:count]:
         if time.monotonic() >= deadline:
@@ -491,7 +563,7 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
         _attempted[mbid] = datetime.now(UTC)
         # Judged before anything this check learns reaches the plan, so the
         # digest names only albums the check itself sent to the Inbox.
-        waited = {id(a) for a in groups[mbid] if routed(a, review_from)}
+        waited = {id(a) for a in groups[mbid] if routed(a, routing)}
         release = mb_cache.stored_release(mbid)
         group = (release.get("release-group") or {}).get("id") if release else None
         try:
@@ -519,7 +591,7 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
         found.extend(
             (a, op)
             for a in groups[mbid]
-            if id(a) not in waited and routed(a, review_from) and (op := waiting(a)) is not None
+            if id(a) not in waited and routed(a, routing) and (op := waiting(a)) is not None
         )
     _record_digest(found)
     return checked

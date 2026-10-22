@@ -14,13 +14,22 @@ no chance of writing a newer release than the one judged. Each album is
 re-judged against it at write time, because a flag can be older than the
 payload beside it.
 
-**Tags only.** The write passes `artwork_included=False`, so the artwork store's
-*no backup, no overwrite* rule has nothing to govern here.
+**Tag writes leave artwork alone.** They pass `artwork_included=False`, so the
+artwork store's *no backup, no overwrite* rule has nothing to govern there.
 
-**Held updates live in memory**, like the flags they qualify, keyed to the
-MusicBrainz version they were held at. An album is retried when MusicBrainz
-moves, or after a restart, rather than on every pass: a failure that recurs
-every ten minutes is one log line repeated, not news.
+**Artwork is added, never replaced** (#853). The same pass writes the artwork
+updates the user trusts Harmonist with, which can only be additions: an image
+where a track or the folder has none, so nothing is overwritten and nothing
+needs a backup. An album is judged by its whole plan, so one that would also
+replace anything waits for a person, additions and all. The plan is rebuilt
+from the files at write time, and only its additions are written. The archive's
+image comes from the local cache, as on the album page: no request.
+
+**Held updates live in memory**, like the flags they qualify: a tag update keyed
+to the MusicBrainz version it was held at, an artwork update to the plan it was
+held at. An album is retried when that moves, or after a restart, rather than
+on every pass: a failure that recurs every ten minutes is one log line repeated,
+not news.
 """
 
 from __future__ import annotations
@@ -28,9 +37,22 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from . import activity, activity_store, gardener, library_titles, mb_cache, progress, retag
+from . import (
+    activity,
+    activity_store,
+    album_artwork,
+    artwork,
+    artwork_updates,
+    caa_cache,
+    cover_art,
+    gardener,
+    library_titles,
+    mb_cache,
+    progress,
+    retag,
+)
 from . import config as config_mod
 from . import sidecar as sidecar_mod
 from . import tagger as tagger_mod
@@ -50,9 +72,15 @@ class _Held:
 class PassResult:
     applied: int
     held: int
+    #: Albums whose artwork the pass added (#853).
+    artwork: int = 0
 
 
 _held: dict[str, _Held] = {}
+#: Artwork updates the pass could not write (#853), each against the scan's
+#: fingerprint of its plan (`artwork_updates.fingerprint`) rather than a
+#: MusicBrainz version, which an artwork update does not have.
+_artwork_held: dict[str, _Held] = {}
 _held_lock = threading.Lock()
 # One pass at a time: the tick, a Settings save and the Settings re-check can
 # all start one, and two over the same albums would write each one twice.
@@ -74,10 +102,25 @@ def is_held(album: Album) -> bool:
     return held_reason(album) is not None
 
 
+def artwork_held_reason(album: Album) -> str | None:
+    """Why this album's artwork update was not applied, while that still holds:
+    until the files or the archive's answer change what it would write."""
+    with _held_lock:
+        entry = _artwork_held.get(album.id)
+    if entry is None or entry.version != artwork_updates.fingerprint(album):
+        return None
+    return entry.reason
+
+
+def is_artwork_held(album: Album) -> bool:
+    return artwork_held_reason(album) is not None
+
+
 def reset() -> None:
     """Forget every held update, for tests."""
     with _held_lock:
         _held.clear()
+        _artwork_held.clear()
 
 
 def _hold(album: Album, reason: str) -> None:
@@ -126,10 +169,20 @@ def apply_due(
         return PassResult(applied=0, held=0)
     try:
         todo = due(albums, ignored, cfg.gardener.apply_up_to)
-        if not todo:
+        # An album whose tags this pass writes waits for the next one: its
+        # snapshot predates that write, which can even move its release (#268).
+        tagged = {a.id for a in todo}
+        art_todo = [
+            a
+            for a in artwork_updates.due(
+                albums, cfg.gardener.artwork_apply_up_to, held=is_artwork_held
+            )
+            if a.id not in tagged
+        ]
+        if not todo and not art_todo:
             return PassResult(applied=0, held=0)
-        applied = held = 0
-        with progress.job("Applying updates", total=len(todo)) as job:
+        applied = held = added = 0
+        with progress.job("Applying updates", total=len(todo) + len(art_todo)) as job:
             # Named, so the bar says which album its tracks belong to (#815).
             for album in job.items(todo, lambda a: a.label):
                 try:
@@ -140,16 +193,102 @@ def apply_due(
                 finally:
                     if on_processed is not None:
                         on_processed(album)
-            job.closing = _summary(applied, held)
-        log.info("auto-apply: %d album(s) updated, %d held for review", applied, held)
-        return PassResult(applied=applied, held=held)
+            for album in job.items(art_todo, lambda a: a.label):
+                try:
+                    if _apply_artwork_one(album, cfg):
+                        added += 1
+                    elif is_artwork_held(album):
+                        held += 1
+                finally:
+                    if on_processed is not None:
+                        on_processed(album)
+            job.closing = _summary(applied, held, added)
+        log.info(
+            "auto-apply: %d album(s) updated, artwork added to %d, %d held for review",
+            applied,
+            added,
+            held,
+        )
+        return PassResult(applied=applied, held=held, artwork=added)
     finally:
         _pass_lock.release()
 
 
-def _summary(applied: int, held: int) -> str:
-    done = f"{applied} album updated" if applied == 1 else f"{applied} albums updated"
-    return f"{done}, {held} held for review" if held else done
+def _summary(applied: int, held: int, added: int = 0) -> str:
+    parts = []
+    if applied or not added:
+        parts.append(f"{applied} album updated" if applied == 1 else f"{applied} albums updated")
+    if added:
+        art = f"{added} album" if added == 1 else f"{added} albums"
+        parts.append(f"artwork added to {art}" if parts else f"Artwork added to {art}")
+    if held:
+        parts.append(f"{held} held for review")
+    return ", ".join(parts)
+
+
+def _apply_artwork_one(album: Album, cfg: config_mod.Config) -> bool:
+    """Add one album's artwork, or hold it with a reason. True when written.
+
+    Re-judged from the files at write time, as the album page's Apply is: the
+    scan that routed it can be older than the files, and only what the files
+    still need is written. If that has grown into a replacement, it is held for
+    a person. If there is nothing left to add, as when the archive's image has
+    left the cache until the background check fetches it again, nothing is
+    written or held, and the next pass looks again.
+    """
+    key = artwork_updates.fingerprint(album)
+    sc = album.sidecar
+    mbid = sc.mb_release_id if sc else None
+    # The folder cover as it is now, as the tracks are read as they are now: a
+    # cover added since the scan can turn an addition into a replacement.
+    album = replace(album, cover_path=cover_art.cached_cover(album.path))
+    view = album_artwork.view(
+        album,
+        caa_cache.stored(mbid) if mbid else None,
+        album_artwork.archive_image(mbid),
+        folder_cover=cfg.tagging.folder_cover,
+    )
+    plan = view.plan
+    op = plan.operation(artwork.Scope.ALL) if plan is not None else None
+    if plan is None or op is None:
+        _release_artwork_hold(album)
+        return False
+    if artwork_updates.watched(album):
+        return False  # its watch asked to be shown, so it waits in the Inbox
+    if not artwork_updates.applies(op, cfg.gardener.artwork_apply_up_to):
+        _hold_artwork(album, key, "It would now replace artwork, so it is applied from its page")
+        return False
+    failure: str | None = None
+    with activity_store.action():
+        try:
+            outcome = album_artwork.apply(
+                album, plan, view.choices, scope=artwork.Scope.ADDITIONS, automatic=True
+            )
+        except tagger_mod.ArtworkChangedError:
+            failure = "Its artwork changed before it could be written"
+        except Exception as e:
+            # Boundary catch, per album, as for tags: one album that cannot be
+            # written must not stop the rest. Loud, with the traceback.
+            log.exception("could not add the artwork for %s", album.path)
+            failure = f"Couldn't be written: {e}"
+    if failure is None and (outcome.stale or outcome.failed):
+        # Named per file in the Activity entry `apply` just recorded.
+        failure = "Some of its files changed or couldn't be written"
+    if failure is not None:
+        _hold_artwork(album, key, failure)
+        return False
+    _release_artwork_hold(album)
+    return outcome.changed > 0
+
+
+def _hold_artwork(album: Album, key: str | None, reason: str) -> None:
+    with _held_lock:
+        _artwork_held[album.id] = _Held(key, reason)
+
+
+def _release_artwork_hold(album: Album) -> None:
+    with _held_lock:
+        _artwork_held.pop(album.id, None)
 
 
 def _apply_one(album: Album, cfg: config_mod.Config, tagger: tagger_mod.Tagger) -> bool:

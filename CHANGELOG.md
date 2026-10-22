@@ -11,6 +11,9 @@ versions follow [semantic versioning](https://semver.org).
 - **Artwork updates can wait in the Inbox.** **When an artwork update is
   found** in Settings picks replacements, or additions as well; albums with
   **Better artwork wanted** always wait there (#852).
+- **Artwork additions can be applied automatically**: tick **Apply** for
+  Addition under **When an artwork update is found**. Replacements never are
+  (#853).
 
 - **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
 

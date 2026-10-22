@@ -217,12 +217,19 @@ class GardenerConfig(BaseModel):
     choice: in the Library's Artwork updates filter. An album with a "Better
     artwork wanted" watch waits in the Inbox whatever this says, since the
     watch was a request to be told.
+
+    `artwork_apply_up_to` is the other end of the artwork scale (#853): an
+    album whose plan only adds artwork is written without asking. Never a
+    replacement, so nothing written with nobody watching overwrites an image,
+    and never a watched album, whose watch asked to be shown what turned up.
+    Nothing by default, since applying writes to somebody's files.
     """
 
     level: GardenerLevel = "off"
     review_from: ReviewFrom = Significance.STRUCTURE
     apply_up_to: ReviewFrom = "none"
     artwork_review_from: ArtworkReviewFrom = "none"
+    artwork_apply_up_to: ArtworkReviewFrom = "none"
 
     @field_validator("apply_up_to")
     @classmethod
@@ -231,6 +238,15 @@ class GardenerConfig(BaseModel):
             raise ValueError(
                 "structure updates are never applied automatically; choose settings, "
                 "cosmetic, enrichment, identity or none"
+            )
+        return value
+
+    @field_validator("artwork_apply_up_to")
+    @classmethod
+    def _never_replace(cls, value: ArtworkReviewFrom) -> ArtworkReviewFrom:
+        if value == Operation.REPLACEMENT:
+            raise ValueError(
+                "artwork replacements are never applied automatically; choose addition or none"
             )
         return value
 
@@ -444,6 +460,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     if v := env.get("HARMONIST_GARDENER_ARTWORK_REVIEW_FROM"):
         # Unvalidated, for the reason the level is (above).
         gardener["artwork_review_from"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_ARTWORK_APPLY_UP_TO"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["artwork_apply_up_to"] = v.strip()
     if v := env.get("HARMONIST_TAGGING_FOLDER_COVER"):
         # Unvalidated, for the reason the gardener level is (above): a typo
         # should stop the container with the permitted values in the message,

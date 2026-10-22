@@ -68,11 +68,15 @@ def _album(root: Path, name: str, *, cover: bytes | None = None, mbid: str = MBI
     return next(a for a in scanner.scan(root) if a.path == album.path)
 
 
-def _route(client, review_from) -> None:
-    """Set the threshold on the running app, as a Settings save does."""
+def _routing(*, review="none", apply="none") -> GardenerConfig:
+    return GardenerConfig(artwork_review_from=review, artwork_apply_up_to=apply)
+
+
+def _route(client, review_from, apply_up_to="none") -> None:
+    """Set the thresholds on the running app, as a Settings save does."""
     state = client.app.state
     state.cfg = state.cfg.model_copy(
-        update={"gardener": GardenerConfig(artwork_review_from=review_from)}
+        update={"gardener": _routing(review=review_from, apply=apply_up_to)}
     )
 
 
@@ -150,7 +154,7 @@ def test_no_threshold_and_no_watch_builds_no_plan(library, monkeypatch):
         pytest.fail("a plan was built for an album nothing could route")
 
     monkeypatch.setattr(artwork_updates, "_plan", built)
-    assert artwork_updates.for_review(list(albums.values()), "none") == []
+    assert artwork_updates.for_review(list(albums.values()), GardenerConfig()) == []
 
 
 def test_a_watched_album_waits_in_the_inbox_whatever_the_threshold(library):
@@ -159,8 +163,10 @@ def test_a_watched_album_waits_in_the_inbox_whatever_the_threshold(library):
     assert bare.sidecar is not None
     watched = replace(bare, sidecar=replace(bare.sidecar, artwork_watch=ArtworkWatch(MBID)))
 
-    assert artwork_updates.for_review([bare, watched], "none") == [watched]
-    assert artwork_updates.for_review([watched], A.REPLACEMENT) == [watched]
+    assert artwork_updates.for_review([bare, watched], GardenerConfig()) == [watched]
+    assert artwork_updates.for_review([watched], _routing(review=A.REPLACEMENT)) == [watched]
+    # Nor does an apply range write it: the watch asked to be shown.
+    assert artwork_updates.for_review([watched], _routing(apply=A.ADDITION)) == [watched]
 
 
 def test_an_album_still_in_an_inbox_state_is_listed_there_not_routed(library):
@@ -169,7 +175,7 @@ def test_an_album_still_in_an_inbox_state_is_listed_there_not_routed(library):
     assert bare.state is AlbumState.COMPLETE
     unmatched = replace(bare, state=AlbumState.NEEDS_MBID)
 
-    assert artwork_updates.for_review([bare, unmatched], A.ADDITION) == [bare]
+    assert artwork_updates.for_review([bare, unmatched], _routing(review=A.ADDITION)) == [bare]
     assert artwork_updates.waiting_by_operation([bare, unmatched])[A.ADDITION] == 1
 
 
@@ -363,7 +369,9 @@ def _announced(album: Album) -> list[str]:
 
 
 def test_the_check_announces_an_album_it_sends_to_the_inbox_once(unchecked, monkeypatch):
-    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER, lambda: A.ADDITION)
+    artwork_updates.configure(
+        lambda: artwork.FolderCoverPolicy.NEVER, lambda: _routing(review=A.ADDITION)
+    )
     artwork_updates.warm([unchecked])
 
     assert artwork_updates.sweep([unchecked], limit=5) == 1
@@ -379,7 +387,7 @@ def test_the_check_announces_an_album_it_sends_to_the_inbox_once(unchecked, monk
 
 
 def test_the_check_does_not_announce_an_update_left_in_the_library(unchecked):
-    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER, lambda: "none")
+    artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER, GardenerConfig)
     artwork_updates.warm([unchecked])
 
     assert artwork_updates.sweep([unchecked], limit=5) == 1

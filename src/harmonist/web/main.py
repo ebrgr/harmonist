@@ -838,6 +838,7 @@ def create_app(
     # Widest first, as the tag levels are listed (#852).
     templates.env.globals["artwork_operations"] = tuple(reversed(artwork_updates.ORDER))
     templates.env.globals["held_reason"] = auto_apply.held_reason
+    templates.env.globals["artwork_held_reason"] = auto_apply.artwork_held_reason
     templates.env.globals["update_queued"] = auto_apply.queued
     templates.env.globals["applying_updates"] = auto_apply.is_applying
     templates.env.globals["store_name"] = store_name
@@ -1000,7 +1001,7 @@ def create_app(
     gardener.configure_routing(lambda: app.state.cfg.gardener)
     artwork_updates.configure(
         lambda: app.state.cfg.tagging.folder_cover,
-        lambda: app.state.cfg.gardener.artwork_review_from,
+        lambda: app.state.cfg.gardener,
     )
 
     def titles_changed(before: library_titles.Membership, after: library_titles.Membership) -> None:
@@ -3271,20 +3272,22 @@ def _auto_apply_if_idle(
     reconcile_runner: ReconcileRunner,
     scan_runner: ScanRunner,
 ) -> str | None:
-    """Write the waiting updates the user trusts Harmonist with (#273), unless
-    something with a better claim is running. `None` when a pass was started,
-    otherwise the reason it wasn't, as for `_update_check_if_idle`.
+    """Write the waiting updates the user trusts Harmonist with, tags (#273) and
+    artwork additions (#853), unless something with a better claim is running.
+    `None` when a pass was started, otherwise the reason it wasn't, as for
+    `_update_check_if_idle`.
 
     Independent of the update check's level: that switch guards the MusicBrainz
-    budget, and applying writes from stored releases, spending none of it. An
-    update found by an album page or a Settings re-check is applied as one the
-    check found is.
+    budget, and applying writes from stored releases and cached images, spending
+    none of it. An update found by an album page or a Settings re-check is
+    applied as one the check found is.
 
     Stands aside for a sync or a reconcile pass, which are rewriting sidecars and
     moving albums between states, and until the first scan: there is no library
     to apply to before it. The next tick, ten minutes on, is soon enough.
     """
-    if app.state.cfg.gardener.apply_up_to == "none":
+    routing = app.state.cfg.gardener
+    if routing.apply_up_to == "none" and routing.artwork_apply_up_to == "none":
         return "nothing is set to apply automatically"
     if sync_runner.is_running or reconcile_runner.is_running:
         log.debug("Skipping auto-apply: sync or reconcile in progress")
@@ -3965,6 +3968,17 @@ def _artwork_review_from(values: Sequence[str]) -> config_mod.ArtworkReviewFrom:
     return least
 
 
+def _artwork_apply_up_to(values: Sequence[str]) -> config_mod.ArtworkReviewFrom:
+    """The artwork apply threshold the ticked operations describe (#853): the
+    most an update does, since applying takes that and everything before it.
+    A replacement is refused by the config, with a message the save reports."""
+    ops = [artwork.Operation(v.strip()) for v in values]
+    if not ops:
+        return "none"
+    most: artwork.Operation = max(ops, key=artwork_updates.ORDER.index)
+    return most
+
+
 def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
     """Library albums whose update waits in the Inbox, by the live routing (#273):
     those reaching the review level, and those auto-apply had to hold back."""
@@ -3974,9 +3988,10 @@ def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
 
 def _review_artwork(request: Request, albums: list[Album]) -> list[Album]:
     """Library albums whose artwork update waits in the Inbox, by the live
-    routing (#852)."""
+    routing (#852): those the review threshold takes, and those the apply pass
+    had to hold back (#853)."""
     cfg: config_mod.Config = request.app.state.cfg
-    return artwork_updates.for_review(albums, cfg.gardener.artwork_review_from)
+    return artwork_updates.for_review(albums, cfg.gardener, held=auto_apply.is_artwork_held)
 
 
 def _artwork_cards(
@@ -4662,9 +4677,8 @@ def _register_routes(app: FastAPI) -> None:
             waiting_by_level=gardener.waiting_by_level(_albums(request), _ignored_updates()),
             update_outcome={level: gardener.outcome(level, cfg.gardener) for level in owned.ORDER},
             artwork_waiting=artwork_updates.waiting_by_operation(_albums(request)),
-            artwork_reviewed={
-                op: artwork_updates.reviews(op, cfg.gardener.artwork_review_from)
-                for op in artwork_updates.ORDER
+            artwork_outcome={
+                op: artwork_updates.outcome(op, cfg.gardener) for op in artwork_updates.ORDER
             },
             **_update_check_ctx(request),
             **extra,
@@ -4720,6 +4734,7 @@ def _register_routes(app: FastAPI) -> None:
         # The artwork grid (#852), posting the same way, with a marker of its own.
         gardener_artwork_routing: str | None = Form(None),
         gardener_artwork_review: list[str] = Form(default=[]),
+        gardener_artwork_apply: list[str] = Form(default=[]),
         folder_cover: str = Form(...),
         # Empty dropdown values and an omitted field both clear the list.
         transforms: list[str] = Form(default=[]),
@@ -4747,6 +4762,7 @@ def _register_routes(app: FastAPI) -> None:
                 "review_from": cfg.gardener.review_from,
                 "apply_up_to": cfg.gardener.apply_up_to,
                 "artwork_review_from": cfg.gardener.artwork_review_from,
+                "artwork_apply_up_to": cfg.gardener.artwork_apply_up_to,
             }
             if gardener_routing is not None:
                 routing |= {
@@ -4755,6 +4771,7 @@ def _register_routes(app: FastAPI) -> None:
                 }
             if gardener_artwork_routing is not None:
                 routing["artwork_review_from"] = _artwork_review_from(gardener_artwork_review)
+                routing["artwork_apply_up_to"] = _artwork_apply_up_to(gardener_artwork_apply)
             new_gardener = config_mod.GardenerConfig.model_validate(
                 {"level": gardener_level.strip(), **routing}
             )
@@ -4791,6 +4808,7 @@ def _register_routes(app: FastAPI) -> None:
                 "gardener.review_from": str(new_gardener.review_from),
                 "gardener.apply_up_to": str(new_gardener.apply_up_to),
                 "gardener.artwork_review_from": str(new_gardener.artwork_review_from),
+                "gardener.artwork_apply_up_to": str(new_gardener.artwork_apply_up_to),
                 # `.value` so the file holds the plain string the loader
                 # parses, rather than relying on StrEnum's str-ness surviving
                 # tomlkit and every reader of the file after it.

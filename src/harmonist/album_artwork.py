@@ -209,20 +209,28 @@ def view(
 
 
 def apply(
-    album: Album, plan: artwork.ArtworkPlan, choices: artwork.Choices
+    album: Album,
+    plan: artwork.ArtworkPlan,
+    choices: artwork.Choices,
+    *,
+    scope: artwork.Scope = artwork.Scope.ALL,
+    automatic: bool = False,
 ) -> tagger_mod.ArtworkOutcome:
-    """Write `plan`, the one `view` built with `choices`, and record the outcome.
+    """Write the part of `plan`, the one `view` built with `choices`, that
+    `scope` permits, and record the outcome.
 
     Artwork only, and nothing decided here: whether the plan is still the one
-    someone looked at is the caller's to check before calling. No MusicBrainz or
-    archive request either: the archive's images come from the local cache the
-    plan was read from. `tagger.ArtworkChangedError` propagates, before anything
-    is written, when the plan's winning image can no longer be found.
+    someone looked at, or one nobody need look at, is the caller's to check
+    before calling. No MusicBrainz or archive request either: the archive's
+    images come from the local cache the plan was read from.
+    `tagger.ArtworkChangedError` propagates, before anything is written, when
+    the plan's winning image can no longer be found.
 
     After the write, the album's stand-in record follows what it now carries
     (#663), and a "Better artwork wanted" watch ends if everything planned was
-    written. The Activity entry names each file left alone and why. It is
-    recorded in whatever action the caller has open.
+    written. The Activity entry names each file left alone and why, and says
+    so when nobody asked for the write (`automatic`, #853). It is recorded in
+    whatever action the caller has open.
     """
     mbid = album.sidecar.mb_release_id if album.sidecar else None
     files = (
@@ -237,6 +245,7 @@ def apply(
         cover_path=album.cover_path,
         archive=cover_art.cached_front(mbid) if mbid else None,
         picks=caa_listings.picked_originals(mbid, choices),
+        scope=scope,
     )
     # Which images now stand in for the release's own front (#663). Re-read
     # rather than the scan's copy, and written only if that changed.
@@ -256,18 +265,23 @@ def apply(
         # which is all the watch is saved by.
         artwork_watch.save(album, None)
     changed = outcome.changed
-    message = (
-        f"Updated artwork on {changed} file{'s' if changed != 1 else ''}"
-        if changed
-        else "Artwork was already up to date"
-    )
+    files_ = f"{changed} file{'s' if changed != 1 else ''}"
+    if not changed:
+        message = "Artwork was already up to date"
+    elif automatic:
+        message = f"Artwork added automatically to {files_}"
+    else:
+        message = f"Updated artwork on {files_}"
     # Each file left alone is named, with WHY: the remedy differs — look at a
     # file changed since, or make room in the artwork store (#470) — and a
     # count alone reads as Harmonist having done less than it said.
     notes = [
         f"{why}: {', '.join(names)}"
         for why, names in (
-            ("changed since the page was drawn", outcome.stale),
+            (
+                "changed since it was checked" if automatic else "changed since the page was drawn",
+                outcome.stale,
+            ),
             (
                 "not replaced, because the image there could not be kept for Undo",
                 outcome.unkept,
