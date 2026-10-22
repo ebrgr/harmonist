@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import tomllib
 from pathlib import Path
@@ -50,7 +51,24 @@ class BandcampConfig(BaseModel):
     cookies_file: Path | None = None
 
 
+_USER_AGENT_RE = re.compile(r"^\s*([^/]+)/(\S+)\s*\(\s*([^)]*?)\s*\)\s*$")
+
+
+def parse_user_agent(user_agent: str) -> tuple[str, str, str]:
+    """Split "Name/Version ( contact )" into its three parts, stripped."""
+    m = _USER_AGENT_RE.match(user_agent)
+    if not m:
+        raise ValueError(
+            f"user_agent must look like 'Name/Version ( contact )', got: {user_agent!r}"
+        )
+    name, version, contact = m.group(1), m.group(2), m.group(3)
+    return name.strip(), version.strip(), contact.strip()
+
+
 class MusicBrainzConfig(BaseModel):
+    #: Checked here rather than only where it is applied to the MusicBrainz
+    #: client, so a Settings save refuses it before writing it and a bad
+    #: `harmonist.toml` stops startup as a config error (#856).
     user_agent: str = "Harmonist/1.0 ( harmonist@girtby.net )"
     # How long a fetched release may be re-served before Harmonist asks again
     # (#127). MusicBrainz allows one request per second, so an uncached album
@@ -62,6 +80,12 @@ class MusicBrainzConfig(BaseModel):
     # cannot wait never has to. 0 disables serving from the cache; payloads are
     # still recorded, so change detection keeps working with it off.
     cache_ttl_seconds: int = Field(default=3600, ge=0)
+
+    @field_validator("user_agent")
+    @classmethod
+    def _user_agent_form(cls, value: str) -> str:
+        parse_user_agent(value)
+        return value
 
 
 class ServerConfig(BaseModel):

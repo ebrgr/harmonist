@@ -15,6 +15,7 @@ from typing import Any
 import musicbrainzngs
 
 from . import mb_tracks
+from .config import parse_user_agent
 from .models import Release
 
 # The picker lists at most this many candidate releases for a store URL — beyond
@@ -82,21 +83,13 @@ class ReleaseGoneError(MBError):
     """
 
 
-_USER_AGENT_RE = re.compile(r"^\s*([^/]+)/(\S+)\s*\(\s*([^)]*?)\s*\)\s*$")
-
-
 def configure(user_agent: str) -> None:
     """Configure the global musicbrainzngs user-agent.
 
-    `user_agent` is expected in the form "Name/Version ( contact )".
+    `user_agent` is expected in the form "Name/Version ( contact )", which
+    `MusicBrainzConfig` has already checked for any value from the config.
     """
-    m = _USER_AGENT_RE.match(user_agent)
-    if not m:
-        raise ValueError(
-            f"user_agent must look like 'Name/Version ( contact )', got: {user_agent!r}"
-        )
-    name, version, contact = m.group(1), m.group(2), m.group(3)
-    musicbrainzngs.set_useragent(name.strip(), version.strip(), contact.strip())
+    musicbrainzngs.set_useragent(*parse_user_agent(user_agent))
 
 
 def lookup_by_bandcamp_url(bandcamp_url: str) -> list[str]:

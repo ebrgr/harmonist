@@ -14,6 +14,11 @@ versions follow [semantic versioning](https://semver.org).
 
 - **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
 
+### Fixed
+
+- **Settings refuses a malformed MusicBrainz user agent** with the form it must
+  take, instead of saving it and failing the next startup (#856).
+
 ## [1.29.0] - 2026-10-20
 
 ### Added

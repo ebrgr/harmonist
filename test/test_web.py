@@ -6425,6 +6425,22 @@ def test_settings_save_rejects_an_unknown_gardener_level(client, cfg):
     assert not (cfg.paths.config_dir / "harmonist.toml").exists()
 
 
+def test_settings_save_refuses_a_malformed_user_agent_before_writing_it(client, cfg):
+    """#856. The format was checked only when the agent was applied, after the
+    save had written it and made it live — a 500, and a file that then stopped
+    the next startup. It is refused with the form it must take, and nothing is
+    written."""
+    before = client.app.state.cfg.musicbrainz.user_agent
+
+    r = _post_settings(client, user_agent="Harmonist/demo")
+
+    assert r.status_code == 200
+    assert "Couldn't save" in r.text
+    assert "Name/Version ( contact )" in r.text
+    assert client.app.state.cfg.musicbrainz.user_agent == before
+    assert not (cfg.paths.config_dir / "harmonist.toml").exists()
+
+
 def _update_status_line(html: str):
     from bs4 import BeautifulSoup
 

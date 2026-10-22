@@ -155,6 +155,24 @@ def test_an_untaggable_download_format_in_the_environment_stops_startup(monkeypa
         config_mod.load()
 
 
+def test_a_malformed_user_agent_stops_startup_as_a_config_error(monkeypatch, tmp_path):
+    """#856: refused while the config loads, naming the setting and its form,
+    rather than as a traceback from applying it to the MusicBrainz client."""
+    from pydantic import ValidationError
+
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    (cfg_dir / "harmonist.toml").write_text('[musicbrainz]\nuser_agent = "Harmonist/demo"\n')
+    monkeypatch.setenv("HARMONIST_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.setenv("HARMONIST_MUSIC_DIR", str(tmp_path / "music"))
+
+    with pytest.raises(ValidationError) as e:
+        config_mod.load()
+
+    assert "user_agent" in str(e.value)
+    assert "Name/Version ( contact )" in str(e.value)
+
+
 def _load_tagging(monkeypatch, tmp_path, toml: str = "") -> TaggingChoices:
     cfg_dir = tmp_path / "cfg"
     cfg_dir.mkdir(exist_ok=True)
