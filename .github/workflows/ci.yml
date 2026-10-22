@@ -121,6 +121,10 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright/python:v1.64.0-noble@sha256:684df257a1fa0ef3fa288239819984008f560e8f8db5b635ee9e2a50cbcd2e23
       options: --ipc=host
+    env:
+      # GitHub mounts HOME with the runner's owner, while this image runs as
+      # root. pip disables caching there; use a directory owned by root instead.
+      PIP_CACHE_DIR: /root/.cache/pip
     steps:
       - uses: actions/checkout@v7
 
@@ -140,14 +144,10 @@ jobs:
         with:
           python-version: "3.15"
 
-      - name: Locate pip cache
-        id: pip-cache
-        run: echo "path=$(python -m pip cache dir)" >> "$GITHUB_OUTPUT"
-
       - name: Cache browser test dependencies
         uses: actions/cache@v6
         with:
-          path: ${{ steps.pip-cache.outputs.path }}
+          path: ${{ env.PIP_CACHE_DIR }}
           key: pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-
