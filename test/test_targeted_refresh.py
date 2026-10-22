@@ -331,6 +331,11 @@ def test_real_watcher_delivers_paths_to_targeted_refresh(tmp_path, monkeypatch):
             async with asyncio.timeout(5):
                 while runner.albums()[0].title != "External update":
                     await asyncio.sleep(0.01)
+            # macOS FSEvents replays paths created shortly before a watch starts,
+            # so this first batch can carry the album directory itself, which
+            # rightly costs a walk. Only Harmonist's own write below must not;
+            # an external edit's targeted refresh is the injected-path test's.
+            walks.clear()
             events.clear()
             sidecar.write(album_dir, Sidecar(temp_uid="local-album"))
             runner.refresh_album([album_dir], notify=True)
