@@ -3,6 +3,11 @@
 Scans retain descriptions, never image bytes. The shared artwork plan judges
 those descriptions against the archive observation in memory. Filtering is pure;
 only warming and checking read the durable cache, and only checking uses CAA.
+
+Where a finding waits is routed as a tag update's is (#852): an album whose plan
+does at least what the user's threshold names waits in the Inbox, and the rest
+are found through the Library's Artwork updates filter. Nothing about it is
+stored: it is a function of the same plan, rebuilt whenever it is asked.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from . import (
     mb_lookup,
     progress,
 )
+from .config import ArtworkReviewFrom
 from .models import Album, AlbumState
 
 log = logging.getLogger(__name__)
@@ -34,6 +40,15 @@ TICK = timedelta(minutes=10)
 _WINDOW = timedelta(days=1)
 _RETRY = timedelta(hours=1)
 _FAILURE_NOTICE_INTERVAL = timedelta(hours=6)
+#: Albums an artwork update can be routed for, as for a tag update: one still in
+#: an Inbox state is listed there under its state, which is the next thing to do.
+_LIBRARY_STATES = frozenset({AlbumState.COMPLETE, AlbumState.INCOMPLETE})
+#: Operations in the order a threshold ranks them, the least an update can do
+#: first: an Inbox taking additions takes replacements too.
+ORDER: tuple[artwork.Operation, ...] = (artwork.Operation.ADDITION, artwork.Operation.REPLACEMENT)
+#: How many albums the pass's digest names one by one, as the tag digest does
+#: (#600); past it, one counted line, so a burst cannot bury the feed.
+_NAMED_MAX = 5
 
 
 @dataclass
@@ -113,11 +128,18 @@ _attempted: dict[str, datetime] = {}
 _failures = _Failures()
 _revision = 0
 _policy: Callable[[], artwork.FolderCoverPolicy] = lambda: artwork.FolderCoverPolicy.NEVER
+_review_from: Callable[[], ArtworkReviewFrom] = lambda: "none"
 
 
-def configure(policy: Callable[[], artwork.FolderCoverPolicy]) -> None:
-    global _policy, _revision, _failures
+def configure(
+    policy: Callable[[], artwork.FolderCoverPolicy],
+    review_from: Callable[[], ArtworkReviewFrom] = lambda: "none",
+) -> None:
+    """Read the folder-cover policy and the Inbox threshold through these, so
+    a Settings save is live on the next check without reconfiguring."""
+    global _policy, _review_from, _revision, _failures
     _policy = policy
+    _review_from = review_from
     _observed.clear()
     _attempted.clear()
     _failures = _Failures()
@@ -199,6 +221,15 @@ def warm(albums: Sequence[Album]) -> None:
 
 def operation(album: Album) -> artwork.Operation | None:
     """The default review's operation, independent of tag significance/ignores."""
+    plan = _plan(album)
+    return plan.operation(artwork.Scope.ALL) if plan is not None else None
+
+
+def _plan(album: Album) -> artwork.ArtworkPlan | None:
+    """The default review's plan, from the scan's descriptions and the archive
+    observation in memory: no file reads and no requests. Built afresh on each
+    call, which costs microseconds per album, so nothing can serve one that a
+    rescan, an observation or a setting has since made stale."""
     local = album.artwork_local
     if local is None or local.unreadable:
         return None
@@ -227,7 +258,154 @@ def operation(album: Album) -> artwork.Operation | None:
         picks=picks,
         excluded_archive=artwork_watch.excluded(sc, image),
         folder_cover=_policy(),
-    ).operation(artwork.Scope.ALL)
+    )
+
+
+def reviews(op: artwork.Operation, review_from: ArtworkReviewFrom) -> bool:
+    """Whether an artwork update doing `op` waits in the Inbox under the
+    threshold `review_from` (#852): that operation and every one after it."""
+    return review_from != "none" and ORDER.index(op) >= ORDER.index(review_from)
+
+
+def waiting(album: Album) -> artwork.Operation | None:
+    """A Library album's artwork update, if it has one."""
+    return operation(album) if album.state in _LIBRARY_STATES else None
+
+
+def routed(album: Album, review_from: ArtworkReviewFrom) -> bool:
+    """Whether this album's artwork update waits in the Inbox (#852).
+
+    One the threshold takes, and any an album's "Better artwork wanted" watch
+    found, whatever the threshold says: the watch was a request to be told.
+    Without either, no plan is built, so a threshold of "none" costs one
+    sidecar look per album.
+    """
+    watched = artwork_watch.active(album.sidecar) is not None
+    if review_from == "none" and not watched:
+        return False
+    op = waiting(album)
+    return op is not None and (watched or reviews(op, review_from))
+
+
+def for_review(albums: Sequence[Album], review_from: ArtworkReviewFrom) -> list[Album]:
+    """The albums whose artwork update waits in the Inbox, by `routed`."""
+    return [a for a in albums if routed(a, review_from)]
+
+
+def waiting_by_operation(albums: Sequence[Album]) -> dict[artwork.Operation, int]:
+    """How many Library albums have an artwork update doing each operation,
+    every operation present: what the Settings page counts beside each row."""
+    counts = dict.fromkeys(ORDER, 0)
+    for album in albums:
+        if (op := waiting(album)) is not None:
+            counts[op] += 1
+    return counts
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """What an album's artwork update would write, as its Inbox card says it."""
+
+    operation: artwork.Operation
+    #: The images it writes, by digest, in album order: usually one.
+    images: tuple[str, ...]
+    #: The change the card shows, as the two images side by side: what one
+    #: target holds now, None for an addition, and what it would hold. A
+    #: replacement's when there is one, since that is what the card's group is
+    #: about and what someone deciding whether they mind needs to see.
+    before: formats.EmbeddedArt | None
+    after: formats.EmbeddedArt
+    tracks_added: int
+    tracks_replaced: int
+    #: What it does to the folder cover, if anything, and the file's name.
+    cover: artwork.Operation | None
+    cover_name: str | None
+    #: The archive upload it writes, when it writes one image and the release's
+    #: stored listing names it: what "Don't suggest this image" rejects. None
+    #: otherwise, and the album page, which lists the release, offers it instead.
+    upload: str | None
+
+    @property
+    def summary(self) -> str:
+        """One line, in the words the album page's own summary uses
+        (`artwork.ArtworkView.summary`), so the card and the page it links to
+        describe one update the same way: counted in files, the folder cover
+        by name."""
+        carriers = []
+        if self.tracks_replaced:
+            n = self.tracks_replaced
+            carriers.append(f"{n} track{'' if n == 1 else 's'}")
+        if self.cover is artwork.Operation.REPLACEMENT and self.cover_name:
+            carriers.append(self.cover_name)
+        parts = []
+        if self.tracks_added:
+            n = self.tracks_added
+            parts.append(f"{n} track{' is' if n == 1 else 's are'} missing artwork")
+        if carriers:
+            parts.append(f"better artwork is available for {' and '.join(carriers)}")
+        if self.cover is artwork.Operation.ADDITION and self.cover_name:
+            parts.append(f"there is no {self.cover_name}")
+        if not parts:
+            return "This album's artwork can be updated."
+        line = ", and ".join(parts)
+        return line[0].upper() + line[1:] + "."
+
+    @property
+    def before_facts(self) -> str | None:
+        """The facts line the album page's rows give an image, such as
+        "1400×1400 · JPEG · 718 KB" (`artwork.describe`)."""
+        return artwork.describe(self.before) if self.before is not None else None
+
+    @property
+    def after_facts(self) -> str:
+        return artwork.describe(self.after)
+
+
+def proposal(album: Album) -> Proposal | None:
+    """`album`'s artwork update for its Inbox card, from the same plan that
+    routed it: no file reads and no requests."""
+    plan = _plan(album)
+    if plan is None:
+        return None
+    op = plan.operation(artwork.Scope.ALL)
+    changes = plan.scoped(artwork.Scope.ALL)
+    if op is None or not changes:
+        return None
+    tracks = [c for c in changes if not c.folder_cover]
+    cover = next((c for c in changes if c.folder_cover), None)
+    images = tuple(dict.fromkeys(c.after for c in changes))
+    shown = next((c for c in changes if c.operation is artwork.Operation.REPLACEMENT), changes[0])
+    # The plan read its before-images off these same descriptions, so a
+    # replaced image is always among them.
+    before = _carried(album, shown.before) if shown.before is not None else None
+    sc = album.sidecar
+    upload = (
+        artwork_watch.upload_for(sc.mb_release_id, images[0])
+        if len(images) == 1 and sc is not None and sc.mb_release_id
+        else None
+    )
+    return Proposal(
+        operation=op,
+        images=images,
+        before=before,
+        after=plan.image_for(shown).image,
+        tracks_added=sum(1 for c in tracks if c.operation is artwork.Operation.ADDITION),
+        tracks_replaced=sum(1 for c in tracks if c.operation is artwork.Operation.REPLACEMENT),
+        cover=cover.operation if cover is not None else None,
+        cover_name=cover.target.name if cover is not None else None,
+        upload=upload,
+    )
+
+
+def _carried(album: Album, digest: str) -> formats.EmbeddedArt | None:
+    """The description of an image the album carries, by digest, from the scan."""
+    local = album.artwork_local
+    if local is None:
+        return None
+    carried = [a for _, a in local.tracks if a is not None]
+    if local.cover is not None:
+        carried.append(local.cover.image)
+    return next((a for a in carried if a.digest == digest), None)
 
 
 def threshold(album: Album) -> int | None:
@@ -305,10 +483,15 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
     count = limit if limit is not None else math.ceil(len(due) * TICK / _WINDOW)
     deadline = time.monotonic() + TICK.total_seconds() / 2
     checked = 0
+    review_from = _review_from()
+    found: list[tuple[Album, artwork.Operation]] = []
     for _, mbid, width in due[:count]:
         if time.monotonic() >= deadline:
             break
         _attempted[mbid] = datetime.now(UTC)
+        # Judged before anything this check learns reaches the plan, so the
+        # digest names only albums the check itself sent to the Inbox.
+        waited = {id(a) for a in groups[mbid] if routed(a, review_from)}
         release = mb_cache.stored_release(mbid)
         group = (release.get("release-group") or {}).get("id") if release else None
         try:
@@ -333,4 +516,36 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
         observe(mbid)
         _failures.succeeded()
         checked += 1
+        found.extend(
+            (a, op)
+            for a in groups[mbid]
+            if id(a) not in waited and routed(a, review_from) and (op := waiting(a)) is not None
+        )
+    _record_digest(found)
     return checked
+
+
+def _record_digest(albums: Sequence[tuple[Album, artwork.Operation]]) -> None:
+    """Tell the Activity feed which albums this check sent to the Inbox (#852),
+    as the tag update check does (#274, #600).
+
+    **Only the transition**: an album whose update was already waiting is not
+    news when the archive is asked about it again. **Only the Inbox**: an update
+    left to the Library filter is one the user chose not to be told about. One
+    the startup warm-up rebuilds is not announced either, since it is not new.
+
+    No action scope: nothing was changed, so there is nothing to correlate or
+    revert, and the album ids are safe to read because the check writes
+    nothing that could move them.
+    """
+    if len(albums) > _NAMED_MAX:
+        activity.record(
+            f"Artwork check: {len(albums)} albums now have an artwork update — see the Inbox"
+        )
+        return
+    for album, op in albums:
+        activity.record(
+            f"Artwork update available from the Cover Art Archive ({op.value})",
+            album_id=album.id,
+            album_label=album.label,
+        )

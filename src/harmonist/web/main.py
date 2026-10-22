@@ -835,6 +835,8 @@ def create_app(
     templates.env.globals["AlbumState"] = AlbumState
     # Widest-reaching first, as the Library's update menu lists them (#273).
     templates.env.globals["update_levels"] = tuple(reversed(owned.ORDER))
+    # Widest first, as the tag levels are listed (#852).
+    templates.env.globals["artwork_operations"] = tuple(reversed(artwork_updates.ORDER))
     templates.env.globals["held_reason"] = auto_apply.held_reason
     templates.env.globals["update_queued"] = auto_apply.queued
     templates.env.globals["applying_updates"] = auto_apply.is_applying
@@ -996,7 +998,10 @@ def create_app(
     # restart.
     gardener.configure(lambda: library_titles.choices(app.state.cfg.tagging.choices()))
     gardener.configure_routing(lambda: app.state.cfg.gardener)
-    artwork_updates.configure(lambda: app.state.cfg.tagging.folder_cover)
+    artwork_updates.configure(
+        lambda: app.state.cfg.tagging.folder_cover,
+        lambda: app.state.cfg.gardener.artwork_review_from,
+    )
 
     def titles_changed(before: library_titles.Membership, after: library_titles.Membership) -> None:
         settings = app.state.cfg.tagging.choices()
@@ -2882,6 +2887,40 @@ def _listed_candidate(mbid: str | None, image_id: str) -> cover_art.Candidate | 
     )
 
 
+def _set_suggestion(
+    request: Request, album_id: str, image_id: str, *, rejected: bool
+) -> tuple[Album, str]:
+    """Stop or resume suggesting one archive upload for an album (#586), for
+    the album page's checkbox and an Inbox card's button alike. Returns the
+    album as it now is, and its release.
+
+    Only an upload the release's stored listings name, so a request cannot
+    write an arbitrary id into the sidecar. The album's plan is then rebuilt
+    from what is stored, preparing a watched album's next alternative, so
+    whatever reads the findings next already sees the decision.
+    """
+    request.state.skip_rescan = True
+    album = _refreshed_from_disk(request, _find_album(request, album_id))
+    mbid = _release_of(album)
+    if mbid is None or _listed_candidate(mbid, image_id) is None:
+        raise HTTPException(404, "No such artwork candidate")
+    if artwork_watch.reject(album, image_id, rejected):
+        aid, label = _live_album_ref(album)
+        activity.info(
+            "Stopped suggesting this image" if rejected else "Restored artwork suggestion",
+            album_id=aid,
+            album_label=label,
+        )
+        request.app.state.scan_runner.refresh_now()
+    fresh = _refreshed_from_disk(request, _find_album(request, album_id))
+    try:
+        artwork_watch.prepare([fresh])
+    except cover_art.CoverArtError:
+        log.exception("could not prepare the next artwork alternative for %s", mbid)
+    artwork_updates.observe(mbid)
+    return fresh, mbid
+
+
 def _list_another_release(mbid: str, *, browsed: bool) -> str | None:
     """List the next release in the album's group that has images to offer
     (#659), and return its id — or None when there is no release left.
@@ -3915,11 +3954,42 @@ def _widest_level(values: Sequence[str]) -> config_mod.ReviewFrom:
     return widest
 
 
+def _artwork_review_from(values: Sequence[str]) -> config_mod.ArtworkReviewFrom:
+    """The artwork Inbox threshold the ticked operations describe (#852): the
+    least an update does, since the Inbox takes that and everything after it.
+    An unknown name raises ValueError, which the Settings save reports."""
+    ops = [artwork.Operation(v.strip()) for v in values]
+    if not ops:
+        return "none"
+    least: artwork.Operation = min(ops, key=artwork_updates.ORDER.index)
+    return least
+
+
 def _review_updates(request: Request, albums: list[Album]) -> list[Album]:
     """Library albums whose update waits in the Inbox, by the live routing (#273):
     those reaching the review level, and those auto-apply had to hold back."""
     cfg: config_mod.Config = request.app.state.cfg
     return gardener.for_review(albums, _ignored_updates(), cfg.gardener, held=auto_apply.is_held)
+
+
+def _review_artwork(request: Request, albums: list[Album]) -> list[Album]:
+    """Library albums whose artwork update waits in the Inbox, by the live
+    routing (#852)."""
+    cfg: config_mod.Config = request.app.state.cfg
+    return artwork_updates.for_review(albums, cfg.gardener.artwork_review_from)
+
+
+def _artwork_cards(
+    request: Request, albums: list[Album]
+) -> list[tuple[Album, artwork_updates.Proposal]]:
+    """The routed artwork updates with what each would write, for their Inbox
+    cards: from the scan's descriptions and the stored archive answers, so
+    drawing them reads no audio and asks no service."""
+    return [
+        (album, proposal)
+        for album in _review_artwork(request, albums)
+        if (proposal := artwork_updates.proposal(album)) is not None
+    ]
 
 
 def _bandcamp_configured(cfg: config_mod.Config) -> bool:
@@ -4315,6 +4385,7 @@ def _register_routes(app: FastAPI) -> None:
             request,
             albums=_inbox_albums(albums),
             updates=_review_updates(request, albums),
+            artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
             sync_status=request.app.state.sync_runner.status(),
             deep_link_missing=deep_link_missing,
@@ -4379,6 +4450,7 @@ def _register_routes(app: FastAPI) -> None:
             request,
             albums=_inbox_albums(albums),
             updates=_review_updates(request, albums),
+            artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
             pending=pending,
             redownloading=redownloads.all_pending(),
@@ -4589,6 +4661,11 @@ def _register_routes(app: FastAPI) -> None:
             keep_per_album=cfg.artwork_store.keep_per_album,
             waiting_by_level=gardener.waiting_by_level(_albums(request), _ignored_updates()),
             update_outcome={level: gardener.outcome(level, cfg.gardener) for level in owned.ORDER},
+            artwork_waiting=artwork_updates.waiting_by_operation(_albums(request)),
+            artwork_reviewed={
+                op: artwork_updates.reviews(op, cfg.gardener.artwork_review_from)
+                for op in artwork_updates.ORDER
+            },
             **_update_check_ctx(request),
             **extra,
         )
@@ -4640,6 +4717,9 @@ def _register_routes(app: FastAPI) -> None:
         gardener_routing: str | None = Form(None),
         gardener_apply: list[str] = Form(default=[]),
         gardener_review: list[str] = Form(default=[]),
+        # The artwork grid (#852), posting the same way, with a marker of its own.
+        gardener_artwork_routing: str | None = Form(None),
+        gardener_artwork_review: list[str] = Form(default=[]),
         folder_cover: str = Form(...),
         # Empty dropdown values and an omitted field both clear the list.
         transforms: list[str] = Form(default=[]),
@@ -4666,12 +4746,15 @@ def _register_routes(app: FastAPI) -> None:
             routing: dict[str, object] = {
                 "review_from": cfg.gardener.review_from,
                 "apply_up_to": cfg.gardener.apply_up_to,
+                "artwork_review_from": cfg.gardener.artwork_review_from,
             }
             if gardener_routing is not None:
-                routing = {
+                routing |= {
                     "review_from": _narrowest(gardener_review),
                     "apply_up_to": _widest_level(gardener_apply),
                 }
+            if gardener_artwork_routing is not None:
+                routing["artwork_review_from"] = _artwork_review_from(gardener_artwork_review)
             new_gardener = config_mod.GardenerConfig.model_validate(
                 {"level": gardener_level.strip(), **routing}
             )
@@ -4707,6 +4790,7 @@ def _register_routes(app: FastAPI) -> None:
                 # A plain string for the reason `.value` is used below.
                 "gardener.review_from": str(new_gardener.review_from),
                 "gardener.apply_up_to": str(new_gardener.apply_up_to),
+                "gardener.artwork_review_from": str(new_gardener.artwork_review_from),
                 # `.value` so the file holds the plain string the loader
                 # parses, rather than relying on StrEnum's str-ness surviving
                 # tomlkit and every reader of the file after it.
@@ -4797,7 +4881,11 @@ def _register_routes(app: FastAPI) -> None:
         # The Inbox also holds the updates routed to it (#273). Derived on each
         # poll from the snapshot's flags, which move without a state transition
         # for live_counts to see.
-        counts["inbox"] += len(_review_updates(request, _albums(request)))
+        albums = _albums(request)
+        counts["inbox"] += len(_review_updates(request, albums))
+        # And the artwork updates routed to it (#852), each its own card: an
+        # album with both a tag and an artwork update has two things to look at.
+        counts["inbox"] += len(_review_artwork(request, albums))
         return JSONResponse(
             {
                 "sync": state.sync_runner.status(),
@@ -6569,30 +6657,12 @@ def _register_routes(app: FastAPI) -> None:
         rejected: bool = Form(False),
         use: str = Form(""),
     ) -> Response:
-        request.state.skip_rescan = True
-        album = _refreshed_from_disk(request, _find_album(request, album_id))
-        mbid = _release_of(album)
-        if mbid is None or _listed_candidate(mbid, image_id) is None:
-            raise HTTPException(404, "No such artwork candidate")
-        if artwork_watch.reject(album, image_id, rejected):
-            aid, label = _live_album_ref(album)
-            activity.info(
-                "Stopped suggesting this image" if rejected else "Restored artwork suggestion",
-                album_id=aid,
-                album_label=label,
-            )
-            request.app.state.scan_runner.refresh_now()
-        fresh = _refreshed_from_disk(request, _find_album(request, album_id))
+        fresh, mbid = _set_suggestion(request, album_id, image_id, rejected=rejected)
         # A rejected suggestion disappears from the preview, while other row
         # choices survive. Explicitly pressing Use afterwards still overrides it.
         choices = {
             k: v for k, v in artwork.parse_choices(use).items() if not rejected or v != image_id
         }
-        try:
-            artwork_watch.prepare([fresh])
-        except cover_art.CoverArtError:
-            log.exception("could not prepare the next artwork alternative for %s", mbid)
-        artwork_updates.observe(mbid)
         caa = caa_cache.stored(mbid)
         response = _templates(request).TemplateResponse(
             request,
@@ -6614,6 +6684,20 @@ def _register_routes(app: FastAPI) -> None:
         )
         response.headers["HX-Trigger"] = "tasks-changed"
         return response
+
+    @app.post("/artwork-updates/{album_id}/dismiss", response_class=HTMLResponse)
+    def artwork_update_dismiss(
+        request: Request, album_id: str, image_id: str = Form(...)
+    ) -> Response:
+        """**Don't suggest this image**, from an artwork update's Inbox card (#852).
+
+        The album page's own rejection, so the decision is the same one: it
+        names the upload, survives later checks, and is undone from the album
+        page. The card leaves the Inbox when its plan no longer proposes
+        anything; another image the archive offers can take its place.
+        """
+        fresh, _ = _set_suggestion(request, album_id, image_id, rejected=True)
+        return _flash_response("Stopped suggesting this image", album=fresh, record_activity=False)
 
     @app.get("/album/{album_id}/artwork", response_class=HTMLResponse)
     def album_artwork(

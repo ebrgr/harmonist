@@ -6,6 +6,12 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Artwork updates can wait in the Inbox.** **When an artwork update is
+  found** in Settings picks replacements, or additions as well; albums with
+  **Better artwork wanted** always wait there (#852).
+
 - **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
 
 ## [1.29.0] - 2026-10-20

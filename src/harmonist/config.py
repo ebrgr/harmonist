@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from .artwork import FolderCoverPolicy
+from .artwork import FolderCoverPolicy, Operation
 from .formats.owned import Significance
 from .transforms import ArtistNames, TaggingChoices, TagTransform
 
@@ -22,6 +22,9 @@ GardenerLevel = Literal["off", "review"]
 #: The lowest significance the Inbox takes an update at (#273), or "none" for an
 #: Inbox that takes no updates at all.
 ReviewFrom = Significance | Literal["none"]
+#: The least an artwork update must do for the Inbox to take it (#852): every
+#: addition and replacement, replacements only, or "none".
+ArtworkReviewFrom = Operation | Literal["none"]
 
 #: Bandcamp's download formats that arrive as files Harmonist can read and tag
 #: (#627). Bandcamp also offers WAV and AIFF, and an album downloaded as either
@@ -177,11 +180,21 @@ class GardenerConfig(BaseModel):
     Nothing by default, since applying writes to somebody's files. Never
     Structure: a changed tracklist needs a person by definition, and the track
     assignment it can call for has no unattended answer.
+
+    `artwork_review_from` is the same threshold for artwork updates (#852), on
+    the scale addition, then replacement: an album whose artwork plan does at
+    least that much waits in the Inbox. An album is judged by its plan as a
+    whole, so one replacing anything is a replacement, whatever it also adds.
+    Nothing by default, which is where artwork updates were before there was a
+    choice: in the Library's Artwork updates filter. An album with a "Better
+    artwork wanted" watch waits in the Inbox whatever this says, since the
+    watch was a request to be told.
     """
 
     level: GardenerLevel = "off"
     review_from: ReviewFrom = Significance.STRUCTURE
     apply_up_to: ReviewFrom = "none"
+    artwork_review_from: ArtworkReviewFrom = "none"
 
     @field_validator("apply_up_to")
     @classmethod
@@ -400,6 +413,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     if v := env.get("HARMONIST_GARDENER_APPLY_UP_TO"):
         # Unvalidated, for the reason the level is (above).
         gardener["apply_up_to"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_ARTWORK_REVIEW_FROM"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["artwork_review_from"] = v.strip()
     if v := env.get("HARMONIST_TAGGING_FOLDER_COVER"):
         # Unvalidated, for the reason the gardener level is (above): a typo
         # should stop the container with the permitted values in the message,

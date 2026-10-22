@@ -83,6 +83,7 @@ release's own comment; missing or identical comments can leave titles identical.
 | `level` | `HARMONIST_GARDENER_LEVEL` | `"off"` | `"review"` checks tags against MusicBrainz and artwork against the Cover Art Archive in the background and reports updates. It never writes to music files. On the Settings page as **Check MusicBrainz for updates**. |
 | `review_from` | `HARMONIST_GARDENER_REVIEW_FROM` | `"structure"` | The lowest significance whose updates wait in the Inbox: `settings`, `cosmetic`, `enrichment`, `identity`, `structure`, or `none`. Each level includes those after it in that list. On the Settings page as the **Inbox** column of **When a tag update is found**. |
 | `apply_up_to` | `HARMONIST_GARDENER_APPLY_UP_TO` | `"none"` | The highest significance whose updates are written without review: `settings`, `cosmetic`, `enrichment`, `identity`, or `none`. Each level includes those before it in that list; `structure` is refused. Wins over `review_from` where the two overlap. On the Settings page as the **Apply** column of **When a tag update is found**. |
+| `artwork_review_from` | `HARMONIST_GARDENER_ARTWORK_REVIEW_FROM` | `"none"` | The least an artwork update must do to wait in the Inbox: `addition` (additions and replacements), `replacement`, or `none`. An update that both adds and replaces counts as a replacement. Albums with **Better artwork wanted** wait in the Inbox regardless. On the Settings page as the **Inbox** column of **When an artwork update is found**. |
 
 ## `[library]`
 

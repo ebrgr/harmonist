@@ -60,6 +60,19 @@
   .update-card .tag-changes { grid-template-columns: minmax(0, 1fr); }
   .update-card__more { margin-left: 0; }
 }
+/* An artwork update's row (#852): the image a target holds now and the one it
+   would hold, the same size as a tag update's cover so the two can be compared,
+   each with its facts beneath; the album and the summary to their right. */
+.art-update-card { grid-template-columns: auto minmax(0, 1fr); }
+.art-update-card__pair { display: flex; align-items: flex-start; gap: .5rem; }
+.art-update-card__side { width: 5.5rem; }
+.art-update-card__image { display: block; width: 5.5rem; height: 5.5rem; border-radius: .25rem; object-fit: cover; background: var(--color-surface); border: 1px solid var(--color-line); }
+.art-update-card__image--none { border-style: dashed; }
+.art-update-card__arrow { align-self: center; margin-top: -1.25rem; color: var(--color-muted); }
+.art-update-card__facts { margin-top: .25rem; font-size: var(--text-2xs); line-height: 1.3; color: var(--color-muted); text-wrap: balance; }
+@media (width < 40rem) {
+  .art-update-card { grid-template-columns: minmax(0, 1fr); }
+}
 /* Show all / Show fewer (#801): the full list replaces the lead rows while
    expanded, and the button stays beneath whichever is showing. */
 .update-card__all,

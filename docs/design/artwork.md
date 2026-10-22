@@ -175,6 +175,39 @@ tag-update ignore is about a MusicBrainz version and cannot suppress artwork
 whose source changes independently. Background proposals require review; source
 preferences and automatic writes remain separate decisions.
 
+## Where an artwork update waits
+
+**The same threshold as a tag update's, on a scale of its own** (#852). An
+artwork update is ranked by what it does to the album's images, not by how far
+it reaches, so it can't share the tag levels. Addition comes before
+Replacement, because only a replacement loses anything. The Inbox takes the
+chosen operation and everything after it, so a replacement can never be
+handled less carefully than an addition.
+
+**The Library by default.** That is where every artwork update waited before
+there was a choice. Nothing about artwork is urgent: an album without it still
+plays everywhere, and its proposal is one filter away.
+
+**An album is judged by its whole plan.** One that replaces anything is a
+replacement, whatever it also adds, as a tag update takes the label of its
+furthest-reaching change. Splitting the album by operation would send its
+additions one way and its replacements another, and the card would no longer
+describe what applying the album's page writes.
+
+**A watched album always waits in the Inbox.** "Better artwork wanted" was a
+request to be told when something turns up, so the threshold doesn't apply to it.
+
+**Turning down an image is the existing rejection.** There is no artwork
+equivalent of ignoring a tag update. That ignore waits for a MusicBrainz
+version to change, and the archive has no version to wait on. **Don't suggest
+this image** already names the upload, survives later checks, and is undone on
+the album page. The card offers it only when a stored listing names the image;
+the album page, which lists the release, always can.
+
+**Only what the Inbox takes is announced**, and only when the check first sends
+it there, as for tag updates: an update left to the Library filter is one the
+user chose not to be told about.
+
 ## Watching for alternatives
 
 “Better artwork wanted” is an explicit request to watch the matched release and
@@ -187,7 +220,8 @@ A watch broadens the ordinary artwork proposal to include smaller front images,
 including existing alternatives. The Library's Artwork updates filter and the
 album's After Apply preview use the same plan. A group's copy of the same upload
 is considered only once, and distinct per-track sleeves remain protected.
-Notifications belong to the future router, not a parallel Inbox workflow.
+What it finds waits in the Inbox like any other artwork update
+([above](#where-an-artwork-update-waits)), not in a parallel workflow.
 
 “Don't suggest this image” excludes an upload from automatic proposals while
 keeping it in the picker. It is reversible and does not prevent an explicit Use.
