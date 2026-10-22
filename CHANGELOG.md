@@ -8,6 +8,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
+- **Artists lists local album artists alphabetically**, with equal-height cards, local artist pictures, shared album tiles and read-only `artist.nfo` metadata, including a separate Artist Information Folder (#813).
 - **Tracks are tagged with their composers, lyricists, writers and the works
   they perform**, as Picard writes them. A credit arriving is an Enrichment
   update. A composer MusicBrainz doesn't credit, such as one from a CD-rip

@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 from . import (
     album_files,
+    artists,
     artwork_updates,
     barcodes,
     compare,
@@ -733,6 +734,7 @@ def build_album(
         path=album_dir,
         title=title,
         artist=artist,
+        artist_credits=artists.album_credits(fields),
         track_count=len(audio_files),
         state=state,
         sidecar=sidecar,
