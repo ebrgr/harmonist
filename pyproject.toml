@@ -14,7 +14,8 @@ dev = ["pytest", "pytest-mock", "pytest-xdist==3.8.0", "pytailwindcss", "ruff==0
 # Browser smoke tests (opt-in; see test/e2e/). Needs `playwright install chromium webkit`.
 # Pinned so a new browser build can't redden CI on a day nothing here changed.
 # Each Playwright release drives its own browser builds: after bumping it, run
-# `playwright install chromium webkit` again (CI's browser cache follows it).
+# `playwright install chromium webkit` again and update the matching CI image
+# version and digest in .github/workflows/ci.yml.
 # Both extras support their parallel make target when installed independently.
 e2e = ["pytest-playwright==0.10.0", "playwright==1.64.0", "pytest-xdist==3.8.0"]
 

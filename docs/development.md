@@ -146,6 +146,14 @@ scripts with external requests blocked as well as the app's normal interactions.
 
 ## Browser tests and timings
 
+CI runs the browser job in a digest-pinned Playwright image containing the
+browser builds and their system libraries, with Python 3.15 selected separately
+by `setup-python`. It does not install OS packages or download browsers per run.
+When upgrading Playwright in `pyproject.toml`, update the image version and digest
+in `.github/workflows/ci.yml` together; the job checks that their versions match.
+Python dependency caches are separate for each test job and interpreter, so the
+small CSS install cannot populate the cache used by the test suites.
+
 Inside the devcontainer, install the e2e extras and their matching browser builds
 after a rebuild or Playwright upgrade:
 
