@@ -83,6 +83,7 @@ from harmonist import (
     track_assignment,
     url_recovery,
 )
+from harmonist import album_artwork as album_artwork_mod
 from harmonist import config as config_mod
 from harmonist import retag as retag_mod
 from harmonist import sidecar as sidecar_mod
@@ -2852,21 +2853,6 @@ _DIGEST = re.compile(r"[0-9a-f]{64}")
 _IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
 
 
-def _archive_image(mbid: str | None, *, release_only: bool = False) -> formats.EmbeddedArt | None:
-    """The Cover Art Archive's image for this release, described, when one has
-    been fetched (#276).
-
-    Read from the local cache — the page never asks the archive on a render, and
-    an album nobody has checked simply has no candidate here. Described rather
-    than carried, like every other image on this page: the bytes go back to the
-    browser through the image route, keyed by the digest measured here.
-    """
-    if mbid is None:
-        return None
-    front = cover_art.cached_front(mbid, release_only=release_only)
-    return formats.EmbeddedArt.of(front.data, front.mime) if front else None
-
-
 def _widest(view: artwork.ArtworkView) -> int | None:
     """The same download threshold as the background assessment (#269).
 
@@ -2988,64 +2974,6 @@ def _tagging(request: Request, album: Album) -> TaggingChoices:
     return library_titles.choices(cfg.tagging.choices(), excluding=album.folders)
 
 
-def _measured(mbid: str | None, listing: cover_art.Candidate) -> str | None:
-    """A listed image's facts line from a measurement, if one is here (#659) —
-    never the network. The picker's own, made the first time it showed the
-    image; or for the release's front, the archive check's."""
-    known = caa_cache.stored_measure(listing.image_id)
-    if known is None and mbid is not None:
-        caa = caa_cache.stored(mbid)
-        if caa is not None and caa.image_url == listing.image_url:
-            known = cover_art.Measure(caa.width, caa.height, caa.length, caa.mime)
-    if known is None:
-        return None
-    size = (
-        images.Size(known.width, known.height)
-        if known.width is not None and known.height is not None
-        else None
-    )
-    return artwork.describe_parts(size, known.mime, known.length)
-
-
-def _offered(
-    mbid: str | None, choices: artwork.Choices | None = None
-) -> tuple[tuple[artwork.Candidate, ...], dict[str, formats.EmbeddedArt]]:
-    """What the picker offers this album, and the originals already in hand
-    (#659): every image the archive lists for its release, its release group,
-    and the other releases someone has stepped to, each once.
-
-    From what is stored, never the network — the listings the archive check
-    keeps, and the release payload the page already read for the group's id.
-    The originals include any image `choices` name that no listing does any
-    more, so a choice outlives the listing it was made from.
-    """
-    candidates: list[artwork.Candidate] = []
-    picks: dict[str, formats.EmbeddedArt] = {}
-    for listed in caa_listings.listings(mbid):
-        listing = listed.listing
-        # The group's front is very often one of the release's own images.
-        if any(c.image_id == listing.image_id for c in candidates):
-            continue
-        original = caa_listings.in_hand(mbid, listing)
-        image = formats.EmbeddedArt.of(original.data, original.mime) if original else None
-        if image is not None:
-            picks[listing.image_id] = image
-        candidates.append(
-            artwork.Candidate(
-                image_id=listing.image_id,
-                origin=listed.origin,
-                front=listing.front,
-                types=listing.types,
-                image=image,
-                release=listed.release,
-                measured=None if image is not None else _measured(mbid, listing),
-            )
-        )
-    for image_id, front in caa_listings.picked_originals(mbid, choices or {}).items():
-        picks.setdefault(image_id, formats.EmbeddedArt.of(front.data, front.mime))
-    return tuple(candidates), picks
-
-
 def _settle_own_front(album: Album, mbid: str) -> bool:
     """Drop the stand-ins the release's own front turned out to be (#663), and
     say whether any were.
@@ -3084,11 +3012,11 @@ def _artwork_view(
     tracks: _FileTags | None = None,
     browsed: bool = False,
 ) -> artwork.ArtworkView:
-    """`_summarised_view`, and whether the picker can step on to another
+    """`album_artwork_mod.view`, and whether the picker can step on to another
     release (#659) — `browsed` being whether this page has browsed the group
     already. Every render of the section comes through here, so none of them
     leaves that out."""
-    view = _summarised_view(
+    view = album_artwork_mod.view(
         album,
         caa,
         archive,
@@ -3099,99 +3027,6 @@ def _artwork_view(
     )
     return replace(
         view, other_releases=_another_release_possible(_release_of(album), browsed=browsed)
-    )
-
-
-def _summarised_view(
-    album: Album,
-    caa: activity_store.CachedCoverArt | None = None,
-    archive: formats.EmbeddedArt | None = None,
-    *,
-    folder_cover: artwork.FolderCoverPolicy,
-    chosen: artwork.Source | None = None,
-    choices: artwork.Choices | None = None,
-    tracks: _FileTags | None = None,
-) -> artwork.ArtworkView:
-    """What the album page's Artwork section shows (#155).
-
-    One pass over the files, and no MusicBrainz release: artwork facts are disk
-    facts, which is why this has its own endpoint rather than riding on
-    `/compare`. It is the only part of the album page that answers on an album
-    Harmonist has not identified yet — the state adopted libraries arrive in, and
-    the one where artwork is most often a mess.
-
-    Costs no I/O the tag read wasn't already doing: mutagen parses the whole tag
-    block on any open and the image is inside it, so `read_tags` has already
-    pulled these bytes off disk and `TrackTags.art` is what it noticed about them.
-    The one genuinely new read is the folder cover, once.
-
-    `folder_cover` has NO DEFAULT on purpose (#516). It is the seam between the
-    user's setting and a pure function that cannot read it, and the failure it
-    guards against is silent: a call site that forgot it would draw a proposal
-    to create a `cover.jpg` the user has asked Harmonist not to create, and the
-    page would look entirely correct. There are a dozen call sites here; mypy
-    is what makes that a dozen errors rather than a dozen chances.
-    """
-    # Paths as well as tags: the view's plan names its targets by path, exactly
-    # as the tagger's does, so the fingerprint a re-tag carries back means the
-    # same files on both sides (#469). The same listing `_album_tracks` makes.
-    #
-    # `tracks` is that listing already read, handed over by the album page's
-    # comparison (#485). The pass below is what every other caller still makes:
-    # the artwork endpoint answers on an album with no MusicBrainz release,
-    # where there is no comparison to share one with.
-    if tracks is None:
-        files = (
-            album_files.for_paths(album.folders)
-            if album.folders
-            else album_files.audio_files(album.path)
-        )
-        with timing.warn_if_slow(
-            "album artwork read", _SLOW_ALBUM_READ, album=album.path, files=len(files)
-        ):
-            tracks = [(f, formats.read_tags(f)) for f in files]
-    candidates, picks = _offered(_release_of(album), choices)
-    # The album's stand-in covers, for the release it is matched to now (#663).
-    sc = album.sidecar
-    borrowed = {
-        b.digest: b.source
-        for b in (sc.borrowed_artwork if sc else ())
-        if sc is not None and b.release == sc.mb_release_id
-    }
-    cover = None
-    cover_unreadable = False
-    if album.cover_path is not None and album.cover_path.exists():
-        try:
-            data = album.cover_path.read_bytes()
-        except OSError:
-            log.exception("could not read the folder cover for %s", album.path)
-            cover_unreadable = True
-        else:
-            mime = "image/png" if album.cover_path.suffix.lower() == ".png" else "image/jpeg"
-            cover = artwork.FolderCover(
-                name=album.cover_path.name,
-                image=formats.EmbeddedArt.of(data, mime),
-                path=album.cover_path,
-            )
-    proposed, proposed_images = (
-        artwork_watch.proposal(sc, [(p, t.art) for p, t in tracks], cover, folder_cover)
-        if not cover_unreadable and not any(t.unreadable for _, t in tracks)
-        else ({}, {})
-    )
-    return artwork.summarise(
-        album.path,
-        tracks,
-        cover,
-        caa,
-        archive,
-        cover_unreadable=cover_unreadable,
-        excluded_archive=artwork_watch.excluded(sc, archive),
-        chosen=chosen,
-        choices={**proposed, **(choices or {})},
-        picks={**proposed_images, **picks},
-        candidates=candidates,
-        borrowed=borrowed,
-        folder_cover=folder_cover,
     )
 
 
@@ -5796,7 +5631,7 @@ def _register_routes(app: FastAPI) -> None:
             else _artwork_view(
                 album,
                 caa_answer,
-                _archive_image(mbid),
+                album_artwork_mod.archive_image(mbid),
                 tracks=reads[0],
                 folder_cover=_folder_cover_policy(request),
             )
@@ -6715,7 +6550,7 @@ def _register_routes(app: FastAPI) -> None:
                 artwork=_artwork_view(
                     fresh_album,
                     caa,
-                    _archive_image(release),
+                    album_artwork_mod.archive_image(release),
                     folder_cover=_folder_cover_policy(request),
                 ),
                 caa_check_due=False,
@@ -6768,7 +6603,7 @@ def _register_routes(app: FastAPI) -> None:
                 artwork=_artwork_view(
                     fresh,
                     caa,
-                    _archive_image(mbid),
+                    album_artwork_mod.archive_image(mbid),
                     choices=choices,
                     folder_cover=_folder_cover_policy(request),
                 ),
@@ -6916,7 +6751,7 @@ def _register_routes(app: FastAPI) -> None:
                 shown = [c for c in theirs if c.front or showing_fronts is False] or theirs
                 candidate = shown[0].image_id
         caa = caa_cache.stored(mbid) if mbid else None
-        archive = _archive_image(mbid)
+        archive = album_artwork_mod.archive_image(mbid)
         choices = artwork.parse_choices(use)
         # What a press of Use names: the image the picker shows, by archive id,
         # or — as the section spelled it before #659 — the release's own front.
@@ -7081,7 +6916,7 @@ def _register_routes(app: FastAPI) -> None:
         view = _artwork_view(
             album,
             caa,
-            _archive_image(mbid),
+            album_artwork_mod.archive_image(mbid),
             choices=artwork.parse_choices(use),
             folder_cover=_folder_cover_policy(request),
         )
@@ -7097,7 +6932,10 @@ def _register_routes(app: FastAPI) -> None:
                     request,
                     album=fresh,
                     artwork=_artwork_view(
-                        fresh, caa, _archive_image(mbid), folder_cover=_folder_cover_policy(request)
+                        fresh,
+                        caa,
+                        album_artwork_mod.archive_image(mbid),
+                        folder_cover=_folder_cover_policy(request),
                     ),
                     artwork_changed_since=changed_since,
                     # Stated rather than left undefined: writing artwork changes
@@ -7110,66 +6948,11 @@ def _register_routes(app: FastAPI) -> None:
         if view.plan is None or plan != view.fingerprint:
             log.info("artwork for %s changed since the page was drawn; not applying", album.path)
             return section(changed_since=True)
-        files = (
-            album_files.for_paths(album.folders)
-            if album.folders
-            else album_files.audio_files(album.path)
-        )
         try:
-            outcome = tagger_mod.apply_artwork(
-                album.path,
-                view.plan,
-                files=files,
-                cover_path=album.cover_path,
-                archive=cover_art.cached_front(mbid) if mbid else None,
-                picks=caa_listings.picked_originals(mbid, view.choices),
-            )
+            album_artwork_mod.apply(album, view.plan, view.choices)
         except tagger_mod.ArtworkChangedError:
             log.info("the winning image for %s moved before it was written", album.path)
             return section(changed_since=True)
-        # Which images now stand in for the release's own front (#663). Re-read
-        # rather than the scan's copy, and written only if that changed.
-        sc = sidecar_mod.read(album.path) if mbid else None
-        if mbid and sc is not None and sc.mb_release_id == mbid:
-            stand_ins = caa_listings.stand_ins_after(
-                album.path, files, mbid, sc.borrowed_artwork, outcome.written
-            )
-            if stand_ins != sc.borrowed_artwork:
-                sidecar_mod.write(album.path, replace(sc, borrowed_artwork=stand_ins))
-        if (
-            outcome.written
-            and not (outcome.stale or outcome.unkept or outcome.failed)
-            and artwork_watch.active(album.sidecar)
-        ):
-            artwork_watch.save(_refreshed_from_disk(request, album), None)
-        changed = outcome.changed
-        message = (
-            f"Updated artwork on {changed} file{'s' if changed != 1 else ''}"
-            if changed
-            else "Artwork was already up to date"
-        )
-        # Each file left alone is named, with WHY: the remedy differs — look at a
-        # file changed since, or make room in the artwork store (#470) — and a
-        # count alone reads as Harmonist having done less than it said.
-        notes = [
-            f"{why}: {', '.join(names)}"
-            for why, names in (
-                ("changed since the page was drawn", outcome.stale),
-                (
-                    "not replaced, because the image there could not be kept for Undo",
-                    outcome.unkept,
-                ),
-                ("could not be written", outcome.failed),
-            )
-            if names
-        ]
-        album_id_now, label = _live_album_ref(album)
-        if notes:
-            activity.warning(
-                f"{message} — {'; '.join(notes)}", album_id=album_id_now, album_label=label
-            )
-        else:
-            activity.info(message, album_id=album_id_now, album_label=label)
         response = section()
         # The header may still hold a hidden, failed /cover image, and History
         # predates this write. As with tagging, reload the album after applying
@@ -7256,7 +7039,7 @@ def _register_routes(app: FastAPI) -> None:
         listed = _listed_candidate(mbid, image_id)
         if listed is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
-        facts = _measured(mbid, listed)
+        facts = album_artwork_mod.measured(mbid, listed)
         if facts is None:
             try:
                 caa_cache.measure(listed)
@@ -7264,7 +7047,7 @@ def _register_routes(app: FastAPI) -> None:
                 log.warning(
                     "could not measure archive image %s", image_id, exc_info=True, extra=_LOG_ONLY
                 )
-            facts = _measured(mbid, listed)
+            facts = album_artwork_mod.measured(mbid, listed)
         return HTMLResponse(f'<span class="art-row__meta">{html.escape(facts or "")}</span>')
 
     @app.get("/artwork/image/{album_id}/{digest}")
@@ -7648,7 +7431,9 @@ def _register_routes(app: FastAPI) -> None:
             )
             if answer.image_url and (reread or cover_art.cached_image(release["id"]) is None):
                 cover_art.fetch_image(release["id"], answer.image_url)
-            archive_image = _archive_image(release["id"], release_only=release_only)
+            archive_image = album_artwork_mod.archive_image(
+                release["id"], release_only=release_only
+            )
             view = _artwork_view(
                 album,
                 answer,
@@ -7763,7 +7548,7 @@ def _register_routes(app: FastAPI) -> None:
                 view = _artwork_view(
                     album,
                     caa_cache.stored(reviewed["id"], release_only=release_only),
-                    _archive_image(reviewed["id"], release_only=release_only),
+                    album_artwork_mod.archive_image(reviewed["id"], release_only=release_only),
                     chosen=artwork.Source.ARCHIVE,
                     folder_cover=_folder_cover_policy(request),
                 )
