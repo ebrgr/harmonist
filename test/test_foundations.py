@@ -55,7 +55,7 @@ def test_config_defaults(monkeypatch, tmp_path):
     cfg = config_mod.load()
     assert cfg.bandcamp.download_format == "flac"
     assert cfg.bandcamp.max_downloads_per_sync == 5
-    assert cfg.musicbrainz.user_agent == "Harmonist/1.0 ( harmonist@girtby.net )"
+    assert cfg.musicbrainz.user_agent == "Harmonist/1.x ( harmonist@girtby.net )"
     assert cfg.test.mode == "fixture"
 
 

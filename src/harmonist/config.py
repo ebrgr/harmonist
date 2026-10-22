@@ -69,7 +69,11 @@ class MusicBrainzConfig(BaseModel):
     #: Checked here rather than only where it is applied to the MusicBrainz
     #: client, so a Settings save refuses it before writing it and a bad
     #: `harmonist.toml` stops startup as a config error (#856).
-    user_agent: str = "Harmonist/1.0 ( harmonist@girtby.net )"
+    #:
+    #: The default names only the major version: a Settings save writes it to
+    #: `harmonist.toml`, where no upgrade revisits it, so an exact version
+    #: would go stale. Bump it for a 2.0.
+    user_agent: str = "Harmonist/1.x ( harmonist@girtby.net )"
     # How long a fetched release may be re-served before Harmonist asks again
     # (#127). MusicBrainz allows one request per second, so an uncached album
     # page spends a rate-limited slot on every view.

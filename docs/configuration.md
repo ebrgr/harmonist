@@ -34,7 +34,7 @@ tagged, so Harmonist doesn't offer them and won't start with either configured
 
 | Key | Env | Default | |
 |---|---|---|---|
-| `user_agent` | | `"Harmonist/1.0 ( … )"` | Identifies you to MusicBrainz, in the form `Name/Version ( your-email )`. On the Settings page. |
+| `user_agent` | | `"Harmonist/1.x ( … )"` | Identifies you to MusicBrainz, in the form `Name/Version ( your-email )`. On the Settings page. |
 | `cache_ttl_seconds` | | `3600` | How long a release fetched from MusicBrainz is reused before asking again. Each album's page has a refresh button to ask now. |
 
 ## `[cover_art]`
@@ -126,7 +126,7 @@ download_format = "flac"
 max_downloads_per_sync = 10
 
 [musicbrainz]
-user_agent = "Harmonist/1.0 ( you@example.com )"
+user_agent = "Harmonist/1.x ( you@example.com )"
 
 [gardener]
 level = "review"
