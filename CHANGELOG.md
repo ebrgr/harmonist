@@ -14,6 +14,8 @@ versions follow [semantic versioning](https://semver.org).
 - **Artwork additions can be applied automatically**: tick **Apply** for
   Addition under **When an artwork update is found**. Replacements never are
   (#853).
+- **Inbox artwork updates can be applied several at once**: tick them, or a
+  whole group, and press **Apply** (#859).
 
 - **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
 

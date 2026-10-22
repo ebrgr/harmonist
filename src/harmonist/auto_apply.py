@@ -86,8 +86,11 @@ _held_lock = threading.Lock()
 # all start one, and two over the same albums would write each one twice.
 _pass_lock = threading.Lock()
 # The selection `write_claimed` is working through, by album id, so each Inbox
-# card can say whether it is waiting its turn or being written.
+# card can say whether it is waiting its turn or being written. Artwork's
+# (#859) is kept apart, so an album with both a tag and an artwork card shows
+# queued only on the one that was selected.
 _queue: dict[str, str] = {}
+_artwork_queue: dict[str, str] = {}
 _queue_lock = threading.Lock()
 
 
@@ -465,10 +468,10 @@ def write_claimed(
 
 
 def is_applying() -> bool:
-    """Whether a selection is being applied: the Inbox offers no other while it
-    is, since one would be refused."""
+    """Whether a selection, of tag or artwork updates, is being applied: the
+    Inbox offers no other while it is, since one would be refused."""
     with _queue_lock:
-        return bool(_queue)
+        return bool(_queue or _artwork_queue)
 
 
 def queued(album: Album) -> str | None:
@@ -476,6 +479,117 @@ def queued(album: Album) -> str | None:
     "applying", or None when it is not part of one."""
     with _queue_lock:
         return _queue.get(album.id)
+
+
+def artwork_queued(album: Album) -> str | None:
+    """`queued`, for a selection of artwork updates (#859)."""
+    with _queue_lock:
+        return _artwork_queue.get(album.id)
+
+
+def claim_artwork(albums: Sequence[Album], chosen: Mapping[str, str]) -> list[Album] | None:
+    """Take the pass for the artwork updates the user selected in the Inbox
+    (#859) and mark them queued, or None while another pass is writing, as
+    `claim` does for tags. `write_claimed_artwork` must follow."""
+    if not _pass_lock.acquire(blocking=False):
+        return None
+    todo = [a for a in albums if a.id in chosen]
+    with _queue_lock:
+        _artwork_queue.update({a.id: "queued" for a in todo})
+    return todo
+
+
+def write_claimed_artwork(
+    todo: Sequence[Album],
+    chosen: Mapping[str, str],
+    cfg: config_mod.Config,
+    *,
+    on_processed: Callable[[Album], None] | None = None,
+) -> ChosenResult:
+    """Write the selected artwork updates `claim_artwork` returned, each
+    against the plan its card showed (`chosen`, album id to the scan's
+    fingerprint of it), and release the pass.
+
+    The selection is a review, so it is written as the album page's Apply is:
+    replacements included, under the artwork store's *no backup, no overwrite*
+    rule, and a watched album too, whose watch ends if everything planned is
+    written. An album whose plan has moved since is refused rather than written
+    under a card that described something else. A failure is reported in
+    Activity rather than held: the user is there to try again.
+
+    Blocking on the disk, so call it from a worker thread; `on_processed` as for
+    `apply_due`.
+    """
+    try:
+        applied = failed = 0
+        with progress.job("Applying artwork", total=len(todo)) as job:
+            for album in job.items(todo, lambda a: a.label):
+                with _queue_lock:
+                    _artwork_queue[album.id] = "applying"
+                try:
+                    outcome = _apply_chosen_artwork_one(album, chosen[album.id], cfg)
+                    if outcome is True:
+                        applied += 1
+                    elif outcome is not None:
+                        failed += 1
+                finally:
+                    with _queue_lock:
+                        _artwork_queue.pop(album.id, None)
+                    if on_processed is not None:
+                        on_processed(album)
+            job.closing = _chosen_summary(applied, failed)
+        log.info("bulk artwork apply: %d album(s) updated, %d not", applied, failed)
+        return ChosenResult(applied=applied, failed=failed)
+    finally:
+        with _queue_lock:
+            _artwork_queue.clear()
+        _pass_lock.release()
+
+
+def _apply_chosen_artwork_one(
+    album: Album, fingerprint: str, cfg: config_mod.Config
+) -> bool | str | None:
+    """True when written; a reason, already reported, when not; None when there
+    was nothing left to write."""
+
+    def refuse(reason: str) -> str:
+        activity.warning(
+            f"Artwork not applied: {reason}", album_id=album.id, album_label=album.label
+        )
+        return reason
+
+    sc = album.sidecar
+    mbid = sc.mb_release_id if sc else None
+    # Rebuilt from the files and folder cover as they are now, and written only
+    # if that is still what the card showed. The scan's plan is built from the
+    # same cache, so the files are the only judge needed.
+    album = replace(album, cover_path=cover_art.cached_cover(album.path))
+    view = album_artwork.view(
+        album,
+        caa_cache.stored(mbid) if mbid else None,
+        album_artwork.archive_image(mbid),
+        folder_cover=cfg.tagging.folder_cover,
+    )
+    plan = view.plan
+    if plan is None or plan.operation(artwork.Scope.ALL) is None:
+        return None  # applied, rejected or caught up since it was selected
+    if plan.fingerprint(artwork.Scope.ALL) != fingerprint:
+        return refuse("Its artwork changed after it was selected")
+    failure: str | None = None
+    with activity_store.action():
+        try:
+            outcome = album_artwork.apply(album, plan, view.choices)
+        except tagger_mod.ArtworkChangedError:
+            failure = "Its artwork changed before it could be written"
+        except Exception as e:
+            # Boundary catch, per album: one album that cannot be written must not
+            # stop the rest. Loud, with the traceback.
+            log.exception("could not apply the selected artwork for %s", album.path)
+            failure = f"Couldn't be written: {e}"
+    if failure is not None:
+        return refuse(failure)
+    # A partial write has already named each file it left alone in Activity.
+    return True if outcome.changed else "Nothing could be written"
 
 
 def _chosen_summary(applied: int, failed: int) -> str:

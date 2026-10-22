@@ -394,6 +394,9 @@ class Proposal:
     #: stored listing names it: what "Don't suggest this image" rejects. None
     #: otherwise, and the album page, which lists the release, offers it instead.
     upload: str | None
+    #: The plan's fingerprint, which a selection of this card carries (#859):
+    #: what the user reviewed, so nothing else is written in its name.
+    fingerprint: str
 
     @property
     def summary(self) -> str:
@@ -464,6 +467,7 @@ def proposal(album: Album) -> Proposal | None:
         cover=cover.operation if cover is not None else None,
         cover_name=cover.target.name if cover is not None else None,
         upload=upload,
+        fingerprint=plan.fingerprint(artwork.Scope.ALL),
     )
 
 

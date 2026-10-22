@@ -107,6 +107,13 @@
 @media (width < 40rem) {
   .update-cards--pickable .update-card { grid-template-columns: 1rem 3rem minmax(0, 1fr); }
 }
+/* An artwork card's pair keeps its width beside the gutter (#859); on a phone
+   the album and summary drop beneath the pair, still clear of the gutter. */
+.update-cards--pickable .art-update-card { grid-template-columns: 1rem auto minmax(0, 1fr); }
+@media (width < 40rem) {
+  .update-cards--pickable .art-update-card { grid-template-columns: 1rem minmax(0, 1fr); }
+  .update-cards--pickable .art-update-card > .min-w-0 { grid-column: 2; }
+}
 .tag-changes__id { text-decoration: underline dotted; text-underline-offset: 2px; }
 .tag-changes__id:hover { text-decoration-style: solid; }
 

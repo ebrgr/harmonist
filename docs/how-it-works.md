@@ -246,9 +246,11 @@ album needs no changes. Ignoring a tag update does not hide an artwork proposal.
   default. Saving applies the additions already waiting at once, and later ones
   are applied within about ten minutes of being found. Each is recorded in the
   album's History, where it can be undone.
-- **Inbox**: replacements, or additions as well. Artwork is reviewed and applied
-  on the album's page; the Inbox card can also stop suggesting the image it
-  shows.
+- **Inbox**: replacements, or additions as well. Cards can be ticked and
+  applied several at once, replacements included, each with its own History
+  entry and Undo; an album whose artwork changed after it was selected is left
+  for another look. The album's page shows every image and applies one album;
+  the Inbox card can also stop suggesting the image it shows.
 - Anything ticked in neither stays in the Library under **Artwork updates**,
   which is where all of them stay by default.
 

@@ -839,6 +839,7 @@ def create_app(
     templates.env.globals["artwork_operations"] = tuple(reversed(artwork_updates.ORDER))
     templates.env.globals["held_reason"] = auto_apply.held_reason
     templates.env.globals["artwork_held_reason"] = auto_apply.artwork_held_reason
+    templates.env.globals["artwork_queued"] = auto_apply.artwork_queued
     templates.env.globals["update_queued"] = auto_apply.queued
     templates.env.globals["applying_updates"] = auto_apply.is_applying
     templates.env.globals["store_name"] = store_name
@@ -3366,6 +3367,36 @@ def _start_bulk_apply(app: FastAPI, chosen: Mapping[str, str | None]) -> str | N
             log.exception("bulk apply pass failed")
 
     threading.Thread(target=_run, name="harmonist-bulk-apply", daemon=True).start()
+    return None
+
+
+def _start_bulk_artwork_apply(app: FastAPI, chosen: Mapping[str, str]) -> str | None:
+    """Write the Inbox artwork updates the user selected (#859), in the
+    background, standing aside as `_start_bulk_apply` does. `None` when the pass
+    was started, otherwise why not."""
+    state = app.state
+    if state.sync_runner.is_running or state.reconcile_runner.is_running:
+        return "A sync or reconcile is running"
+    if not state.scan_runner.has_completed():
+        return "The library hasn't finished scanning yet"
+    scan_runner = state.scan_runner
+    # Claimed here rather than in the thread, so the Inbox this response
+    # refreshes already shows the selection queued.
+    todo = auto_apply.claim_artwork(scan_runner.albums(), chosen)
+    if todo is None:
+        return "Updates are already being applied"
+
+    def _run() -> None:
+        try:
+            auto_apply.write_claimed_artwork(
+                todo, chosen, state.cfg, on_processed=_refresher(scan_runner)
+            )
+        except Exception:
+            # Boundary catch: the pass reports the albums it cannot write, so
+            # anything arriving here is a defect.
+            log.exception("bulk artwork apply pass failed")
+
+    threading.Thread(target=_run, name="harmonist-bulk-artwork-apply", daemon=True).start()
     return None
 
 
@@ -7935,6 +7966,37 @@ def _register_routes(app: FastAPI) -> None:
         count = len(chosen)
         return _flash_response(
             "Applying updates", f"{count} album{'s' if count != 1 else ''} selected"
+        )
+
+    @app.post("/artwork-updates/apply", response_class=HTMLResponse)
+    def apply_artwork_updates(request: Request, album: list[str] = Form(default=[])) -> Response:
+        """Apply the Inbox artwork updates the user selected (#859), in the
+        background, as `/updates/apply` does for tags.
+
+        Each `album` is an album id and the fingerprint of the plan its card
+        showed, as `id:fingerprint`: the plan is what the user reviewed, and the
+        pass leaves alone any album whose plan has moved past it. Never a
+        library rescan, for the reason given there.
+        """
+        request.state.skip_rescan = True
+        chosen: dict[str, str] = {}
+        for value in album:
+            album_id, _, fingerprint = value.rpartition(":")
+            if album_id and fingerprint:
+                chosen[album_id] = fingerprint
+        if not chosen:
+            return _flash_response(
+                "Nothing applied",
+                "no artwork updates were selected",
+                level=Level.WARNING,
+                tasks_changed=False,
+            )
+        refused = _start_bulk_artwork_apply(request.app, chosen)
+        if refused is not None:
+            return _flash_response("Not applied", refused, level=Level.WARNING, tasks_changed=False)
+        count = len(chosen)
+        return _flash_response(
+            "Applying artwork", f"{count} album{'s' if count != 1 else ''} selected"
         )
 
     @app.post("/surrender/{album_id}/keep", response_class=HTMLResponse)

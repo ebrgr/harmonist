@@ -237,6 +237,26 @@ against the plan it was held at, so a failure isn't retried every ten minutes,
 and is retried once the files or the archive's answer change what it would
 write.
 
+## Applying a selection
+
+Artwork cards in the Inbox can be ticked and applied together (#859), as tag
+updates can. It is the album page's Apply for several albums at once, with the
+differences that follow from someone having looked at a card rather than every
+row.
+
+**The card is the review, so its plan travels with it.** Each card carries the
+fingerprint of the plan it showed, and the plan is rebuilt from the files and
+folder cover at write time. An album whose plan has moved since is left alone,
+as a reviewed confirmation refuses a release that changed under its review.
+
+**Replacements and watched albums can be selected.** The unattended pass holds
+them back because nobody has looked; here someone has. A replacement still
+needs its backup first, as on the album page, and a watch ends once everything
+planned is written.
+
+**A failure is reported, not held.** Nothing retries a selection, so the reason
+goes to Activity and the card stays, unticked, to be looked at again.
+
 ## Watching for alternatives
 
 “Better artwork wanted” is an explicit request to watch the matched release and

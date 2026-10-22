@@ -8,14 +8,25 @@
 
    **Don't suggest this image** is the album page's rejection of the same
    upload, offered here when the release's stored listing names it. It is undone
-   from the album page, where the image stays in the picker. #}
+   from the album page, where the image stays in the picker.
+
+   A checkbox in the left gutter selects it to be applied with others (#859),
+   carrying the fingerprint of the plan this card shows: that is what the user
+   reviewed. While a selection is being applied each of its cards says whether
+   it waits its turn or is being written. #}
+{% set place = artwork_queued(album) %}
 {# A facts line on two lines at its first separator, the dimensions above the
    format and weight, so a caption as narrow as its image never ends a line on
    a dangling "·". #}
 {% macro facts(line) -%}
 {% set parts = line.split(' · ', 1) %}{{ parts[0] }}{% if parts|length > 1 %}<br>{{ parts[1] }}{% endif %}
 {%- endmacro %}
-<div id="task-artwork-{{ album.id }}" class="update-card art-update-card">
+<div id="task-artwork-{{ album.id }}" class="update-card art-update-card{% if place %} update-card--{{ place }}{% endif %}">
+    <label class="update-card__pick">
+        <input type="checkbox" class="update-pick" name="album" value="{{ album.id }}:{{ proposal.fingerprint }}"
+               data-pick="artwork:{{ album.id }}"
+               aria-label="Select {{ album.title }}"{% if place %} checked{% endif %}{% if applying_updates() %} disabled{% endif %}>
+    </label>
     <div class="art-update-card__pair">
         <figure class="art-update-card__side">
             {% if proposal.before %}
@@ -38,6 +49,9 @@
         <h3 class="text-sm truncate">
             <a href="/album/{{ album.id }}" class="font-bold text-ink hover:text-accent transition">{{ album.title }}</a>
             <span class="ml-1.5 text-xs text-muted">{{ album.artist }}</span>
+            {% if place %}
+            <span class="update-card__place" role="status">{{ 'Applying…' if place == 'applying' else 'Queued' }}</span>
+            {% endif %}
         </h3>
         {% set why = artwork_held_reason(album) %}
         {% if why %}
