@@ -117,6 +117,29 @@ def test_search_refresh_and_nfo_errors_recover_without_hiding_albums(artist_clie
     network.assert_not_called()
 
 
+def test_missing_information_folder_still_serves_local_metadata_and_artwork(artist_client):
+    client, cfg, network = artist_client
+    source = cfg.paths.artist_info_dir / "Different directory name" / "artist.nfo"
+    local = cfg.paths.music_dir / "artist.nfo"
+    local.write_bytes(source.read_bytes())
+    image = cfg.paths.music_dir / "artist.png"
+    image.write_bytes(b"local-artist-image")
+    shutil.rmtree(cfg.paths.artist_info_dir)
+    before = {p: p.read_bytes() for p in cfg.paths.music_dir.rglob("*") if p.is_file()}
+    detail = client.get(f"/artist/{ALICE}")
+    assert detail.status_code == 200
+    assert detail.context["nfo"].profile is not None
+    assert detail.context["nfo"].profile.path == local
+    assert str(cfg.paths.artist_info_dir) in detail.text
+    assert "&lt;script&gt;biography&lt;/script&gt;" in detail.text
+    assert {a.id for a in detail.context["rows"]} == {RELEASE, SOLO}
+    artwork = client.get(f"/artist/{ALICE}/image")
+    assert artwork.status_code == 200
+    assert artwork.content == image.read_bytes()
+    assert {p: p.read_bytes() for p in before} == before
+    network.assert_not_called()
+
+
 def test_artist_information_folder_environment_and_demo_isolation(tmp_path, monkeypatch):
     monkeypatch.setenv("HARMONIST_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("HARMONIST_MUSIC_DIR", str(tmp_path / "music"))

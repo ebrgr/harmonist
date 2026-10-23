@@ -147,3 +147,75 @@ def test_unreadable_and_missing_information_folders_are_visible_errors(tmp_path)
     result = artist_nfo.for_artist(artist, tmp_path, tmp_path / "missing")
     assert result.profile is None
     assert result.errors
+
+
+@pytest.mark.parametrize("location", ["album", "artist", "library"])
+def test_missing_information_folder_keeps_local_nfos_and_recovers(tmp_path, caplog, location):
+    music = tmp_path / "music"
+    folder = music / "arbitrary artist folder" / "album"
+    folder.mkdir(parents=True)
+    album = Album(
+        id="local",
+        path=folder,
+        title="Local album",
+        artist="Alice",
+        track_count=1,
+        state=AlbumState.COMPLETE,
+    )
+    artist = Artist(ALICE, "Alice", ALICE, None, (album,))
+    directory = {"album": folder, "artist": folder.parent, "library": music}[location]
+    local = directory / "artist.nfo"
+    local.write_text(
+        f"<artist><musicbrainzartistid>{ALICE}</musicbrainzartistid>"
+        "<biography>Local biography</biography></artist>"
+    )
+    info = tmp_path / "missing information folder"
+    result = artist_nfo.for_artist(artist, music, info)
+    assert result.profile is not None
+    assert result.profile.path == local
+    assert result.profile.biography == "Local biography"
+    assert result.candidates == (local,)
+    assert any(str(info) in error for error in result.errors)
+    assert any(
+        record.levelname == "WARNING" and str(info) in record.message for record in caplog.records
+    )
+    assert not info.exists()
+    # Recovery is discovered on the next visit; the fallback must not disable
+    # the external source or guess between two matching NFOs once it exists.
+    external = info / "Alice"
+    external.mkdir(parents=True)
+    (external / "artist.nfo").write_bytes(local.read_bytes())
+    recovered = artist_nfo.for_artist(artist, music, info)
+    assert recovered.profile is None
+    assert set(recovered.candidates) == {local, external / "artist.nfo"}
+    assert not any(str(info) in error for error in recovered.errors)
+
+
+def test_permission_failure_in_information_folder_remains_a_visible_error(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    info = tmp_path / "private"
+    info.mkdir()
+    (tmp_path / "artist.nfo").write_text(
+        f"<artist><musicbrainzartistid>{ALICE}</musicbrainzartistid></artist>"
+    )
+    album = Album(
+        id="local",
+        path=tmp_path,
+        title="Local album",
+        artist="Alice",
+        track_count=1,
+        state=AlbumState.COMPLETE,
+    )
+    artist = Artist(ALICE, "Alice", ALICE, None, (album,))
+    original = Path.iterdir
+
+    def denied(path):
+        if path == info:
+            raise PermissionError("Permission denied for artist information folder")
+        return original(path)
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    result = artist_nfo.for_artist(artist, tmp_path, info)
+    assert result.profile is None
+    assert any("Permission denied" in error for error in result.errors)
