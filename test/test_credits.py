@@ -467,3 +467,86 @@ def test_a_composer_without_an_id_is_removed_as_enrichment(album_with_tracks: An
 def test_the_album_page_names_a_composer_by_the_artists_own_name() -> None:
     release = _composed(_rel("composer", BACH, "J.S. Bach"))
     assert tagger.mbid_names(release)[BACH["id"]] == BACH["name"]
+
+
+# ---------- lyricists and writers (#680) ----------
+
+
+def test_a_tagging_writes_the_lyricist_and_the_writer(album_with_tracks: Any) -> None:
+    album_dir = album_with_tracks(2)
+    release = _composed(_rel("lyricist", HAMMERSTEIN), _rel("writer", NICKS))
+    tagger.tag_album(album_dir, release)
+
+    now = formats_mod.read_owned(min(album_dir.glob("*.m4a")))
+    assert (now["lyricists"], now["writers"]) == ([HAMMERSTEIN["name"]], [NICKS["name"]])
+
+
+def test_an_instrumental_track_is_tagged_with_no_lyricist(album_with_tracks: Any) -> None:
+    album_dir = album_with_tracks(2)
+    release = copy.deepcopy(_release_2_tracks())
+    release["medium-list"][0]["track-list"][0]["recording"]["work-relation-list"] = [
+        _performs(MY_FAVORITE_THINGS, "cover", "instrumental")
+    ]
+    tagger.tag_album(album_dir, release)
+
+    now = formats_mod.read_owned(min(album_dir.glob("*.m4a")))
+    assert (now["composers"], now["lyricists"]) == ([RODGERS["name"]], [])
+
+
+# ---------- the native names, against Picard's own (#680) ----------
+#
+# Written out literally from Picard's `formats/` (release-3.0), not taken from
+# Harmonist's constants: a test built from the constants can't see a name, a
+# case or a frame that disagrees with Picard, which is the audit the tagging
+# design asks for. The MP4 writer is lower case because Picard has no mapping
+# for it and writes the tag name as it stands.
+PICARD_CREDIT_KEYS = {
+    "sine.m4a": {
+        "\xa9wrk",
+        "----:com.apple.iTunes:MusicBrainz Work Id",
+        "\xa9wrt",
+        "soco",
+        "----:com.apple.iTunes:MusicBrainz Composer Id",
+        "----:com.apple.iTunes:LYRICIST",
+        "----:com.apple.iTunes:writer",
+    },
+    "sine.mp3": {
+        "TXXX:WORK",
+        "TXXX:MusicBrainz Work Id",
+        "TCOM",
+        "TSOC",
+        "TXXX:MusicBrainz Composer Id",
+        "TEXT",
+        "TXXX:Writer",
+    },
+    "sine.flac": {
+        "WORK",
+        "MUSICBRAINZ_WORKID",
+        "COMPOSER",
+        "COMPOSERSORT",
+        "MUSICBRAINZ_COMPOSERID",
+        "LYRICIST",
+        "WRITER",
+    },
+}
+
+
+@pytest.mark.parametrize("fixture", sorted(PICARD_CREDIT_KEYS))
+def test_credits_are_written_under_picards_names(tmp_path: Path, fixture: str) -> None:
+    import mutagen
+
+    path = tmp_path / fixture
+    shutil.copy(Path(__file__).parent / "fixtures" / fixture, path)
+    plain = mutagen.File(path)
+    upper = fixture == "sine.flac"  # Vorbis keys are case-insensitive
+    untouched = {k.upper() if upper else k for k in (plain.tags.keys() if plain.tags else [])}
+    release = _composed(
+        _rel("composer", BACH), _rel("lyricist", HAMMERSTEIN), _rel("writer", NICKS)
+    )
+
+    formats_mod.write_tags(path, tagger.tagsets_for(release, TaggingChoices())[0], None)
+
+    tagged = mutagen.File(path)
+    # `.keys()` is needed: iterating a Vorbis comment yields (key, value) pairs.
+    keys = {k.upper() if upper else k for k in tagged.tags.keys()}  # noqa: SIM118
+    assert PICARD_CREDIT_KEYS[fixture] <= keys - untouched

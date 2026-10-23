@@ -247,6 +247,10 @@ class TagSet:
     composers: list[str] | None = None
     composer_sort: list[str] | None = None
     mb_composer_ids: list[str] | None = None
+    #: Picard's `lyricist` and `writer`, names only: Picard writes neither a
+    #: sort name nor an id for them. `None` as for the works.
+    lyricists: list[str] | None = None
+    writers: list[str] | None = None
 
 
 @dataclass(frozen=True)

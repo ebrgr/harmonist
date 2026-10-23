@@ -525,6 +525,8 @@ _KINDS: dict[str, Kind] = {
     Owned.COMPOSERS: Kind.TEXT,
     Owned.COMPOSER_SORT: Kind.TEXT,
     Owned.MB_COMPOSER_IDS: Kind.TEXT,
+    Owned.LYRICISTS: Kind.TEXT,
+    Owned.WRITERS: Kind.TEXT,
 }
 
 #: No rows the panel shows without comparing. There used to be two, for tags
@@ -1770,6 +1772,8 @@ _COLUMN_ORDER: tuple[Owned, ...] = (
     # telling thing about a track after its title.
     Owned.WORKS,
     Owned.COMPOSERS,
+    Owned.LYRICISTS,
+    Owned.WRITERS,
     Owned.COMPOSER_SORT,
     Owned.ISRCS,
     Owned.DISC_SUBTITLE,

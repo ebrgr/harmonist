@@ -1257,6 +1257,8 @@ def test_panel_fields_names_exactly_the_album_tags_the_panel_accounts_for():
         "composers",
         "composer_sort",
         "mb_composer_ids",
+        "lyricists",
+        "writers",
     }
 
 

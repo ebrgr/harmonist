@@ -36,6 +36,11 @@ ATOM_MB_RELEASE_TRACK_ID = f"{ATOM_PREFIX}MusicBrainz Release Track Id"
 ATOM_MB_ARTIST_ID = f"{ATOM_PREFIX}MusicBrainz Artist Id"
 ATOM_MB_WORK_ID = f"{ATOM_PREFIX}MusicBrainz Work Id"
 ATOM_MB_COMPOSER_ID = f"{ATOM_PREFIX}MusicBrainz Composer Id"
+ATOM_LYRICIST = f"{ATOM_PREFIX}LYRICIST"
+#: LOWER case, for the reason `ATOM_ORIGINAL_DATE` is: Picard has no MP4
+#: mapping for `writer`, so its save falls through to writing the tag name
+#: unchanged.
+ATOM_WRITER = f"{ATOM_PREFIX}writer"
 
 # Optional album-level metadata
 ATOM_LABEL = f"{ATOM_PREFIX}LABEL"
@@ -164,6 +169,8 @@ OWNED_ATOMS: dict[Owned, tuple[str, ...]] = {
     Owned.COMPOSERS: (ATOM_COMPOSER,),
     Owned.COMPOSER_SORT: (ATOM_COMPOSER_SORT,),
     Owned.MB_COMPOSER_IDS: (ATOM_MB_COMPOSER_ID,),
+    Owned.LYRICISTS: (ATOM_LYRICIST,),
+    Owned.WRITERS: (ATOM_WRITER,),
 }
 
 #: Atoms a write CLEARS and never writes back — an older spelling of an owned
@@ -490,6 +497,8 @@ def _read_owned(audio: MP4) -> dict[str, Any]:
         Owned.COMPOSERS: _text_atom_list(audio, ATOM_COMPOSER),
         Owned.COMPOSER_SORT: _text_atom_list(audio, ATOM_COMPOSER_SORT),
         Owned.MB_COMPOSER_IDS: _binary_atom_list(audio, ATOM_MB_COMPOSER_ID),
+        Owned.LYRICISTS: _binary_atom_list(audio, ATOM_LYRICIST),
+        Owned.WRITERS: _binary_atom_list(audio, ATOM_WRITER),
     }
 
 
@@ -623,6 +632,8 @@ _BINARY_LIST_ATOMS: dict[Owned, str] = {
     Owned.ISRCS: ATOM_ISRC,
     Owned.MB_WORK_IDS: ATOM_MB_WORK_ID,
     Owned.MB_COMPOSER_IDS: ATOM_MB_COMPOSER_ID,
+    Owned.LYRICISTS: ATOM_LYRICIST,
+    Owned.WRITERS: ATOM_WRITER,
 }
 
 #: Owned fields stored as multi-valued plain text atoms.
@@ -762,6 +773,10 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
         audio[ATOM_COMPOSER_SORT] = list(tagset.composer_sort)
     if tagset.mb_composer_ids:
         audio[ATOM_MB_COMPOSER_ID] = [c.encode("utf-8") for c in tagset.mb_composer_ids]
+    if tagset.lyricists:
+        audio[ATOM_LYRICIST] = [name.encode("utf-8") for name in tagset.lyricists]
+    if tagset.writers:
+        audio[ATOM_WRITER] = [name.encode("utf-8") for name in tagset.writers]
     if tagset.original_date:
         audio[ATOM_ORIGINAL_DATE] = [tagset.original_date.encode("utf-8")]
         audio[ATOM_ORIGINAL_YEAR] = [tagset.original_date[:4].encode("utf-8")]

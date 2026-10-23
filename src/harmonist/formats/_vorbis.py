@@ -67,6 +67,8 @@ KEY_WORK_ID = "MUSICBRAINZ_WORKID"
 KEY_COMPOSER = "COMPOSER"
 KEY_COMPOSER_SORT = "COMPOSERSORT"
 KEY_COMPOSER_ID = "MUSICBRAINZ_COMPOSERID"
+KEY_LYRICIST = "LYRICIST"
+KEY_WRITER = "WRITER"
 KEY_COMMENT = "COMMENT"
 KEY_DESCRIPTION = "DESCRIPTION"
 
@@ -113,6 +115,8 @@ OWNED_KEYS: dict[Owned, tuple[str, ...]] = {
     Owned.COMPOSERS: (KEY_COMPOSER,),
     Owned.COMPOSER_SORT: (KEY_COMPOSER_SORT,),
     Owned.MB_COMPOSER_IDS: (KEY_COMPOSER_ID,),
+    Owned.LYRICISTS: (KEY_LYRICIST,),
+    Owned.WRITERS: (KEY_WRITER,),
 }
 
 #: Keys a write CLEARS and never writes back — see `m4a.SUPERSEDED_ATOMS`.
@@ -166,6 +170,8 @@ _LIST_KEYS: dict[Owned, str] = {
     Owned.COMPOSERS: KEY_COMPOSER,
     Owned.COMPOSER_SORT: KEY_COMPOSER_SORT,
     Owned.MB_COMPOSER_IDS: KEY_COMPOSER_ID,
+    Owned.LYRICISTS: KEY_LYRICIST,
+    Owned.WRITERS: KEY_WRITER,
 }
 
 
@@ -455,6 +461,8 @@ class VorbisTagger:
             Owned.COMPOSERS: many(KEY_COMPOSER),
             Owned.COMPOSER_SORT: many(KEY_COMPOSER_SORT),
             Owned.MB_COMPOSER_IDS: many(KEY_COMPOSER_ID),
+            Owned.LYRICISTS: many(KEY_LYRICIST),
+            Owned.WRITERS: many(KEY_WRITER),
         }
 
     def write_cover(self, path: Path, cover: bytes) -> None:
@@ -585,6 +593,10 @@ class VorbisTagger:
             tags[KEY_COMPOSER_SORT] = list(tagset.composer_sort)
         if tagset.mb_composer_ids:
             tags[KEY_COMPOSER_ID] = list(tagset.mb_composer_ids)
+        if tagset.lyricists:
+            tags[KEY_LYRICIST] = list(tagset.lyricists)
+        if tagset.writers:
+            tags[KEY_WRITER] = list(tagset.writers)
 
         if cover is not None:
             self._set_cover(audio, cover)

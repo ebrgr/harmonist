@@ -353,9 +353,11 @@ def test_the_compilation_atom_is_a_native_boolean(tmp_path):
 
 # ---------- exhaustive atom inventory ----------
 #
-# Picard atoms Harmonist does not write yet, as of this list: LANGUAGE, WORK,
-# MOVEMENT, ©wrt (composer), and ©gen (the atom exists but nothing populates it
-# from MusicBrainz). A comment, not an assertion: the inventory test below is
+# Picard atoms Harmonist does not write yet, as of this list: LANGUAGE,
+# MOVEMENT, and ©gen (the atom exists but nothing populates it from
+# MusicBrainz). The work and composer credits are written where a release links
+# works (#680, `test_credits.py`); this fixture links none, so the inventory
+# below stays exactly what it was. A comment, not an assertion: the inventory test below is
 # what notices when one of them starts being written, because anything outside
 # this set fails it. A separate "we don't write X" test cannot — it duplicates
 # that check when the gap is real, and quietly certifies a lie when it isn't.

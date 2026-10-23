@@ -70,6 +70,8 @@ _FIELD_ORDER: tuple[Owned, ...] = (
     Owned.ARTISTS,
     Owned.WORKS,
     Owned.COMPOSERS,
+    Owned.LYRICISTS,
+    Owned.WRITERS,
     Owned.ALBUM_ARTIST_SORT,
     Owned.ARTIST_SORT,
     Owned.COMPOSER_SORT,

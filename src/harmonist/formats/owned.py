@@ -105,6 +105,8 @@ class Owned(StrEnum):
     COMPOSERS = "composers"
     COMPOSER_SORT = "composer_sort"
     MB_COMPOSER_IDS = "mb_composer_ids"
+    LYRICISTS = "lyricists"
+    WRITERS = "writers"
 
 
 #: The credits Picard writes from MusicBrainz relationships (#680), which a
@@ -120,6 +122,8 @@ RELATIONSHIP_CREDITS: frozenset[Owned] = frozenset(
         Owned.COMPOSERS,
         Owned.COMPOSER_SORT,
         Owned.MB_COMPOSER_IDS,
+        Owned.LYRICISTS,
+        Owned.WRITERS,
     }
 )
 
@@ -173,6 +177,8 @@ SCOPE: dict[Owned, Scope] = {
     Owned.COMPOSERS: Scope.TRACK,
     Owned.COMPOSER_SORT: Scope.TRACK,
     Owned.MB_COMPOSER_IDS: Scope.TRACK,
+    Owned.LYRICISTS: Scope.TRACK,
+    Owned.WRITERS: Scope.TRACK,
 }
 
 ALBUM_FIELDS: tuple[Owned, ...] = tuple(f for f in Owned if SCOPE[f] is Scope.ALBUM)
@@ -269,6 +275,10 @@ SIGNIFICANCE: dict[str, Significance] = {
     # is IDENTITY; a file with no ids can't prove that either way (#680).
     Owned.COMPOSERS: Significance.ENRICHMENT,
     Owned.COMPOSER_SORT: Significance.ENRICHMENT,
+    # Credits for the same reason. Picard writes no id for either, so a
+    # lyricist or writer who is somebody else can only show as a name.
+    Owned.LYRICISTS: Significance.ENRICHMENT,
+    Owned.WRITERS: Significance.ENRICHMENT,
     # --- Identity: what the album, or one of its tracks, IS ---
     Owned.ALBUM: Significance.IDENTITY,
     Owned.ALBUM_ARTIST: Significance.IDENTITY,
@@ -656,5 +666,7 @@ LABELS: dict[str, str] = {
     Owned.COMPOSERS: "Composer",
     Owned.COMPOSER_SORT: "Composer sort",
     Owned.MB_COMPOSER_IDS: "Composer IDs",
+    Owned.LYRICISTS: "Lyricist",
+    Owned.WRITERS: "Writer",
     ARTWORK: "Artwork",
 }

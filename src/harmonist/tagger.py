@@ -490,10 +490,12 @@ SETTING_FIELDS: tuple[owned.Owned, ...] = (
     owned.Owned.ARTIST_SORT,
     owned.Owned.ALBUM_ARTISTS,
     owned.Owned.ARTISTS,
-    # A composer credited under a variation is spelled by the same setting
-    # (#680).
+    # A composer, lyricist or writer credited under a variation is spelled by
+    # the same setting (#680).
     owned.Owned.COMPOSERS,
     owned.Owned.COMPOSER_SORT,
+    owned.Owned.LYRICISTS,
+    owned.Owned.WRITERS,
 )
 
 
@@ -2274,6 +2276,8 @@ def _build_tagset(
     composers: list[str] | None = None
     composer_sort: list[str] | None = None
     composer_ids: list[str] | None = None
+    lyricists: list[str] | None = None
+    writers: list[str] | None = None
     if credits_mod.relationships_answered(release):
         found = credits_mod.track_credits(release, track, tagging)
         works = [w.title for w in found.works]
@@ -2281,6 +2285,8 @@ def _build_tagset(
         composers = [p.name for p in found.composers]
         composer_sort = [p.sort_name for p in found.composers]
         composer_ids = [p.mbid for p in found.composers]
+        lyricists = [p.name for p in found.lyricists]
+        writers = [p.name for p in found.writers]
 
     return TagSet(
         mb_album_id=release["id"],
@@ -2339,6 +2345,8 @@ def _build_tagset(
         composers=composers,
         composer_sort=composer_sort,
         mb_composer_ids=composer_ids,
+        lyricists=lyricists,
+        writers=writers,
     )
 
 

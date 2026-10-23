@@ -1157,6 +1157,8 @@ def _full_tagset() -> Any:
         composers=["Michael Sandison", "Marcus Eoin"],
         composer_sort=["Sandison, Michael", "Eoin, Marcus"],
         mb_composer_ids=["cp-1", "cp-2"],
+        lyricists=["Bob Lyricist", "Ann Lyricist"],
+        writers=["Wendy Writer", "Walt Writer"],
     )
 
 

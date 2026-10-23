@@ -27,6 +27,7 @@ from mutagen.id3 import (
     TCOM,
     TDOR,
     TDRC,
+    TEXT,
     TIT2,
     TMED,
     TPE1,
@@ -77,6 +78,9 @@ TXXX_WORK_ID = "MusicBrainz Work Id"
 #: Picard's `musicbrainz_composerid`. The names go in the standard TCOM and the
 #: sort names in TSOC, iTunes' extension Picard writes them to.
 TXXX_COMPOSER_ID = "MusicBrainz Composer Id"
+#: Picard's `writer`. Mixed case, as Picard spells the description; the
+#: lyricist goes in the standard TEXT frame.
+TXXX_WRITER = "Writer"
 
 
 # The ID3 frames behind each owned field (#149), by mutagen HashKey — which for
@@ -131,6 +135,8 @@ OWNED_FRAMES: dict[Owned, tuple[str, ...]] = {
     Owned.COMPOSERS: ("TCOM",),
     Owned.COMPOSER_SORT: ("TSOC",),
     Owned.MB_COMPOSER_IDS: (f"TXXX:{TXXX_COMPOSER_ID}",),
+    Owned.LYRICISTS: ("TEXT",),
+    Owned.WRITERS: (f"TXXX:{TXXX_WRITER}",),
 }
 
 #: Frames a write CLEARS and never writes back — see `m4a.SUPERSEDED_ATOMS`.
@@ -460,6 +466,8 @@ def _read_owned(tags: Any) -> dict[str, Any]:
         Owned.COMPOSERS: _text_list(tags, "TCOM"),
         Owned.COMPOSER_SORT: _text_list(tags, "TSOC"),
         Owned.MB_COMPOSER_IDS: _txxx_list(tags, TXXX_COMPOSER_ID),
+        Owned.LYRICISTS: _text_list(tags, "TEXT"),
+        Owned.WRITERS: _txxx_list(tags, TXXX_WRITER),
     }
 
 
@@ -579,7 +587,9 @@ def _set_pair(tags: ID3, frame_id: str, frame: Any, num: Any, total: Any) -> Non
 #: Named separately rather than inferred from the value's type, so the write is
 #: driven by the field's declared shape and cannot be changed by what a
 #: particular release happens to carry.
-_TEXT_LIST_FIELDS: frozenset[Owned] = frozenset({Owned.LABEL, Owned.COMPOSERS, Owned.COMPOSER_SORT})
+_TEXT_LIST_FIELDS: frozenset[Owned] = frozenset(
+    {Owned.LABEL, Owned.COMPOSERS, Owned.COMPOSER_SORT, Owned.LYRICISTS}
+)
 
 _TEXT_FRAMES: dict[Owned, Any] = {
     Owned.ALBUM: TALB,
@@ -595,6 +605,7 @@ _TEXT_FRAMES: dict[Owned, Any] = {
     Owned.DISC_SUBTITLE: TSST,
     Owned.COMPOSERS: TCOM,
     Owned.COMPOSER_SORT: TSOC,
+    Owned.LYRICISTS: TEXT,
 }
 
 #: Owned fields carried in a single-valued TXXX user-text frame.
@@ -622,6 +633,7 @@ _TXXX_LIST_FIELDS: dict[Owned, str] = {
     Owned.WORKS: TXXX_WORK,
     Owned.MB_WORK_IDS: TXXX_WORK_ID,
     Owned.MB_COMPOSER_IDS: TXXX_COMPOSER_ID,
+    Owned.WRITERS: TXXX_WRITER,
 }
 
 
@@ -768,6 +780,10 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
         tags.setall("TSOC", [TSOC(encoding=Encoding.UTF8, text=list(tagset.composer_sort))])
     if tagset.mb_composer_ids:
         _set_txxx(tags, TXXX_COMPOSER_ID, list(tagset.mb_composer_ids))
+    if tagset.lyricists:
+        tags.setall("TEXT", [TEXT(encoding=Encoding.UTF8, text=list(tagset.lyricists))])
+    if tagset.writers:
+        _set_txxx(tags, TXXX_WRITER, list(tagset.writers))
 
     # ---- Cover art ----
     if cover is not None:
