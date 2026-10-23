@@ -150,7 +150,9 @@ def _present(path: Path) -> bool:
     return True
 
 
-def _candidate_paths(artist: Artist, music_dir: Path, info_dir: Path | None) -> set[Path]:
+def _candidate_paths(
+    artist: Artist, music_dir: Path, info_dir: Path | None
+) -> tuple[set[Path], tuple[str, ...]]:
     root = music_dir.resolve()
     directories: set[Path] = set()
     for album in artist.albums:
@@ -162,18 +164,30 @@ def _candidate_paths(artist: Artist, music_dir: Path, info_dir: Path | None) -> 
                     break
                 current = current.parent
     candidates = {d / "artist.nfo" for d in directories if _present(d / "artist.nfo")}
+    errors: tuple[str, ...] = ()
     if info_dir is not None:
         info_root = info_dir.resolve()
-        # One folder per artist, as in Kodi's Artist Information Folder. Listing
-        # directly makes missing/unreadable configured roots a visible error.
-        for child in info_root.iterdir():
+        # A missing optional source must not discard NFOs already discovered in
+        # the music library. Keep the partial discovery visible and retry on the
+        # next request; other filesystem failures still propagate.
+        try:
+            children = list(info_root.iterdir())
+        except FileNotFoundError as exc:
+            log.warning(
+                "Artist information folder is missing; using music library NFOs: %s",
+                exc,
+                exc_info=True,
+            )
+            errors = (f"Could not inspect artist information folders: {exc}",)
+            children = []
+        for child in children:
             candidate = child / "artist.nfo"
             if S_ISDIR(child.stat().st_mode) and _present(candidate):
                 candidates.add(candidate)
         if _present(info_root / "artist.nfo"):
             candidates.add(info_root / "artist.nfo")
     allowed = (root,) if info_dir is None else (root, info_dir.resolve())
-    return {p for p in candidates if any(p.resolve().is_relative_to(r) for r in allowed)}
+    return {p for p in candidates if any(p.resolve().is_relative_to(r) for r in allowed)}, errors
 
 
 def for_artist(
@@ -190,11 +204,11 @@ def for_artist(
     if refresh:
         _read.cache_clear()
     try:
-        candidates = _candidate_paths(artist, music_dir, info_dir)
+        candidates, discovery_errors = _candidate_paths(artist, music_dir, info_dir)
     except OSError as exc:
         log.exception("Could not inspect artist information folders")
         return Result(errors=(f"Could not inspect artist information folders: {exc}",))
-    errors: list[str] = []
+    errors = list(discovery_errors)
     matches: list[Profile] = []
     for path in sorted(candidates):
         try:
