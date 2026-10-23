@@ -90,7 +90,60 @@ invisible to the tests, the album page and the update check at once, because a
 reader that truncates compares equal to a writer that truncates.
 
 Last audited 2026-09-01, against Picard 3.0.0rc1. Worth repeating after each
-major Picard release.
+major Picard release. The credits below were checked against Picard's
+`release-3.0` when they were added (#680), and their native names are tested
+as Picard's literal strings rather than as Harmonist's constants.
+
+### Composer, lyricist, writer and work
+
+Picard writes these from MusicBrainz **relationships** rather than artist
+credits: a recording is linked as a performance of one or more works, and the
+people who wrote a work are credited on the work. A release can credit a
+composer itself, which soundtracks sometimes do. A track's credits are the
+release's, then each performed work's.
+
+**Always written, with no setting.** Picard fetches track relationships only
+when its "Use track relationships" option is on, and it's off by default. Its
+stated reason is cost: a larger download that loads albums more slowly and
+loads MusicBrainz more. Harmonist's cost is different. The relationships come
+in the release request it already makes, and its budget is per request, not per
+byte, so the cost is a larger stored release and nothing else. There was no
+remaining case for not writing them.
+
+**What MusicBrainz answers is what's written.** A release that links no work to
+a recording has answered: the track's credits are cleared like any other owned
+field the release lacks, including a composer that came from another tool.
+That follows from [MusicBrainz being canonical](principles.md#musicbrainz-is-canonical),
+and Undo reverses it. Keeping such a value would be an exception with no rule
+proving it equivalent. The exception is a release MusicBrainz *can't* answer.
+Above 500 recordings, its web service leaves out every recording's
+relationships (to avoid timeouts on audiobooks), and the response is
+indistinguishable from one with no works. There the tagging keeps the file's
+credits as they are, and records no change.
+
+**One entry per person.** Picard collects composer names, sort names and IDs
+into three lists independently, each without duplicates, and players pair them
+by position. Two composers sharing a name then leave one name beside two IDs.
+Harmonist removes duplicates by person instead, so the lists always pair up; the
+output is Picard's whenever no two people share a name.
+
+**Picard's names, format by format.** On MP3 the work goes in `TXXX:WORK`, not
+`TIT1`: Picard writes the work to `TIT1` only under its iTunes compatibility
+option and uses it for grouping otherwise, so `TIT1` isn't owned. On M4A the
+work goes in `©wrk`; Picard also reads `----:com.apple.iTunes:WORK` as the work,
+but doesn't write it, and Harmonist leaves it alone. The MP4 writer atom is
+lower-case, as `originaldate` is, because Picard has no mapping for it and
+writes the name as it stands.
+
+**A credited name follows the artist-name setting** ([below](#artist-names)),
+as an artist credit does. The XML carries no aliases on a relationship's
+artist, so a composer credited under a former name is standardized where
+Picard, reading the JSON, may keep it (#690).
+
+Lyricist and writer have no sort name or ID in Picard's tags, so Harmonist
+writes their names only. An instrumental performance credits no lyricist, as in
+Picard. Performers, conductors, arrangers, the work's language and the parent
+work of a movement are separate questions, not part of this.
 
 ### What isn't written, and why
 
@@ -100,7 +153,7 @@ a library tagged by Picard with composers and performers keeps them.
 | Picard tags | Decision | Why |
 |---|---|---|
 | Genre | Deferred (#12) | Every other tag is a fact MusicBrainz states; genre is folksonomy: user-voted, contested, inconsistent between an artist's releases. Picking one isn't an exact match. It's also the tag most likely to be curated by the user, and players keep their own. A genre from elsewhere is never touched, and isn't shown on the album page: there is nothing to compare it with, so all it could report is the files disagreeing among themselves (#224). |
-| Composer, lyricist, work, performers, producer, engineer and the other relationship credits | Undecided | One more thing to include in the same request, but changing that list re-fetches the whole library ([external services](external-services.md#the-cache)), roughly doubles the owned set, needs ID3 frames no backend writes yet, and relationships change often enough that the update check would report churn. Composer, lyricist and work (the classical and soundtrack case) are worth considering separately from the rest. |
+| Performers, conductor, arranger, producer, engineer and the other relationship credits | Undecided | The relationships are already fetched for [composer, lyricist, writer and work](#composer-lyricist-writer-and-work), so the cost is no longer the request. What remains is how far to go: Picard's performer tags carry an instrument or role in the tag name, and each credit added is more for the update check to report as MusicBrainz is edited. |
 | Comment | Never | The user's; see above. |
 | Original album and original artist | Leaning no | Needs a second lookup per release group; the original date already covers what users sort on. |
 | Lyrics | Out of scope | MusicBrainz has none. Another source is a question about what Harmonist is. |
@@ -260,6 +313,17 @@ probably a merge on MusicBrainz. A release merge is provable, once, when the fet
 simply arrives different inside a release gives no such evidence: it could be a
 merge, a re-pointing, or a track replaced outright.
 
+**A work or composer ID arriving is Enrichment, unlike an artist ID list**
+(#680). An artist ID arriving says which entities the album's own credit
+points at. A work or composer ID adds a fact about the composition beside a
+track that already says what it is, and contradicts nothing on the file. No
+adopted library carries them, so holding their arrival at Identity would have
+made the first update check an Identity update on nearly every album. Moving or
+going, they're Identity like every ID. The credited names are Enrichment
+however they change: a composer is a credit, not what the track is or how a
+player groups the album, and a genuinely different person shows as their ID
+moving.
+
 **Artwork isn't on this scale.** It says nothing about a picture. An image write
 is described by what it does instead (see [artwork](artwork.md)).
 
@@ -275,7 +339,7 @@ exactly from the release in hand, never from a pattern, which would be a guess.
   identity the release states outright.
 - **Artist names as credited or standardized** (see [artist names](#artist-names)):
   *Florence and the Machine* or *Florence + the Machine*, in the display credit, the sort credit and
-  the artist lists.
+  the artist lists, and in the composer, lyricist and writer credits.
 - **Any country the release was issued in.** MusicBrainz reduces a release's
   events to one country; Picard lets the user prefer another of the release's own
   countries. A country the release doesn't list is still reported.

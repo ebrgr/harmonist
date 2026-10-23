@@ -28,6 +28,7 @@ what to do. For the ideas behind the answers, see
   [release has more tracks](#applying-an-update-says-the-release-has-more-tracks-than-my-files) ·
   [unwanted update](#i-dont-want-an-update-harmonist-is-offering) ·
   [everything has an update](#almost-every-album-shows-update-available) ·
+  [composer disappeared](#a-composer-disappeared-after-an-update) ·
   [artwork in Plex/Navidrome](#plex-or-navidrome-shows-no-cover-or-the-wrong-one) ·
   [track lengths](#track-lengths-dont-match-musicbrainz) ·
   [Mixed formats](#an-album-is-listed-under-mixed-formats-only)
@@ -315,6 +316,30 @@ into line with a setting under **Settings → Tagging**. For example, with
 names** at its default, a single credited to *Florence and the Machine* is
 offered *Florence + the Machine*. To keep the other spelling, change the setting; the update disappears
 from every album it affects.
+
+### Almost every album shows Update available
+
+This follows an upgrade that adds tags Harmonist writes, such as the composer
+and work credits. Every album whose release has them is offered them, as an
+**Enrichment** update. To take them:
+
+- one album at a time, with **Apply updates** on its page;
+- several at once, by including **Enrichment** in the **Inbox** column of
+  **When a tag update is found** under Settings, then selecting them in the
+  Inbox;
+- or in the background, by setting the **Apply** column to **Enrichment**.
+
+The upgrade also fetches every release again, so the list grows over the
+following days rather than appearing at once.
+
+### A composer disappeared after an update
+
+The composer came from somewhere other than MusicBrainz, such as a store
+download or a CD-rip database. MusicBrainz credits composers on *works*, and
+the recording isn't linked to one, so there's no composer to write. Linking the
+recording to its work on MusicBrainz brings the composer back, for every
+library. Meanwhile, [Undo](#undo-a-change) restores the old one, and
+**Ignore until MusicBrainz changes** keeps the update off the list.
 
 ### An artist's former name is replaced although the setting keeps former names
 
