@@ -5,6 +5,7 @@ __pycache__/
 docker-compose.override.yml
 
 # Editor / OS / tooling cruft
+/.vscode/
 .DS_Store
 *~
 \#*\#
