@@ -25,6 +25,11 @@ folder can be outside the music library, provided Harmonist can read it. Docker
 needs that folder mounted too; a read-only mount is sufficient. Demo mode ignores
 this setting and reads only its sandbox.
 
+If the configured Artist Information Folder does not exist, NFOs in the music
+library remain available. The artist page reports the unavailable source, and
+the next visit checks for it again. Permission and other filesystem failures
+remain errors.
+
 Local artist pictures can be named `artist.jpg` or `artist.png` beside the
 associated `artist.nfo`. A local `<thumb>` reference takes precedence, followed
 by `folder.jpg` / `folder.png`. The Artists list and artist page share this
