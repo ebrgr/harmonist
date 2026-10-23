@@ -974,7 +974,7 @@ def test_no_identifier_is_classified_below_identity():
     # and they ARE enrichment. The count is pinned so a filter that silently
     # stopped selecting anything would fail here rather than pass vacuously.
     ids = [f for f in Owned if f.value.endswith(("_id", "_ids"))]
-    assert len(ids) == 6
+    assert len(ids) == 7
     for field in ids:
         assert SIGNIFICANCE[field] is Significance.IDENTITY, field
 
@@ -1150,6 +1150,10 @@ def _full_tagset() -> Any:
         barcode="5021603055520",
         asin="B000024T4T",
         media="CD",
+        # Several, as a medley's: a backend that kept only the first would
+        # round-trip a single work and lose the second.
+        works=["Roygbiv", "Olson"],
+        mb_work_ids=["wk-1", "wk-2"],
     )
 
 

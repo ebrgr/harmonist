@@ -53,6 +53,17 @@ RELEASE_INCLUDES = (
     # request, not per byte; and so an alias edit moves the release's version
     # like any other edit.
     "aliases",
+    # Composer, lyricist, writer and work credits (#680): the recordings' links
+    # to the works they perform, the people credited on those works, and any
+    # the release credits itself. Every artist relationship comes with them,
+    # performers and engineers included, since the service can't be asked for
+    # some types only; that roughly doubles a stored release. Above 500
+    # recordings the service leaves the recordings' relationships out, which
+    # `credits.relationships_answered` accounts for.
+    "artist-rels",
+    "work-rels",
+    "recording-level-rels",
+    "work-level-rels",
 )
 RELEASE_URL_INCLUDES = ("url-rels",)
 

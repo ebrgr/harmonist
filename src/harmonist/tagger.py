@@ -37,6 +37,7 @@ from . import (
     tag_history,
     track_structure,
 )
+from . import credits as credits_mod
 from . import sidecar as sidecar_mod
 from . import transforms as transforms_mod
 from .formats import TagSet, owned
@@ -342,10 +343,11 @@ def _write_prepared_tags(
     for file_path, (medium, track_pos_in_medium, track) in job.items(
         prep.pairs, lambda pair: naming.name_of(pair[0])
     ):
-        tagset = _build_tagset(
-            release, medium, track_pos_in_medium, track, prep.media_total, tagging
-        )
         before = formats.read_owned(file_path)
+        tagset = formats.settled(
+            _build_tagset(release, medium, track_pos_in_medium, track, prep.media_total, tagging),
+            before,
+        )
         # `cover=None` throughout: this writes tags, and leaves every file's
         # image exactly as it is (#481). `_changes_for` records no artwork
         # change either, because none happens here.
@@ -445,8 +447,10 @@ def plan_album(
     supported: dict[Path, dict[str, frozenset[Any]]] = {}
     positions: dict[Path, str | None] = {}
     for file_path, (medium, track_pos_in_medium, track) in prep.pairs:
-        tagset = _build_tagset(
-            release, medium, track_pos_in_medium, track, prep.media_total, tagging
+        now = _owned_now(file_path, prep.read)
+        tagset = formats.settled(
+            _build_tagset(release, medium, track_pos_in_medium, track, prep.media_total, tagging),
+            now,
         )
         positions[file_path] = _tagset_position(tagset)
         supported[file_path] = _supported_spellings(
@@ -454,7 +458,7 @@ def plan_album(
         )
         if file_changes := _changes_for(
             tagset,
-            _owned_now(file_path, prep.read),
+            now,
             file_path,
             prep.art.before,
             # Only where the tagging would really write it — the same targets
@@ -699,6 +703,8 @@ LOWERED_WHEN: dict[str, Callable[[Any, Any], bool]] = {
     # says which entities the album points at, and that is what IDENTITY is for.
     owned.Owned.MB_ALBUM_ARTIST_IDS: owned.splits_a_joined_list,
     owned.Owned.MB_ARTIST_IDS: owned.splits_a_joined_list,
+    # A work id fills, which the artist ids above do not: see `owned.BY_VALUE`.
+    owned.Owned.MB_WORK_IDS: owned.fills_in_an_absent_list,
 }
 
 
@@ -2255,6 +2261,14 @@ def _build_tagset(
 
     track_total = mb_tracks.track_total(medium)
     disc_num = _disc_num(medium)
+    # None, not empty, when the release could not answer: a TagSet then keeps
+    # the file's credits (`formats.settled`) instead of removing them (#680).
+    works: list[str] | None = None
+    work_ids: list[str] | None = None
+    if credits_mod.relationships_answered(release):
+        found = credits_mod.track_credits(release, track, tagging)
+        works = [w.title for w in found.works]
+        work_ids = [w.mbid for w in found.works]
 
     return TagSet(
         mb_album_id=release["id"],
@@ -2308,6 +2322,8 @@ def _build_tagset(
         # writes this as `discsubtitle`, so a Picard-tagged library already
         # carries it — and until #218 a Harmonist re-tag silently removed it.
         disc_subtitle=medium.get("title") or None,
+        works=works,
+        mb_work_ids=work_ids,
     )
 
 
@@ -2473,6 +2489,12 @@ def mbid_names(release: Release) -> dict[str, str]:
     rg = release.get("release-group") or {}
     if (rg_id := rg.get("id")) and (rg_title := rg.get("title")):
         names[rg_id] = rg_title
+    # Works are named, unlike recordings: the Work column is not pinned beside
+    # the ids the way Title is, so its title is not already on the row (#680).
+    for _, _, track in _flatten_tracks(release):
+        for work in credits_mod.track_credits(release, track, NO_CHOICES).works:
+            if work.title:
+                names[work.mbid] = work.title
     return names
 
 

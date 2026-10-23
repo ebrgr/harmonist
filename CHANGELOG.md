@@ -6,6 +6,13 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Tracks are tagged with the works they perform**, as Picard's `work` and
+  `musicbrainz_workid`. A work arriving is an Enrichment update. After
+  upgrading, every cached release is fetched again, so Update available starts
+  nearly empty and refills (#680).
+
 ## [1.30.0] - 2026-10-22
 
 ### Added

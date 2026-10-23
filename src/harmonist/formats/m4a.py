@@ -34,6 +34,7 @@ ATOM_MB_ALBUM_COUNTRY = f"{ATOM_PREFIX}MusicBrainz Album Release Country"
 ATOM_MB_TRACK_ID = f"{ATOM_PREFIX}MusicBrainz Track Id"
 ATOM_MB_RELEASE_TRACK_ID = f"{ATOM_PREFIX}MusicBrainz Release Track Id"
 ATOM_MB_ARTIST_ID = f"{ATOM_PREFIX}MusicBrainz Artist Id"
+ATOM_MB_WORK_ID = f"{ATOM_PREFIX}MusicBrainz Work Id"
 
 # Optional album-level metadata
 ATOM_LABEL = f"{ATOM_PREFIX}LABEL"
@@ -81,6 +82,10 @@ ATOM_ARTIST = "\xa9ART"
 ATOM_ALBUM_ARTIST = "aART"
 ATOM_DATE = "\xa9day"
 ATOM_COMMENT = "\xa9cmt"
+#: Picard's `work` (#680), and a text atom that holds several values on a
+#: medley. Picard also READS `----:com.apple.iTunes:WORK` as the work, but
+#: writes `©wrk`; the freeform spelling is another tool's and left alone.
+ATOM_WORK = "\xa9wrk"
 
 # Native sort-name atoms (Picard maps artistsort/albumartistsort here).
 ATOM_ARTIST_SORT = "soar"
@@ -149,6 +154,8 @@ OWNED_ATOMS: dict[Owned, tuple[str, ...]] = {
     Owned.MB_RELEASE_TRACK_ID: (ATOM_MB_RELEASE_TRACK_ID,),
     Owned.MB_ARTIST_IDS: (ATOM_MB_ARTIST_ID,),
     Owned.ISRCS: (ATOM_ISRC,),
+    Owned.WORKS: (ATOM_WORK,),
+    Owned.MB_WORK_IDS: (ATOM_MB_WORK_ID,),
 }
 
 #: Atoms a write CLEARS and never writes back — an older spelling of an owned
@@ -192,6 +199,12 @@ def _text_atom(audio: MP4, atom: str) -> str | None:
         return None
     v = value[0]
     return v if isinstance(v, str) else None
+
+
+def _text_atom_list(audio: MP4, atom: str) -> list[str]:
+    """Every value of a text atom. Most text atoms hold one; `©wrk` holds a
+    medley's several, as Picard writes it."""
+    return [v for v in audio.get(atom) or [] if isinstance(v, str)]
 
 
 def _binary_atom_str(audio: MP4, atom: str) -> str | None:
@@ -464,6 +477,8 @@ def _read_owned(audio: MP4) -> dict[str, Any]:
         Owned.MB_RELEASE_TRACK_ID: _binary_atom_str(audio, ATOM_MB_RELEASE_TRACK_ID),
         Owned.MB_ARTIST_IDS: _binary_atom_list(audio, ATOM_MB_ARTIST_ID),
         Owned.ISRCS: _binary_atom_list(audio, ATOM_ISRC),
+        Owned.WORKS: _text_atom_list(audio, ATOM_WORK),
+        Owned.MB_WORK_IDS: _binary_atom_list(audio, ATOM_MB_WORK_ID),
     }
 
 
@@ -524,6 +539,9 @@ def _apply_owned(audio: MP4, values: Mapping[str, Any]) -> None:
     for fld, atom in _BINARY_LIST_ATOMS.items():
         if value := values.get(fld):
             audio[atom] = [str(v).encode("utf-8") for v in value]
+    for fld, atom in _TEXT_LIST_ATOMS.items():
+        if value := values.get(fld):
+            audio[atom] = [str(v) for v in value]
 
     # A native boolean atom, so it belongs to none of the three tables above —
     # writing it through them would put the string "True" in the file.
@@ -592,6 +610,12 @@ _BINARY_LIST_ATOMS: dict[Owned, str] = {
     Owned.ARTISTS: ATOM_ARTISTS,
     Owned.MB_ARTIST_IDS: ATOM_MB_ARTIST_ID,
     Owned.ISRCS: ATOM_ISRC,
+    Owned.MB_WORK_IDS: ATOM_MB_WORK_ID,
+}
+
+#: Owned fields stored as multi-valued plain text atoms.
+_TEXT_LIST_ATOMS: dict[Owned, str] = {
+    Owned.WORKS: ATOM_WORK,
 }
 
 
@@ -714,6 +738,10 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
         audio[ATOM_MEDIA] = [tagset.media.encode("utf-8")]
     if tagset.disc_subtitle:
         audio[ATOM_DISC_SUBTITLE] = [tagset.disc_subtitle.encode("utf-8")]
+    if tagset.works:
+        audio[ATOM_WORK] = list(tagset.works)
+    if tagset.mb_work_ids:
+        audio[ATOM_MB_WORK_ID] = [w.encode("utf-8") for w in tagset.mb_work_ids]
     if tagset.original_date:
         audio[ATOM_ORIGINAL_DATE] = [tagset.original_date.encode("utf-8")]
         audio[ATOM_ORIGINAL_YEAR] = [tagset.original_date[:4].encode("utf-8")]

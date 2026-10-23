@@ -60,6 +60,10 @@ KEY_ASIN = "ASIN"
 KEY_MEDIA = "MEDIA"
 #: Picard's `discsubtitle` — the medium's own name (#218).
 KEY_DISC_SUBTITLE = "DISCSUBTITLE"
+#: Picard's `work` and `musicbrainz_workid` (#680), written under their own
+#: names upper-cased, as Picard writes any Vorbis comment.
+KEY_WORK = "WORK"
+KEY_WORK_ID = "MUSICBRAINZ_WORKID"
 KEY_COMMENT = "COMMENT"
 KEY_DESCRIPTION = "DESCRIPTION"
 
@@ -101,6 +105,8 @@ OWNED_KEYS: dict[Owned, tuple[str, ...]] = {
     Owned.MB_RELEASE_TRACK_ID: (KEY_RELEASE_TRACK_ID,),
     Owned.MB_ARTIST_IDS: (KEY_ARTIST_ID,),
     Owned.ISRCS: (KEY_ISRC,),
+    Owned.WORKS: (KEY_WORK,),
+    Owned.MB_WORK_IDS: (KEY_WORK_ID,),
 }
 
 #: Keys a write CLEARS and never writes back — see `m4a.SUPERSEDED_ATOMS`.
@@ -149,6 +155,8 @@ _LIST_KEYS: dict[Owned, str] = {
     Owned.ARTISTS: KEY_ARTISTS,
     Owned.MB_ARTIST_IDS: KEY_ARTIST_ID,
     Owned.ISRCS: KEY_ISRC,
+    Owned.WORKS: KEY_WORK,
+    Owned.MB_WORK_IDS: KEY_WORK_ID,
 }
 
 
@@ -433,6 +441,8 @@ class VorbisTagger:
             Owned.MB_RELEASE_TRACK_ID: one(KEY_RELEASE_TRACK_ID),
             Owned.MB_ARTIST_IDS: many(KEY_ARTIST_ID),
             Owned.ISRCS: many(KEY_ISRC),
+            Owned.WORKS: many(KEY_WORK),
+            Owned.MB_WORK_IDS: many(KEY_WORK_ID),
         }
 
     def write_cover(self, path: Path, cover: bytes) -> None:
@@ -553,6 +563,10 @@ class VorbisTagger:
             tags[KEY_MEDIA] = [tagset.media]
         if tagset.disc_subtitle:
             tags[KEY_DISC_SUBTITLE] = [tagset.disc_subtitle]
+        if tagset.works:
+            tags[KEY_WORK] = list(tagset.works)
+        if tagset.mb_work_ids:
+            tags[KEY_WORK_ID] = list(tagset.mb_work_ids)
 
         if cover is not None:
             self._set_cover(audio, cover)

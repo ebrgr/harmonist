@@ -1252,6 +1252,8 @@ def test_panel_fields_names_exactly_the_album_tags_the_panel_accounts_for():
         "mb_release_track_id",
         "mb_artist_ids",
         "isrcs",
+        "works",
+        "mb_work_ids",
     }
 
 

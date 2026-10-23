@@ -67,6 +67,11 @@ TXXX_ASIN = "ASIN"
 TXXX_ARTISTS = "ARTISTS"
 TXXX_ALBUM_ARTISTS = "ALBUMARTISTS"
 TXXX_SCRIPT = "SCRIPT"
+#: Picard's `work` and `musicbrainz_workid` (#680). The work goes in a TXXX
+#: frame, not TIT1: Picard uses TIT1 for the work only under its iTunes
+#: compatibility option, and for the grouping otherwise, so TIT1 is left alone.
+TXXX_WORK = "WORK"
+TXXX_WORK_ID = "MusicBrainz Work Id"
 
 
 # The ID3 frames behind each owned field (#149), by mutagen HashKey — which for
@@ -116,6 +121,8 @@ OWNED_FRAMES: dict[Owned, tuple[str, ...]] = {
     Owned.MB_RELEASE_TRACK_ID: (f"TXXX:{TXXX_RELEASE_TRACK_ID}",),
     Owned.MB_ARTIST_IDS: (f"TXXX:{TXXX_ARTIST_ID}",),
     Owned.ISRCS: ("TSRC",),
+    Owned.WORKS: (f"TXXX:{TXXX_WORK}",),
+    Owned.MB_WORK_IDS: (f"TXXX:{TXXX_WORK_ID}",),
 }
 
 #: Frames a write CLEARS and never writes back — see `m4a.SUPERSEDED_ATOMS`.
@@ -440,6 +447,8 @@ def _read_owned(tags: Any) -> dict[str, Any]:
         Owned.MB_RELEASE_TRACK_ID: _txxx(tags, TXXX_RELEASE_TRACK_ID),
         Owned.MB_ARTIST_IDS: _txxx_list(tags, TXXX_ARTIST_ID),
         Owned.ISRCS: [str(v) for v in isrc.text] if isrc is not None and isrc.text else [],
+        Owned.WORKS: _txxx_list(tags, TXXX_WORK),
+        Owned.MB_WORK_IDS: _txxx_list(tags, TXXX_WORK_ID),
     }
 
 
@@ -597,6 +606,8 @@ _TXXX_LIST_FIELDS: dict[Owned, str] = {
     Owned.MB_ALBUM_ARTIST_IDS: TXXX_ALBUM_ARTIST_ID,
     Owned.ARTISTS: TXXX_ARTISTS,
     Owned.MB_ARTIST_IDS: TXXX_ARTIST_ID,
+    Owned.WORKS: TXXX_WORK,
+    Owned.MB_WORK_IDS: TXXX_WORK_ID,
 }
 
 
@@ -733,6 +744,10 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
         tags.setall("TMED", [TMED(encoding=Encoding.UTF8, text=[tagset.media])])
     if tagset.disc_subtitle:
         tags.setall("TSST", [TSST(encoding=Encoding.UTF8, text=[tagset.disc_subtitle])])
+    if tagset.works:
+        _set_txxx(tags, TXXX_WORK, list(tagset.works))
+    if tagset.mb_work_ids:
+        _set_txxx(tags, TXXX_WORK_ID, list(tagset.mb_work_ids))
 
     # ---- Cover art ----
     if cover is not None:
