@@ -35,6 +35,7 @@ ATOM_MB_TRACK_ID = f"{ATOM_PREFIX}MusicBrainz Track Id"
 ATOM_MB_RELEASE_TRACK_ID = f"{ATOM_PREFIX}MusicBrainz Release Track Id"
 ATOM_MB_ARTIST_ID = f"{ATOM_PREFIX}MusicBrainz Artist Id"
 ATOM_MB_WORK_ID = f"{ATOM_PREFIX}MusicBrainz Work Id"
+ATOM_MB_COMPOSER_ID = f"{ATOM_PREFIX}MusicBrainz Composer Id"
 
 # Optional album-level metadata
 ATOM_LABEL = f"{ATOM_PREFIX}LABEL"
@@ -86,6 +87,10 @@ ATOM_COMMENT = "\xa9cmt"
 #: medley. Picard also READS `----:com.apple.iTunes:WORK` as the work, but
 #: writes `©wrk`; the freeform spelling is another tool's and left alone.
 ATOM_WORK = "\xa9wrk"
+#: Picard's `composer` and `composersort`, text atoms holding one value per
+#: composer.
+ATOM_COMPOSER = "\xa9wrt"
+ATOM_COMPOSER_SORT = "soco"
 
 # Native sort-name atoms (Picard maps artistsort/albumartistsort here).
 ATOM_ARTIST_SORT = "soar"
@@ -156,6 +161,9 @@ OWNED_ATOMS: dict[Owned, tuple[str, ...]] = {
     Owned.ISRCS: (ATOM_ISRC,),
     Owned.WORKS: (ATOM_WORK,),
     Owned.MB_WORK_IDS: (ATOM_MB_WORK_ID,),
+    Owned.COMPOSERS: (ATOM_COMPOSER,),
+    Owned.COMPOSER_SORT: (ATOM_COMPOSER_SORT,),
+    Owned.MB_COMPOSER_IDS: (ATOM_MB_COMPOSER_ID,),
 }
 
 #: Atoms a write CLEARS and never writes back — an older spelling of an owned
@@ -479,6 +487,9 @@ def _read_owned(audio: MP4) -> dict[str, Any]:
         Owned.ISRCS: _binary_atom_list(audio, ATOM_ISRC),
         Owned.WORKS: _text_atom_list(audio, ATOM_WORK),
         Owned.MB_WORK_IDS: _binary_atom_list(audio, ATOM_MB_WORK_ID),
+        Owned.COMPOSERS: _text_atom_list(audio, ATOM_COMPOSER),
+        Owned.COMPOSER_SORT: _text_atom_list(audio, ATOM_COMPOSER_SORT),
+        Owned.MB_COMPOSER_IDS: _binary_atom_list(audio, ATOM_MB_COMPOSER_ID),
     }
 
 
@@ -611,11 +622,14 @@ _BINARY_LIST_ATOMS: dict[Owned, str] = {
     Owned.MB_ARTIST_IDS: ATOM_MB_ARTIST_ID,
     Owned.ISRCS: ATOM_ISRC,
     Owned.MB_WORK_IDS: ATOM_MB_WORK_ID,
+    Owned.MB_COMPOSER_IDS: ATOM_MB_COMPOSER_ID,
 }
 
 #: Owned fields stored as multi-valued plain text atoms.
 _TEXT_LIST_ATOMS: dict[Owned, str] = {
     Owned.WORKS: ATOM_WORK,
+    Owned.COMPOSERS: ATOM_COMPOSER,
+    Owned.COMPOSER_SORT: ATOM_COMPOSER_SORT,
 }
 
 
@@ -742,6 +756,12 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
         audio[ATOM_WORK] = list(tagset.works)
     if tagset.mb_work_ids:
         audio[ATOM_MB_WORK_ID] = [w.encode("utf-8") for w in tagset.mb_work_ids]
+    if tagset.composers:
+        audio[ATOM_COMPOSER] = list(tagset.composers)
+    if tagset.composer_sort:
+        audio[ATOM_COMPOSER_SORT] = list(tagset.composer_sort)
+    if tagset.mb_composer_ids:
+        audio[ATOM_MB_COMPOSER_ID] = [c.encode("utf-8") for c in tagset.mb_composer_ids]
     if tagset.original_date:
         audio[ATOM_ORIGINAL_DATE] = [tagset.original_date.encode("utf-8")]
         audio[ATOM_ORIGINAL_YEAR] = [tagset.original_date[:4].encode("utf-8")]

@@ -8,10 +8,11 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
-- **Tracks are tagged with the works they perform**, as Picard's `work` and
-  `musicbrainz_workid`. A work arriving is an Enrichment update. After
-  upgrading, every cached release is fetched again, so Update available starts
-  nearly empty and refills (#680).
+- **Tracks are tagged with their composers and the works they perform**, as
+  Picard writes them. A credit arriving is an Enrichment update. A composer
+  MusicBrainz doesn't credit, such as one from a CD-rip database, is removed.
+  After upgrading, every cached release is fetched again, so Update available
+  starts nearly empty and refills (#680).
 
 ## [1.30.0] - 2026-10-22
 

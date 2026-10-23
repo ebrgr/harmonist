@@ -241,6 +241,12 @@ class TagSet:
     #: keeps a file's credits rather than clearing them.
     works: list[str] | None = None
     mb_work_ids: list[str] | None = None
+    #: Picard's `composer`, `composersort` and `musicbrainz_composerid`: three
+    #: lists that pair up by position, one entry per person (`credits`). `None`
+    #: as for the works.
+    composers: list[str] | None = None
+    composer_sort: list[str] | None = None
+    mb_composer_ids: list[str] | None = None
 
 
 @dataclass(frozen=True)

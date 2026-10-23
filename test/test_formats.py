@@ -974,7 +974,7 @@ def test_no_identifier_is_classified_below_identity():
     # and they ARE enrichment. The count is pinned so a filter that silently
     # stopped selecting anything would fail here rather than pass vacuously.
     ids = [f for f in Owned if f.value.endswith(("_id", "_ids"))]
-    assert len(ids) == 7
+    assert len(ids) == 8
     for field in ids:
         assert SIGNIFICANCE[field] is Significance.IDENTITY, field
 
@@ -1154,6 +1154,9 @@ def _full_tagset() -> Any:
         # round-trip a single work and lose the second.
         works=["Roygbiv", "Olson"],
         mb_work_ids=["wk-1", "wk-2"],
+        composers=["Michael Sandison", "Marcus Eoin"],
+        composer_sort=["Sandison, Michael", "Eoin, Marcus"],
+        mb_composer_ids=["cp-1", "cp-2"],
     )
 
 

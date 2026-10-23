@@ -374,3 +374,96 @@ def test_a_work_title_changing_is_enrichment() -> None:
 
 def test_the_album_page_names_a_work_by_its_title() -> None:
     assert tagger.mbid_names(_with_aria(_release_2_tracks()))[ARIA["id"]] == ARIA["title"]
+
+
+# ---------- tagging the composers (#680) ----------
+
+
+def _composed(*people: dict[str, Any]) -> dict[str, Any]:
+    """The two-track release with track 1 performing a work by `people`."""
+    release = copy.deepcopy(_release_2_tracks())
+    work = _work("w-1", "Work", *people)
+    release["medium-list"][0]["track-list"][0]["recording"]["work-relation-list"] = [
+        _performs(work)
+    ]
+    return release
+
+
+def _composer_tags(path: Path) -> tuple[Any, Any, Any]:
+    now = formats_mod.read_owned(path)
+    return now["composers"], now["composer_sort"], now["mb_composer_ids"]
+
+
+def _verdict(album_dir: Path, release: dict[str, Any], tagging: TaggingChoices) -> Any:
+    from harmonist import gardener
+
+    plan = tagger.plan_album(album_dir, release, artwork=False, tagging=tagging)
+    return gardener.verdict_for(plan)
+
+
+def _overwrite_first(album_dir: Path, **values: Any) -> None:
+    first = min(album_dir.glob("*.m4a"))
+    formats_mod.write_owned(first, {**formats_mod.read_owned(first), **values})
+
+
+AS_CREDITED = TaggingChoices(standardize_artist_names=ArtistNames.NONE)
+VARIATIONS = TaggingChoices(standardize_artist_names=ArtistNames.VARIATIONS)
+
+
+def test_a_tagging_writes_the_composers_as_three_aligned_lists(album_with_tracks: Any) -> None:
+    album_dir = album_with_tracks(2)
+    tagger.tag_album(album_dir, _composed(_rel("composer", RODGERS), _rel("composer", BACH)))
+
+    assert _composer_tags(min(album_dir.glob("*.m4a"))) == (
+        [RODGERS["name"], BACH["name"]],
+        [RODGERS["sort-name"], BACH["sort-name"]],
+        [RODGERS["id"], BACH["id"]],
+    )
+
+
+def test_a_credited_composer_follows_the_artist_name_setting(album_with_tracks: Any) -> None:
+    # The file carries the credited spelling, which the release supports, and
+    # the setting now selects the artist's own: the user's convention arriving,
+    # as for an artist credit (#678).
+    album_dir = album_with_tracks(2)
+    release = _composed(_rel("composer", BACH, "J.S. Bach"))
+    tagger.tag_album(album_dir, release, tagging=AS_CREDITED)
+
+    assert _verdict(album_dir, release, VARIATIONS) is Significance.SETTINGS
+
+
+def test_a_composer_from_another_tagger_is_replaced_as_enrichment(album_with_tracks: Any) -> None:
+    # The common case on an adopted library: a CD-rip database's spelling with
+    # no id. MusicBrainz's name and id arrive; nothing on the file is proven to
+    # be somebody else.
+    album_dir = album_with_tracks(2)
+    release = _with_aria(_release_2_tracks())
+    tagger.tag_album(album_dir, release)
+    _overwrite_first(album_dir, composers=["Bach"], composer_sort=[], mb_composer_ids=[])
+
+    assert _verdict(album_dir, release, TaggingChoices()) is Significance.ENRICHMENT
+
+
+def test_a_composer_whose_id_moves_is_identity(album_with_tracks: Any) -> None:
+    album_dir = album_with_tracks(2)
+    release = _with_aria(_release_2_tracks())
+    tagger.tag_album(album_dir, release)
+    _overwrite_first(album_dir, mb_composer_ids=["somebody-else"])
+
+    assert _verdict(album_dir, release, TaggingChoices()) is Significance.IDENTITY
+
+
+def test_a_composer_without_an_id_is_removed_as_enrichment(album_with_tracks: Any) -> None:
+    # MusicBrainz is canonical: a release that answers with no work removes a
+    # composer that came from elsewhere (#680), and nothing moves an id.
+    album_dir = album_with_tracks(2)
+    release = _release_2_tracks()
+    tagger.tag_album(album_dir, release)
+    _overwrite_first(album_dir, composers=["Lindsey Buckingham"])
+
+    assert _verdict(album_dir, release, TaggingChoices()) is Significance.ENRICHMENT
+
+
+def test_the_album_page_names_a_composer_by_the_artists_own_name() -> None:
+    release = _composed(_rel("composer", BACH, "J.S. Bach"))
+    assert tagger.mbid_names(release)[BACH["id"]] == BACH["name"]

@@ -1254,6 +1254,9 @@ def test_panel_fields_names_exactly_the_album_tags_the_panel_accounts_for():
         "isrcs",
         "works",
         "mb_work_ids",
+        "composers",
+        "composer_sort",
+        "mb_composer_ids",
     }
 
 

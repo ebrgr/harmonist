@@ -490,6 +490,10 @@ SETTING_FIELDS: tuple[owned.Owned, ...] = (
     owned.Owned.ARTIST_SORT,
     owned.Owned.ALBUM_ARTISTS,
     owned.Owned.ARTISTS,
+    # A composer credited under a variation is spelled by the same setting
+    # (#680).
+    owned.Owned.COMPOSERS,
+    owned.Owned.COMPOSER_SORT,
 )
 
 
@@ -703,8 +707,10 @@ LOWERED_WHEN: dict[str, Callable[[Any, Any], bool]] = {
     # says which entities the album points at, and that is what IDENTITY is for.
     owned.Owned.MB_ALBUM_ARTIST_IDS: owned.splits_a_joined_list,
     owned.Owned.MB_ARTIST_IDS: owned.splits_a_joined_list,
-    # A work id fills, which the artist ids above do not: see `owned.BY_VALUE`.
+    # Work and composer ids fill, which the artist ids above do not: see
+    # `owned.BY_VALUE`.
     owned.Owned.MB_WORK_IDS: owned.fills_in_an_absent_list,
+    owned.Owned.MB_COMPOSER_IDS: owned.fills_in_an_absent_list,
 }
 
 
@@ -2265,10 +2271,16 @@ def _build_tagset(
     # the file's credits (`formats.settled`) instead of removing them (#680).
     works: list[str] | None = None
     work_ids: list[str] | None = None
+    composers: list[str] | None = None
+    composer_sort: list[str] | None = None
+    composer_ids: list[str] | None = None
     if credits_mod.relationships_answered(release):
         found = credits_mod.track_credits(release, track, tagging)
         works = [w.title for w in found.works]
         work_ids = [w.mbid for w in found.works]
+        composers = [p.name for p in found.composers]
+        composer_sort = [p.sort_name for p in found.composers]
+        composer_ids = [p.mbid for p in found.composers]
 
     return TagSet(
         mb_album_id=release["id"],
@@ -2324,6 +2336,9 @@ def _build_tagset(
         disc_subtitle=medium.get("title") or None,
         works=works,
         mb_work_ids=work_ids,
+        composers=composers,
+        composer_sort=composer_sort,
+        mb_composer_ids=composer_ids,
     )
 
 
@@ -2491,10 +2506,16 @@ def mbid_names(release: Release) -> dict[str, str]:
         names[rg_id] = rg_title
     # Works are named, unlike recordings: the Work column is not pinned beside
     # the ids the way Title is, so its title is not already on the row (#680).
+    # A composer id is named by the artist's own name, as an artist id is, which
+    # is the name "standardize always" spells every credit with.
+    own_names = TaggingChoices(standardize_artist_names=transforms_mod.ArtistNames.ALL)
     for _, _, track in _flatten_tracks(release):
-        for work in credits_mod.track_credits(release, track, NO_CHOICES).works:
+        found = credits_mod.track_credits(release, track, own_names)
+        for work in found.works:
             if work.title:
                 names[work.mbid] = work.title
+        for person in found.composers:
+            names.setdefault(person.mbid, person.name)
     return names
 
 

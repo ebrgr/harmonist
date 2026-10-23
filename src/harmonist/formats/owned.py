@@ -102,6 +102,9 @@ class Owned(StrEnum):
     ISRCS = "isrcs"
     WORKS = "works"
     MB_WORK_IDS = "mb_work_ids"
+    COMPOSERS = "composers"
+    COMPOSER_SORT = "composer_sort"
+    MB_COMPOSER_IDS = "mb_composer_ids"
 
 
 #: The credits Picard writes from MusicBrainz relationships (#680), which a
@@ -110,7 +113,15 @@ class Owned(StrEnum):
 #: holds `None` for these when that happened, and a tagging then keeps what the
 #: file has (`formats.settled`) rather than reading the silence as "none".
 #: Everywhere else `None` and `[]` are one state; only here do they differ.
-RELATIONSHIP_CREDITS: frozenset[Owned] = frozenset({Owned.WORKS, Owned.MB_WORK_IDS})
+RELATIONSHIP_CREDITS: frozenset[Owned] = frozenset(
+    {
+        Owned.WORKS,
+        Owned.MB_WORK_IDS,
+        Owned.COMPOSERS,
+        Owned.COMPOSER_SORT,
+        Owned.MB_COMPOSER_IDS,
+    }
+)
 
 
 SCOPE: dict[Owned, Scope] = {
@@ -158,6 +169,10 @@ SCOPE: dict[Owned, Scope] = {
     # classical album, and a medley's several on one.
     Owned.WORKS: Scope.TRACK,
     Owned.MB_WORK_IDS: Scope.TRACK,
+    # Credited on the works, so they differ wherever the works do.
+    Owned.COMPOSERS: Scope.TRACK,
+    Owned.COMPOSER_SORT: Scope.TRACK,
+    Owned.MB_COMPOSER_IDS: Scope.TRACK,
 }
 
 ALBUM_FIELDS: tuple[Owned, ...] = tuple(f for f in Owned if SCOPE[f] is Scope.ALBUM)
@@ -248,6 +263,12 @@ SIGNIFICANCE: dict[str, Significance] = {
     # composition is named. Which work a track performs is the id's to say, and
     # the id is IDENTITY when it moves (#680).
     Owned.WORKS: Significance.ENRICHMENT,
+    # Credits, not identity: who wrote a work doesn't change which recording a
+    # track is, or how a player groups the album, as its artist credit does.
+    # A composer who is genuinely someone else shows as their id moving, which
+    # is IDENTITY; a file with no ids can't prove that either way (#680).
+    Owned.COMPOSERS: Significance.ENRICHMENT,
+    Owned.COMPOSER_SORT: Significance.ENRICHMENT,
     # --- Identity: what the album, or one of its tracks, IS ---
     Owned.ALBUM: Significance.IDENTITY,
     Owned.ALBUM_ARTIST: Significance.IDENTITY,
@@ -281,8 +302,9 @@ SIGNIFICANCE: dict[str, Significance] = {
     Owned.MB_ALBUM_ARTIST_IDS: Significance.IDENTITY,
     Owned.MB_ARTIST_IDS: Significance.IDENTITY,
     # IDENTITY when it moves or goes; arriving where there was none is lower —
-    # see BY_VALUE.
+    # see BY_VALUE. The composer ids alike.
     Owned.MB_WORK_IDS: Significance.IDENTITY,
+    Owned.MB_COMPOSER_IDS: Significance.IDENTITY,
     Owned.MB_TRACK_ID: Significance.IDENTITY,
     Owned.MB_RELEASE_TRACK_ID: Significance.IDENTITY,
     # Identity by default, and the one field that can be less than that — see
@@ -392,13 +414,14 @@ BY_VALUE: dict[str, Significance] = {
     Owned.ARTISTS: Significance.ENRICHMENT,
     Owned.MB_ALBUM_ARTIST_IDS: Significance.ENRICHMENT,
     Owned.MB_ARTIST_IDS: Significance.ENRICHMENT,
-    # Unlike the artist ids, a work id ARRIVING drops too (#680). An artist id
-    # arriving says which entities the album's own credit points at; a work id
-    # arriving adds a fact about the composition beside a track that already
-    # says what it is, and it can contradict nothing on the file. Adopted
-    # libraries carry no work ids, so holding every arrival at IDENTITY would
-    # make the first pass an IDENTITY update on nearly every album.
+    # Unlike the artist ids, a work or composer id ARRIVING drops too (#680).
+    # An artist id arriving says which entities the album's own credit points
+    # at; these add a fact about the composition beside a track that already
+    # says what it is, and can contradict nothing on the file. Adopted libraries
+    # carry none, so holding every arrival at IDENTITY would make the first pass
+    # an IDENTITY update on nearly every album.
     Owned.MB_WORK_IDS: Significance.ENRICHMENT,
+    Owned.MB_COMPOSER_IDS: Significance.ENRICHMENT,
 }
 
 
@@ -630,5 +653,8 @@ LABELS: dict[str, str] = {
     Owned.ISRCS: "ISRC",
     Owned.WORKS: "Work",
     Owned.MB_WORK_IDS: "Work IDs",
+    Owned.COMPOSERS: "Composer",
+    Owned.COMPOSER_SORT: "Composer sort",
+    Owned.MB_COMPOSER_IDS: "Composer IDs",
     ARTWORK: "Artwork",
 }

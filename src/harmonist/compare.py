@@ -522,6 +522,9 @@ _KINDS: dict[str, Kind] = {
     Owned.ISRCS: Kind.TEXT,
     Owned.WORKS: Kind.TEXT,
     Owned.MB_WORK_IDS: Kind.TEXT,
+    Owned.COMPOSERS: Kind.TEXT,
+    Owned.COMPOSER_SORT: Kind.TEXT,
+    Owned.MB_COMPOSER_IDS: Kind.TEXT,
 }
 
 #: No rows the panel shows without comparing. There used to be two, for tags
@@ -730,6 +733,7 @@ _ENTITY: dict[str, str] = {
     # reader following this link is actually asking to see.
     Owned.MB_RELEASE_TRACK_ID: "track",
     Owned.MB_WORK_IDS: "work",
+    Owned.MB_COMPOSER_IDS: "artist",
 }
 
 
@@ -1765,6 +1769,8 @@ _COLUMN_ORDER: tuple[Owned, ...] = (
     # Beside the credits: on a classical album the work is often the most
     # telling thing about a track after its title.
     Owned.WORKS,
+    Owned.COMPOSERS,
+    Owned.COMPOSER_SORT,
     Owned.ISRCS,
     Owned.DISC_SUBTITLE,
     Owned.MEDIA,
@@ -1774,6 +1780,7 @@ _COLUMN_ORDER: tuple[Owned, ...] = (
     Owned.MB_TRACK_ID,
     Owned.MB_RELEASE_TRACK_ID,
     Owned.MB_WORK_IDS,
+    Owned.MB_COMPOSER_IDS,
 )
 
 
