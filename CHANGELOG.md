@@ -8,6 +8,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
+- **Artists lists local album artists alphabetically**, with equal-height cards, local artist pictures, shared album tiles and read-only `artist.nfo` metadata, including a separate Artist Information Folder (#813).
 - **Artwork an album already has over the 20 MB limit is offered reduced to
   fit**, as an artwork Replacement, so Navidrome reads it (#893).
 - **A folder cover named for the wrong image type is offered a rename**, such
