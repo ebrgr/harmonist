@@ -269,6 +269,28 @@ can still have tracks without embedded artwork. **No artwork** and **Addition**
 can therefore overlap. Unchecked or unreadable artwork is not a claim that the
 album needs no changes. Ignoring a tag update does not hide an artwork proposal.
 
+**When an artwork update is found** in Settings decides what happens to each:
+
+- **Apply**: additions can be applied automatically, never replacements, so
+  nothing is overwritten without someone looking. Nothing is applied by
+  default. Saving applies the additions already waiting at once, and later ones
+  are applied within about ten minutes of being found. Each is recorded in the
+  album's History, where it can be undone.
+- **Inbox**: replacements, or additions as well. Cards can be ticked and
+  applied several at once, replacements included, each with its own History
+  entry and Undo; an album whose artwork changed after it was selected is left
+  for another look. The album's page shows every image and is where an update
+  is changed before it is applied: another image chosen, a row kept as it is, or
+  an image no longer suggested.
+- Anything ticked in neither stays in the Library under **Artwork updates**,
+  which is where all of them stay by default.
+
+An album whose update both adds and replaces artwork counts as a replacement,
+so none of it is applied automatically. An album with **Better artwork wanted**
+waits in the Inbox whatever is chosen. An addition Harmonist was trusted to
+apply but couldn't waits in the Inbox with the reason. Only updates bound for
+the Inbox are announced in the Activity feed.
+
 Album art lives in two places: **embedded** in each track, and as a
 **`cover.jpg`** (or `cover.png`) in the folder. Players differ in which they
 read (Plex and Navidrome prefer the embedded image), so an album can look right

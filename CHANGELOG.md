@@ -6,8 +6,27 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
-- **Choosing Use from a name search opens review before tagging**, even when the tracks match exactly (#848).
 - **Artists lists local album artists alphabetically**, with equal-height cards, local artist pictures, shared album tiles and read-only `artist.nfo` metadata, including a separate Artist Information Folder (#813).
+
+## [1.30.0] - 2026-10-22
+
+### Added
+
+- **Artwork updates can wait in the Inbox**: **When an artwork update is
+  found** in Settings picks which. Albums with **Better artwork wanted** always
+  wait there (#852, #859).
+- **Artwork additions can be applied automatically**: tick **Apply** for
+  Addition under **When an artwork update is found**. Replacements never are
+  (#853).
+- **Inbox artwork updates can be applied several at once**: tick them, or a
+  whole group, and press **Apply** (#859).
+
+### Fixed
+
+- **Choosing Use from a name search opens review before tagging**, even when
+  the tracks match exactly (#848).
+- **Settings refuses a malformed MusicBrainz user agent** with the form it must
+  take, instead of saving it and failing the next startup (#856).
 
 ## [1.29.0] - 2026-10-20
 

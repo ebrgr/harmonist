@@ -22,6 +22,7 @@
     {% if pickable %}
     <label class="update-card__pick">
         <input type="checkbox" class="update-pick" name="album" value="{{ album.id }}:{{ album.mb_version }}"
+               data-pick="tags:{{ album.id }}"
                aria-label="Select {{ album.title }}"{% if place %} checked{% endif %}{% if applying %} disabled{% endif %}>
     </label>
     {% endif %}

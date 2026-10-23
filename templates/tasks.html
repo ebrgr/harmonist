@@ -1,4 +1,4 @@
-{% from 'macros.html' import severity_chip %}
+{% from 'macros.html' import severity_chip, artwork_chip %}
 {# During a reconcile pass the inbox count comes from the reconcile status
    (base + running tallies), NOT the frozen snapshot — an un-reconciled orphan
    isn't in any count yet; reconcile files it as it goes. Otherwise it's the
@@ -9,7 +9,7 @@
 {% set syncing = sync and sync.state == 'running' %}
 {# The tab badges come from /status `counts` (live_counts) now, not from a marker
    here. This `inbox_n` only feeds the in-page "N need attention" line below. #}
-{% set inbox_n = reconcile.inbox if reconciling else (albums|length + (pending|default([])|length) + (updates|default([])|length)) %}
+{% set inbox_n = reconcile.inbox if reconciling else (albums|length + (pending|default([])|length) + (updates|default([])|length) + (artwork_cards|default([])|length)) %}
 <div class="flex justify-between items-baseline mb-3 text-sm flex-wrap gap-2">
     <p class="text-muted">
         <span class="font-bold text-ink">{{ inbox_n }}</span> need attention
@@ -49,7 +49,7 @@
     </p>
     <p class="text-2xs text-muted mt-1">Large libraries on a network mount can take a few minutes.</p>
 </div>
-{% elif not albums and not pending and not redownloading|default([]) and not updates|default([]) %}
+{% elif not albums and not pending and not redownloading|default([]) and not updates|default([]) and not artwork_cards|default([]) %}
 <div class="p-10 text-center border border-line rounded-lg">
     <p class="text-muted italic">
         {% if total_albums %}
@@ -60,8 +60,8 @@
     </p>
 </div>
 {% elif not albums %}
-{# Only potential downloads, re-downloads and/or updates remain — the sections
-   around this show them. #}
+{# Only potential downloads, re-downloads and/or updates (tag or artwork)
+   remain — the sections around this show them. #}
 {% else %}
 
 {# Render albums grouped by state with a header + instruction per group.
@@ -220,7 +220,7 @@
     <form id="update-group-{{ level.value }}" class="update-group space-y-3" hx-post="/updates/apply" hx-swap="none"
           hx-disabled-elt="find .update-group__apply">
         <div id="inbox-updates-{{ level.value }}" class="rounded-md border-l-4 border-mb-purple bg-mb-purple/10 px-3 py-2">
-            <h3 class="text-sm font-bold text-mb-purple flex items-center gap-2 min-h-7">
+            <h3 class="text-sm font-bold text-mb-purple flex flex-wrap items-center gap-2 min-h-7">
                 {% if pickable %}
                 <input type="checkbox" class="update-group__all"
                        aria-label="Select every {{ level.value }} update"{% if applying %} disabled{% endif %}>
@@ -247,6 +247,51 @@
     {% endif %}
     {% endfor %}
 </section>
+{% endif %}
+
+{# Library albums whose artwork update the Inbox takes (#852), one group per
+   operation, replacements first, as Settings lists them. Each card can be
+   ticked and the group applied, as the tag groups above can (#859): the
+   selection is a review, so replacements and watched albums are selectable
+   here as on the album page, which is where a single album is reviewed row by
+   row. #}
+{% if artwork_cards|default([]) and not reconciling %}
+{% set applying = applying_updates() %}
+<section id="inbox-artwork" class="space-y-6 mt-6">
+    {% for op in artwork_operations %}
+    {% set group = artwork_cards | selectattr('1.operation', 'equalto', op) | list %}
+    {% if group %}
+    {# Its id keeps the morph matching each group to itself, as the tag
+       groups' do. #}
+    <form id="artwork-group-{{ op.value }}" class="update-group space-y-3" hx-post="/artwork-updates/apply" hx-swap="none"
+          hx-disabled-elt="find .update-group__apply">
+        <div id="inbox-artwork-{{ op.value }}" class="rounded-md border-l-4 border-mb-purple bg-mb-purple/10 px-3 py-2">
+            <h3 class="text-sm font-bold text-mb-purple flex flex-wrap items-center gap-2 min-h-7">
+                <input type="checkbox" class="update-group__all"
+                       aria-label="Select every artwork {{ op.value }}"{% if applying %} disabled{% endif %}>
+                Artwork updates {{ artwork_chip(op) }}
+                <span class="text-muted font-normal">· {{ group|length }}</span>
+                {% if applying %}
+                <span class="ml-auto text-xs font-normal text-muted" role="status">Applying…</span>
+                {% else %}
+                <button type="submit" class="album-finding__act update-group__apply ml-auto">
+                    Apply <span class="update-group__count"></span>
+                </button>
+                {% endif %}
+            </h3>
+        </div>
+        <div id="artwork-cards-{{ op.value }}" class="art-grid">
+            {% for album, proposal in group %}{% include 'partials/task_card_artwork.html' %}{% endfor %}
+        </div>
+    </form>
+    {% endif %}
+    {% endfor %}
+</section>
+{% endif %}
+
+{# The tag and artwork groups' shared behaviour: Show all, the selection, and
+   a card folding away once applied. #}
+{% if (updates|default([]) or artwork_cards|default([])) and not reconciling %}
 <script>
 (function () {
     // Show all / Show fewer on each update card (#801). Once per page load: the
@@ -272,12 +317,14 @@
         });
     });
 
-    // The selection to apply (#814), by album id, so a refresh of the list
-    // (which draws every box unticked) keeps it. A card the server draws
-    // queued has been handed to the pass and leaves the selection: if it comes
-    // back, not applied, it comes back unticked, to be looked at again.
+    // The selection to apply (#814, #859), by each box's `data-pick` (the
+    // kind of update and the album), so a refresh of the list (which draws
+    // every box unticked) keeps it, and an album with both a tag and an
+    // artwork card keeps the two apart. A card the server draws queued has
+    // been handed to the pass and leaves the selection: if it comes back, not
+    // applied, it comes back unticked, to be looked at again.
     const picked = new Set();
-    const albumOf = box => box.value.slice(0, box.value.lastIndexOf(':'));
+    const albumOf = box => box.dataset.pick;
     function count(group) {
         const boxes = [...group.querySelectorAll('.update-pick:enabled')];
         const on = boxes.filter(box => box.checked).length;
@@ -330,18 +377,22 @@
     callbacks.beforeNodeRemoved = function (node) {
         if (before && before(node) === false) return false;
         if (!(node instanceof Element) || still.matches
-                || !node.matches('.update-card, .update-group, #inbox-updates')) return true;
+                || !node.matches('.update-card, .art-card, .update-group, #inbox-updates, #inbox-artwork')) return true;
         if (node.dataset.leaving) return false;
         node.dataset.leaving = 'true';
         // Keeps its id: without one, a morph landing mid-fold could match it
         // to some other id-less element and morph the leaving card into that.
         node.inert = true;
         node.style.overflow = 'hidden';
-        const from = {height: node.offsetHeight + 'px', opacity: 1};
-        const to = {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
-                    marginTop: '0px', borderTopWidth: '0px'};
         const leave = function () { node.remove(); };
-        node.animate([from, to], {duration: 300, easing: 'ease-in-out'}).finished.then(leave, leave);
+        // An artwork card sits in a grid, where folding its height would only
+        // squash it in place; it fades, and the grid closes up after it.
+        const frames = node.matches('.art-card')
+            ? [{opacity: 1, transform: 'scale(1)'}, {opacity: 0, transform: 'scale(0.96)'}]
+            : [{height: node.offsetHeight + 'px', opacity: 1},
+               {height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
+                marginTop: '0px', borderTopWidth: '0px'}];
+        node.animate(frames, {duration: 300, easing: 'ease-in-out'}).finished.then(leave, leave);
         // An animation only advances while the page is drawn. A tab nobody is
         // looking at would otherwise keep the leaving card until it is.
         setTimeout(leave, 1000);
@@ -350,3 +401,4 @@
 })();
 </script>
 {% endif %}
+

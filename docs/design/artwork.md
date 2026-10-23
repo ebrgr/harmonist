@@ -175,6 +175,90 @@ tag-update ignore is about a MusicBrainz version and cannot suppress artwork
 whose source changes independently. Background proposals require review; source
 preferences and automatic writes remain separate decisions.
 
+## Where an artwork update waits
+
+**The same threshold as a tag update's, on a scale of its own** (#852). An
+artwork update is ranked by what it does to the album's images, not by how far
+it reaches, so it can't share the tag levels. Addition comes before
+Replacement, because only a replacement loses anything. The Inbox takes the
+chosen operation and everything after it, so a replacement can never be
+handled less carefully than an addition.
+
+**The Library by default.** That is where every artwork update waited before
+there was a choice. Nothing about artwork is urgent: an album without it still
+plays everywhere, and its proposal is one filter away.
+
+**An album is judged by its whole plan.** One that replaces anything is a
+replacement, whatever it also adds, as a tag update takes the label of its
+furthest-reaching change. Splitting the album by operation would send its
+additions one way and its replacements another, and the card would no longer
+describe what applying the album's page writes.
+
+**A watched album always waits in the Inbox.** "Better artwork wanted" was a
+request to be told when something turns up, so the threshold doesn't apply to it.
+
+**Turning down an image is the existing rejection, on the album page.** There
+is no artwork equivalent of ignoring a tag update. That ignore waits for a
+MusicBrainz version to change, and the archive has no version to wait on.
+**Don't suggest this image** already names the upload and survives later
+checks. The Inbox card doesn't offer it: the card shows one change of the
+update to decide whether to take it, and refining what is taken (another image,
+a row kept, an image turned down) is the album page's, which shows every row and
+lists the release's images.
+
+**Only what the Inbox takes is announced**, and only when the check first sends
+it there, as for tag updates: an update left to the Library filter is one the
+user chose not to be told about, and one about to be applied records itself.
+
+## Applying artwork without asking
+
+**Additions only** (#853). An addition loses nothing, so it needs no backup and
+undoing it just removes the image again. A replacement overwrites something the
+user may have chosen, and "bigger" isn't "better" to someone who picked the
+cover they have. So the apply threshold stops at Addition, as the tag one stops
+short of Structure, and nothing written with nobody watching overwrites an
+image.
+
+**The whole plan or nothing.** An album whose plan would also replace anything
+waits for a person, additions and all, for the reason it is ranked as a
+replacement: half an update applied unattended would leave the card describing
+something the files no longer match.
+
+**Never a watched album.** "Better artwork wanted" asked to be shown what turns
+up, so what it finds waits in the Inbox even when it only adds.
+
+**Written from the cache, judged against the files as they are now.** The
+archive's image comes from the local cache, as on the album page, so applying
+spends no requests. The plan is rebuilt from the files and the folder cover at
+write time, because the scan that routed the album can be older than both: an
+update that has grown into a replacement since is held for a person, and only
+additions are written.
+
+**What can't be written waits in the Inbox, with the reason**, kept in memory
+against the plan it was held at, so a failure isn't retried every ten minutes,
+and is retried once the files or the archive's answer change what it would
+write.
+
+## Applying a selection
+
+Artwork cards in the Inbox can be ticked and applied together (#859), as tag
+updates can. It is the album page's Apply for several albums at once, with the
+differences that follow from someone having looked at a card rather than every
+row.
+
+**The card is the review, so its plan travels with it.** Each card carries the
+fingerprint of the plan it showed, and the plan is rebuilt from the files and
+folder cover at write time. An album whose plan has moved since is left alone,
+as a reviewed confirmation refuses a release that changed under its review.
+
+**Replacements and watched albums can be selected.** The unattended pass holds
+them back because nobody has looked; here someone has. A replacement still
+needs its backup first, as on the album page, and a watch ends once everything
+planned is written.
+
+**A failure is reported, not held.** Nothing retries a selection, so the reason
+goes to Activity and the card stays, unticked, to be looked at again.
+
 ## Watching for alternatives
 
 “Better artwork wanted” is an explicit request to watch the matched release and
@@ -187,7 +271,8 @@ A watch broadens the ordinary artwork proposal to include smaller front images,
 including existing alternatives. The Library's Artwork updates filter and the
 album's After Apply preview use the same plan. A group's copy of the same upload
 is considered only once, and distinct per-track sleeves remain protected.
-Notifications belong to the future router, not a parallel Inbox workflow.
+What it finds waits in the Inbox like any other artwork update
+([above](#where-an-artwork-update-waits)), not in a parallel workflow.
 
 “Don't suggest this image” excludes an upload from automatic proposals while
 keeping it in the picker. It is reversible and does not prevent an explicit Use.
@@ -210,9 +295,11 @@ Every write is one of two kinds, and the difference is whether anything is lost:
   folder cover the album lacks;
 - a **replacement** overwrites an existing image.
 
-**A tagging nobody reviewed makes additions only** (#418). Replacements happen
-only through an action where the user has seen what will be replaced: applying
-updates, applying artwork, or confirming a release with artwork included.
+**A tagging nobody reviewed makes additions only** (#418), and so does applying
+artwork nobody reviewed ([above](#applying-artwork-without-asking)).
+Replacements happen only through an action where the user has seen what will be
+replaced: applying updates, applying artwork, or confirming a release with
+artwork included.
 
 **A missing folder cover is suggested only if the user turns that on**, and it
 ships off. The two mistakes don't cost the same. An album without the file still

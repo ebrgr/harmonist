@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import tomllib
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from .artwork import FolderCoverPolicy
+from .artwork import FolderCoverPolicy, Operation
 from .formats.owned import Significance
 from .transforms import ArtistNames, TaggingChoices, TagTransform
 
@@ -22,6 +23,9 @@ GardenerLevel = Literal["off", "review"]
 #: The lowest significance the Inbox takes an update at (#273), or "none" for an
 #: Inbox that takes no updates at all.
 ReviewFrom = Significance | Literal["none"]
+#: The least an artwork update must do for the Inbox to take it (#852): every
+#: addition and replacement, replacements only, or "none".
+ArtworkReviewFrom = Operation | Literal["none"]
 
 #: Bandcamp's download formats that arrive as files Harmonist can read and tag
 #: (#627). Bandcamp also offers WAV and AIFF, and an album downloaded as either
@@ -48,8 +52,29 @@ class BandcampConfig(BaseModel):
     cookies_file: Path | None = None
 
 
+_USER_AGENT_RE = re.compile(r"^\s*([^/]+)/(\S+)\s*\(\s*([^)]*?)\s*\)\s*$")
+
+
+def parse_user_agent(user_agent: str) -> tuple[str, str, str]:
+    """Split "Name/Version ( contact )" into its three parts, stripped."""
+    m = _USER_AGENT_RE.match(user_agent)
+    if not m:
+        raise ValueError(
+            f"user_agent must look like 'Name/Version ( contact )', got: {user_agent!r}"
+        )
+    name, version, contact = m.group(1), m.group(2), m.group(3)
+    return name.strip(), version.strip(), contact.strip()
+
+
 class MusicBrainzConfig(BaseModel):
-    user_agent: str = "Harmonist/1.0 ( harmonist@girtby.net )"
+    #: Checked here rather than only where it is applied to the MusicBrainz
+    #: client, so a Settings save refuses it before writing it and a bad
+    #: `harmonist.toml` stops startup as a config error (#856).
+    #:
+    #: The default names only the major version: a Settings save writes it to
+    #: `harmonist.toml`, where no upgrade revisits it, so an exact version
+    #: would go stale. Bump it for a 2.0.
+    user_agent: str = "Harmonist/1.x ( harmonist@girtby.net )"
     # How long a fetched release may be re-served before Harmonist asks again
     # (#127). MusicBrainz allows one request per second, so an uncached album
     # page spends a rate-limited slot on every view.
@@ -60,6 +85,12 @@ class MusicBrainzConfig(BaseModel):
     # cannot wait never has to. 0 disables serving from the cache; payloads are
     # still recorded, so change detection keeps working with it off.
     cache_ttl_seconds: int = Field(default=3600, ge=0)
+
+    @field_validator("user_agent")
+    @classmethod
+    def _user_agent_form(cls, value: str) -> str:
+        parse_user_agent(value)
+        return value
 
 
 class ServerConfig(BaseModel):
@@ -178,11 +209,28 @@ class GardenerConfig(BaseModel):
     Nothing by default, since applying writes to somebody's files. Never
     Structure: a changed tracklist needs a person by definition, and the track
     assignment it can call for has no unattended answer.
+
+    `artwork_review_from` is the same threshold for artwork updates (#852), on
+    the scale addition, then replacement: an album whose artwork plan does at
+    least that much waits in the Inbox. An album is judged by its plan as a
+    whole, so one replacing anything is a replacement, whatever it also adds.
+    Nothing by default, which is where artwork updates were before there was a
+    choice: in the Library's Artwork updates filter. An album with a "Better
+    artwork wanted" watch waits in the Inbox whatever this says, since the
+    watch was a request to be told.
+
+    `artwork_apply_up_to` is the other end of the artwork scale (#853): an
+    album whose plan only adds artwork is written without asking. Never a
+    replacement, so nothing written with nobody watching overwrites an image,
+    and never a watched album, whose watch asked to be shown what turned up.
+    Nothing by default, since applying writes to somebody's files.
     """
 
     level: GardenerLevel = "off"
     review_from: ReviewFrom = Significance.STRUCTURE
     apply_up_to: ReviewFrom = "none"
+    artwork_review_from: ArtworkReviewFrom = "none"
+    artwork_apply_up_to: ArtworkReviewFrom = "none"
 
     @field_validator("apply_up_to")
     @classmethod
@@ -191,6 +239,15 @@ class GardenerConfig(BaseModel):
             raise ValueError(
                 "structure updates are never applied automatically; choose settings, "
                 "cosmetic, enrichment, identity or none"
+            )
+        return value
+
+    @field_validator("artwork_apply_up_to")
+    @classmethod
+    def _never_replace(cls, value: ArtworkReviewFrom) -> ArtworkReviewFrom:
+        if value == Operation.REPLACEMENT:
+            raise ValueError(
+                "artwork replacements are never applied automatically; choose addition or none"
             )
         return value
 
@@ -403,6 +460,12 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     if v := env.get("HARMONIST_GARDENER_APPLY_UP_TO"):
         # Unvalidated, for the reason the level is (above).
         gardener["apply_up_to"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_ARTWORK_REVIEW_FROM"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["artwork_review_from"] = v.strip()
+    if v := env.get("HARMONIST_GARDENER_ARTWORK_APPLY_UP_TO"):
+        # Unvalidated, for the reason the level is (above).
+        gardener["artwork_apply_up_to"] = v.strip()
     if v := env.get("HARMONIST_TAGGING_FOLDER_COVER"):
         # Unvalidated, for the reason the gardener level is (above): a typo
         # should stop the container with the permitted values in the message,

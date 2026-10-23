@@ -67,10 +67,20 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
+        id: python
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+
+      # Each job installs a different dependency set. A shared immutable key
+      # lets the faster CSS job save its tiny cache before either test job.
+      - name: Cache Python test dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pip
+          key: pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-
 
       - name: Install (with dev extras)
         run: pip install -e ".[dev]"
@@ -106,6 +116,15 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Keep this image and the Playwright pin in pyproject.toml in sync. Baking
+    # browsers and OS libraries into the image avoids apt downloads on every run.
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.64.0-noble@sha256:684df257a1fa0ef3fa288239819984008f560e8f8db5b635ee9e2a50cbcd2e23
+      options: --ipc=host
+    env:
+      # GitHub mounts HOME with the runner's owner, while this image runs as
+      # root. pip disables caching there; use a directory owned by root instead.
+      PIP_CACHE_DIR: /root/.cache/pip
     steps:
       - uses: actions/checkout@v7
 
@@ -115,33 +134,42 @@ jobs:
           cache: npm
 
       - name: Build browser assets
-        run: make browser-assets
+        # The Playwright image has no Make; these are the browser-assets recipe.
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
 
       - uses: actions/setup-python@v7
+        id: python
         with:
           python-version: "3.15"
-          cache: pip
+
+      - name: Cache browser test dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-
 
       - name: Install (with dev + e2e extras)
         run: pip install -e ".[dev,e2e]"
 
-      # Each Playwright release drives its own browser builds, so the cache is
-      # keyed on the installed version: a bump in pyproject misses it and
-      # downloads the builds that release expects.
-      - name: Playwright version
-        id: playwright
-        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+      - name: Verify Playwright image compatibility
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import json
+          from pathlib import Path
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-
-      # Skips any browser the cache restored, but the system libraries they
-      # link against aren't in the cache, so this runs every time.
-      - name: Install browsers
-        run: playwright install --with-deps chromium webkit
+          installed = importlib.metadata.version("playwright")
+          image = json.loads(Path("/ms-playwright/.docker-info").read_text())
+          assert installed == image["driverVersion"], (
+              f"Playwright {installed} does not match CI image {image['driverVersion']}; "
+              "update the pinned image in .github/workflows/ci.yml with pyproject.toml"
+          )
+          print(f"Playwright {installed}: using browsers and system libraries from the CI image")
+          PY
 
       # `loadscope` keeps each module on one worker, so a module-scoped server
       # boots once. Report slow setup/call/teardown phases as well as retaining
@@ -182,7 +210,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
-          cache: pip
 
       - name: Install Tailwind wrapper
         run: pip install pytailwindcss

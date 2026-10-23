@@ -124,8 +124,10 @@ would spend a MusicBrainz request per album. Each album is re-judged at write
 time, and one whose update now reaches further than the user trusts is held
 rather than written.
 
-**Tags only.** Artwork replacement needs a backup before it overwrites, and
-nobody asked for this write, so artwork waits for its own setting.
+**Tags, and artwork additions.** The tag write leaves artwork alone. Artwork has
+a setting of its own, and only ever adds: a replacement needs a backup before it
+overwrites, and nobody asked for this write (see
+[artwork](artwork.md#applying-artwork-without-asking)).
 
 **Its own tick, independent of the update check.** The check's switch guards
 the MusicBrainz budget, and applying spends none of it, so an update found by
