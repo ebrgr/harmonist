@@ -13,7 +13,7 @@ the file. Every setting is optional.
 | Key | Env | Default | |
 |---|---|---|---|
 | `music_dir` | `HARMONIST_MUSIC_DIR` | `/music` in Docker | Your music library, as an absolute path. |
-| `artist_info_dir` | `HARMONIST_ARTIST_INFO_DIR` | Unset | Optional read-only Artist Information Folder, containing one subfolder per artist with an `artist.nfo`. Independent of the audio folder layout. |
+| `artist_info_dir` | `HARMONIST_ARTIST_INFO_DIR` | Unset | Optional Artist Information Folder, containing one subfolder per artist with an `artist.nfo`. Independent of the audio folder layout. |
 | | `HARMONIST_CONFIG_DIR` | `/config` in Docker | Where `harmonist.toml`, the Bandcamp cookies, `ignores.txt`, the activity history and kept artwork live. |
 
 Needs a restart.
@@ -24,6 +24,12 @@ the association; matching directory names alone do not. The separate information
 folder can be outside the music library, provided Harmonist can read it. Docker
 needs that folder mounted too; a read-only mount is sufficient. Demo mode ignores
 this setting and reads only its sandbox.
+
+Editing or creating an NFO requires write access. New artist NFOs use a subfolder
+named for the MusicBrainz artist ID inside this information folder; the folder
+is created on an explicit save if missing. Existing NFOs can also be edited
+where they were discovered in the music library. Originals are preserved under
+`artist-nfo-backups` in the config directory before an edit replaces them.
 
 If the configured Artist Information Folder does not exist, NFOs in the music
 library remain available. The artist page reports the unavailable source, and
