@@ -1,0 +1,16 @@
+<details id="nfo-change-{{ change.event_id }}" class="hmt-group mt-2 text-xs font-sans text-ink">
+    <summary class="cursor-pointer font-bold">NFO changes · {{ change.changes | length }} fields</summary>
+    <p class="mt-2 text-muted break-all">{{ display_path(change.file) }}</p>
+    <dl class="mt-2 space-y-2">
+        {% for field, pair in change.changes.items() %}
+        <div class="border border-line rounded p-2 space-y-1">
+            <dt class="font-bold">{{ nfo_labels.get(field, field) }}</dt>
+            <dd class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div><span class="text-muted">Before</span><p class="whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{{ pair[0] or '—' }}</p></div>
+                <div><span class="text-muted">After</span><p class="whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{{ pair[1] or '—' }}</p></div>
+            </dd>
+        </div>
+        {% endfor %}
+    </dl>
+    <p class="mt-2 font-mono text-muted break-all">SHA-256 before: {{ change.before_hash or 'absent' }}<br>SHA-256 after: {{ change.after_hash or 'absent' }}</p>
+</details>

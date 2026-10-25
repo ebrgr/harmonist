@@ -141,3 +141,23 @@ Undoing artwork never rewrites tags, and undoing tags never touches artwork.
 
 What to undo is worked out from the album's own records, by the history entry the
 user clicked. A request can name an entry, but never a file or an image.
+
+## Artist NFO history
+
+Artist history uses the same activity-and-audit presentation, scoped by the
+confirmed artist ID rather than an album ID. Each successful NFO write records
+the source path, before/after SHA-256 hashes and changed fields. Exact original
+bytes stay outside SQLite, keyed by their hash, so XML formatting, encoding and
+unknown elements can be recovered as well as the editable metadata.
+
+The whole file is the unit of Undo. Merging selected fields into externally
+edited XML could silently change data outside the reviewed edit, so Undo
+requires the entire current file to match what that history entry wrote. It
+keeps a verified copy of anything it replaces or removes, and records the Undo
+as another change. An absent original means a newly created NFO can be removed;
+an absent current file is recreated only when undoing a recorded removal.
+
+NFO backups are retained without automatic pruning. They are small text files
+and the owner has asked to retain every version; artwork's image-size cap would
+make that promise false. Missing backups remain visible in history and disable
+Undo rather than erasing evidence of the change.
