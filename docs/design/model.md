@@ -22,6 +22,15 @@ NFO sources remain a page-level choice: browsing needs no durable association,
 and creating one would turn an optional read into another user decision to
 preserve and audit. Artist metadata never changes canonical music tags.
 
+An explicit NFO edit is a local artist-metadata operation, separate from music
+tagging. The selected source is re-discovered by artist identity at save time,
+and its content fingerprint protects the draft from an intervening edit. Keeping
+the original bytes before replacement makes XML normalization reversible while
+unrecognized elements remain in the edited document. New files belong in the
+separate information folder under an artist-ID directory: a collaboration's
+audio directory cannot safely be claimed as one participant's metadata folder.
+NFO discographies enrich the page without declaring their entries owned.
+
 ## An album is its release, not its folder
 
 A library assembled over decades keeps one release in several places:

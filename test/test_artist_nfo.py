@@ -219,3 +219,22 @@ def test_permission_failure_in_information_folder_remains_a_visible_error(tmp_pa
     result = artist_nfo.for_artist(artist, tmp_path, info)
     assert result.profile is None
     assert any("Permission denied" in error for error in result.errors)
+
+
+def test_profile_keeps_genres_and_nfo_discography_separate(tmp_path):
+    path = tmp_path / "artist.nfo"
+    path.write_text(
+        f"<artist><musicBrainzArtistID>{ALICE}</musicBrainzArtistID>"
+        "<genre>Rock</genre><genre>Alternative</genre><genre>Rock</genre>"
+        "<album><title>Unowned album</title><year>1999</year>"
+        f"<musicbrainzreleasegroupid>{BOB}</musicbrainzreleasegroupid></album>"
+        "<album><title>&lt;script&gt;title&lt;/script&gt;</title><year>2002</year>"
+        "<musicbrainzreleasegroupid>not-an-id</musicbrainzreleasegroupid></album>"
+        "<album><year>2000</year></album></artist>"
+    )
+    profile = artist_nfo.read(path)
+    assert getattr(profile, "genres", ()) == ("Rock", "Alternative")
+    assert [(a.title, a.year, a.release_group_id) for a in profile.discography] == [
+        ("Unowned album", "1999", BOB),
+        ("<script>title</script>", "2002", None),
+    ]

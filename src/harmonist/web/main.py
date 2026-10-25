@@ -40,6 +40,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -49,6 +50,7 @@ from harmonist import (
     album_files,
     archive,
     artist_nfo,
+    artist_nfo_edit,
     artists,
     artwork,
     artwork_store,
@@ -4612,6 +4614,13 @@ def _register_routes(app: FastAPI) -> None:
                 artist_previous=location(grid["prev_page"]) if grid["prev_page"] else None,
                 artist_next=location(grid["next_page"]) if grid["next_page"] else None,
                 artist_reload_url=location(grid["page"]) + "&refresh=1",
+                artist_edit_url=location(grid["page"]).replace(
+                    f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo/edit?", 1
+                ),
+                artist_can_edit=bool(
+                    artist.mbid
+                    and (result.profile or (cfg.paths.artist_info_dir and not result.candidates))
+                ),
                 nfo_choices=[
                     (str(p), location(grid["page"], artist_nfo.selection_key(p)))
                     for p in result.candidates
@@ -4623,6 +4632,178 @@ def _register_routes(app: FastAPI) -> None:
                 ),
             ),
         )
+
+    def _nfo_editor(
+        request: Request,
+        artist: artists.Artist,
+        nfo: str | None,
+        page: int,
+        artist_page: int,
+        artist_q: str,
+        *,
+        draft: dict[str, str] | None = None,
+        error: str | None = None,
+        expected: str | None = None,
+    ) -> Response:
+        cfg = request.app.state.cfg
+        result = artist_nfo.for_artist(
+            artist, cfg.paths.music_dir, cfg.paths.artist_info_dir, nfo, refresh=True
+        )
+        profile = result.profile
+        values = dict(profile.edit_values) if profile else {"name": artist.name}
+        values.update(draft or {})
+        path = None
+        try:
+            if profile is None and result.candidates:
+                raise artist_nfo.NfoError("Choose an NFO source on the artist page first.")
+            path = artist_nfo_edit.target(artist, profile, cfg.paths.artist_info_dir)
+        except artist_nfo.NfoError as exc:
+            error = error or str(exc)
+        location = artists.detail_url(
+            artist.key,
+            page=max(1, page),
+            artist_page=max(1, artist_page),
+            artist_q=artist_q[:100],
+            nfo=nfo,
+        )
+        return _templates(request).TemplateResponse(
+            request,
+            "partials/_artist_nfo_editor.html",
+            _ctx(
+                request,
+                artist=artist,
+                edit_target=path,
+                nfo_values=values,
+                nfo_fields=artist_nfo.EDIT_FIELDS,
+                nfo_expected=expected
+                if expected is not None
+                else (profile.fingerprint if profile else ""),
+                nfo_edit_error=error,
+                nfo_post_url=location.replace(
+                    f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo?", 1
+                ),
+                nfo_editor_url=location.replace(
+                    f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo/edit?", 1
+                ),
+            ),
+        )
+
+    @app.get("/artist/{artist_key}/nfo/edit", response_class=HTMLResponse)
+    def artist_nfo_editor(
+        request: Request,
+        artist_key: str,
+        page: int = 1,
+        artist_page: int = 1,
+        artist_q: str = "",
+        nfo: str | None = None,
+    ) -> Response:
+        return _nfo_editor(
+            request, _artist_for(request, artist_key), nfo, page, artist_page, artist_q
+        )
+
+    @app.post("/artist/{artist_key}/nfo", response_class=HTMLResponse)
+    async def artist_nfo_save(
+        request: Request,
+        artist_key: str,
+        page: int = 1,
+        artist_page: int = 1,
+        artist_q: str = "",
+        nfo: str | None = None,
+    ) -> Response:
+        # Keep explicit empty strings: Form(None) treats them as missing, which
+        # would make clearing a biography impossible. Disk work stays off-loop.
+        form = await request.form()
+        values: dict[str, str] = {}
+        for field in artist_nfo.EDIT_FIELDS:
+            if field.tag not in form:
+                continue
+            submitted = form.getlist(field.tag)
+            if any(not isinstance(value, str) for value in submitted):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "NFO fields must be text"
+                )
+            values[field.tag] = "\n".join(str(value) for value in submitted)
+        expected = form.get("expected", "")
+        if not isinstance(expected, str):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid NFO fingerprint")
+        return await run_in_threadpool(
+            _save_artist_nfo,
+            request,
+            artist_key,
+            page,
+            artist_page,
+            artist_q,
+            nfo,
+            values,
+            expected,
+        )
+
+    def _save_artist_nfo(
+        request: Request,
+        artist_key: str,
+        page: int,
+        artist_page: int,
+        artist_q: str,
+        nfo: str | None,
+        values: dict[str, str],
+        expected: str,
+    ) -> Response:
+        request.state.skip_rescan = True
+        artist = _artist_for(request, artist_key)
+        cfg = request.app.state.cfg
+        try:
+            saved = artist_nfo_edit.save(
+                artist,
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                cfg.paths.config_dir / "artist-nfo-backups",
+                values,
+                expected,
+                nfo,
+            )
+        except artist_nfo.NfoError as exc:
+            return _nfo_editor(
+                request,
+                artist,
+                nfo,
+                page,
+                artist_page,
+                artist_q,
+                draft=values,
+                error=str(exc),
+                expected=expected,
+            )
+        except OSError:
+            log.exception("Could not save artist NFO")
+            return _nfo_editor(
+                request,
+                artist,
+                nfo,
+                page,
+                artist_page,
+                artist_q,
+                draft=values,
+                error="Could not save the artist NFO. Check folder permissions and try again.",
+                expected=expected,
+            )
+        response = _flash_response(
+            "Artist NFO created"
+            if saved.created
+            else "Artist NFO saved"
+            if saved.changed
+            else "Artist NFO unchanged",
+            artist.name,
+            tasks_changed=False,
+            record_activity=saved.changed,
+        )
+        response.headers["HX-Redirect"] = artists.detail_url(
+            artist.key,
+            page=max(1, page),
+            artist_page=max(1, artist_page),
+            artist_q=artist_q[:100],
+            nfo=artist_nfo.selection_key(saved.path),
+        )
+        return response
 
     @app.get("/artist/{artist_key}/image")
     def artist_image(request: Request, artist_key: str, nfo: str | None = None) -> Response:
