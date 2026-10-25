@@ -4545,6 +4545,26 @@ def _register_routes(app: FastAPI) -> None:
                 nfo=selected_nfo,
             )
 
+        history: list[activity_store.StoredEvent] = []
+        nfo_changes: dict[int, activity_store.NfoChange] = {}
+        history_unavailable = False
+        try:
+            history = activity_store.artist_history(artist.mbid or artist.key)
+            detail = activity_store.nfo_changes_for([event.id for event in history])
+            anchors = {
+                event.action_id: event.id
+                for event in reversed(history)
+                if event.action_id and event.source is activity_store.Source.ACTIVITY
+            }
+            nfo_changes = {
+                anchors.get(event.action_id or "", event.id): detail[event.id]
+                for event in history
+                if event.id in detail
+            }
+        except activity_store.StoreUnavailableError:
+            history = []
+            history_unavailable = True  # the store logged the failed read
+
         return _templates(request).TemplateResponse(
             request,
             "artist.html",
@@ -4552,6 +4572,24 @@ def _register_routes(app: FastAPI) -> None:
                 request,
                 **grid,
                 artist=artist,
+                history=history,
+                history_unavailable=history_unavailable,
+                history_subject="artist",
+                nfo_changes=nfo_changes,
+                nfo_undo_reasons={
+                    anchor: artist_nfo_edit.undo_unavailable(
+                        change,
+                        result.profile,
+                        cfg.paths.music_dir,
+                        cfg.paths.artist_info_dir,
+                        cfg.paths.config_dir / "nfoartists",
+                    )
+                    for anchor, change in nfo_changes.items()
+                },
+                nfo_labels={field.tag: field.label for field in artist_nfo.EDIT_FIELDS},
+                artist_restore_url=location(grid["page"]).replace(
+                    f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo/restore?", 1
+                ),
                 nfo=result,
                 artist_image=image is not None,
                 artist_image_url=f"/artist/{artist.key}/image"
@@ -4703,7 +4741,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist,
                 cfg.paths.music_dir,
                 cfg.paths.artist_info_dir,
-                cfg.paths.config_dir / "artist-nfo-backups",
+                cfg.paths.config_dir / "nfoartists",
                 values,
                 expected,
                 nfo,
@@ -4742,6 +4780,7 @@ def _register_routes(app: FastAPI) -> None:
             artist.name,
             tasks_changed=False,
             record_activity=saved.changed,
+            artist=artist,
         )
         response.headers["HX-Redirect"] = artists.detail_url(
             artist.key,
@@ -4749,6 +4788,62 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=artist_nfo.selection_key(saved.path),
+        )
+        return response
+
+    @app.post("/artist/{artist_key}/nfo/restore", response_class=HTMLResponse)
+    def artist_nfo_restore(
+        request: Request,
+        artist_key: str,
+        event_id: int = Form(...),
+        page: int = 1,
+        artist_page: int = 1,
+        artist_q: str = "",
+        nfo: str | None = None,
+    ) -> Response:
+        request.state.skip_rescan = True
+        artist = _artist_for(request, artist_key)
+        cfg = request.app.state.cfg
+        try:
+            saved = artist_nfo_edit.restore(
+                artist,
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                cfg.paths.config_dir / "nfoartists",
+                event_id,
+            )
+        except artist_nfo_edit.HistoryNotFound as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        except (artist_nfo.NfoError, activity_store.StoreUnavailableError) as exc:
+            return _flash_response(
+                "NFO not restored",
+                str(exc),
+                level=Level.WARNING,
+                tasks_changed=False,
+                record_activity=False,
+            )
+        except OSError:
+            log.exception("Could not restore artist NFO")
+            return _flash_response(
+                "NFO not restored",
+                "Check NFO and backup folder permissions and try again.",
+                level=Level.ERROR,
+                tasks_changed=False,
+                artist=artist,
+            )
+        response = _flash_response(
+            "Artist NFO restored" if saved.changed else "Artist NFO unchanged",
+            artist.name,
+            artist=artist,
+            tasks_changed=False,
+            record_activity=saved.changed,
+        )
+        response.headers["HX-Redirect"] = artists.detail_url(
+            artist.key,
+            page=max(1, page),
+            artist_page=max(1, artist_page),
+            artist_q=artist_q[:100],
+            nfo=artist_nfo.selection_key(saved.path) if saved.path.exists() else None,
         )
         return response
 
@@ -8819,6 +8914,7 @@ def _flash_response(
     status_code: int = 200,
     extra_triggers: dict[str, Any] | None = None,
     album: Album | None = None,
+    artist: artists.Artist | None = None,
     record_activity: bool = True,
     oob: str = "",
 ) -> HTMLResponse:
@@ -8857,7 +8953,13 @@ def _flash_response(
     # writes the authoritative entry itself — starting a sync, where only the
     # runner knows link-only vs full — and this would just duplicate it (#101).
     if record_activity:
-        activity.record(message, level, album_id=album_id, album_label=album_label)
+        activity.record(
+            message,
+            level,
+            album_id=album_id,
+            album_label=album_label,
+            artist_id=artist.mbid or artist.key if artist is not None else None,
+        )
     triggers: dict[str, Any] = {
         "harmonist-status": {
             "verb": verb,

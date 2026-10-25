@@ -97,8 +97,14 @@ Explicit edits can change the artist information, biography and genre tags in
 the selected NFO. Unknown XML elements, artwork references and discography
 entries are preserved. An edit that changed on disk while its form was open
 requires another read before it can be saved. The original bytes are kept in
-`artist-nfo-backups` in the config directory before replacement; copying that
-backup over the edited NFO restores the original file. Identifiers and music
+`nfoartists/<sha256>.nfo` in the config directory before replacement. Artist
+history records the source file, content hashes and each edited field's before
+and after values. Undo restores the exact previous file only while the current
+NFO still matches that entry, and backs up the current version first. An edit
+by another program is preserved. Creating an NFO records an absent original;
+undoing that creation removes only the unchanged NFO and keeps its bytes.
+Earlier `artist-nfo-backups` copies remain available; earlier audit-only entries
+do not acquire field histories retroactively. Identifiers and music
 files are not edited. An identified artist without an NFO can have one created
 in a subfolder named for its artist ID in the configured Artist Information
 Folder, without changing the audio layout.

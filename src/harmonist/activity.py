@@ -62,6 +62,7 @@ def record(
     *,
     album_id: str | None = None,
     album_label: str | None = None,
+    artist_id: str | None = None,
 ) -> None:
     """Append an event (Activity feed) AND emit it to the log, so the docker
     log is a superset of the feed. `album_id` ties the event to an album for
@@ -77,6 +78,7 @@ def record(
         source=Source.ACTIVITY,
         album_id=album_id,
         album_label=album_label,
+        artist_id=artist_id,
     )
     # Mirror to the log. The `_activity` flag stops _ActivityLogHandler from
     # re-recording it (which would feed back into this function — a loop).

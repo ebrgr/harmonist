@@ -29,7 +29,10 @@ Editing or creating an NFO requires write access. New artist NFOs use a subfolde
 named for the MusicBrainz artist ID inside this information folder; the folder
 is created on an explicit save if missing. Existing NFOs can also be edited
 where they were discovered in the music library. Originals are preserved under
-`artist-nfo-backups` in the config directory before an edit replaces them.
+`nfoartists/<sha256>.nfo` in the config directory before an edit replaces them.
+For example, a local config directory of `.dev-data/config` keeps these copies
+in `.dev-data/config/nfoartists`. This backup folder is separate from the
+Artist Information Folder, which contains the active NFOs.
 
 If the configured Artist Information Folder does not exist, NFOs in the music
 library remain available. The artist page reports the unavailable source, and
