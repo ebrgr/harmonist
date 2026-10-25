@@ -6,7 +6,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
-- **Artists lists local album artists alphabetically**, with equal-height cards, local artist pictures, shared album tiles and read-only `artist.nfo` metadata, including a separate Artist Information Folder (#813).
+- **Artists browses local album artists** with artwork, collapsible biographies and NFO discographies, and a local NFO editor with genre tags (#813).
 
 ## [1.30.0] - 2026-10-22
 

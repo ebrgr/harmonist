@@ -27,7 +27,12 @@ def seed(music_dir, **kwargs):
     info.mkdir(parents=True)
     (info / "artist.nfo").write_text(
         f"<artist><name>Álice</name><musicbrainzartistid>{ALICE}</musicbrainzartistid>"
-        "<biography>A locally stored biography.</biography><formed>2001</formed>"
+        "<biography>A locally stored biography. "
+        + ("A long paragraph about the artist. " * 120)
+        + "</biography>"
+        "<formed>2001</formed><genre>Rock</genre><style>Alternative</style>"
+        "<album><title>NFO discography album</title><year>1999</year></album>"
+        f"<album><title>Another discography album</title><year>2000</year><musicbrainzreleasegroupid>{ALICE}</musicbrainzreleasegroupid></album>"
         "</artist>"
     )
     # An existing demo asset, not a downloaded image.

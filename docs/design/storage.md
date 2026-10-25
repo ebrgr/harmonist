@@ -119,6 +119,11 @@ the old nested cache, with one directory rename; the irreplaceable backups never
 move. A conflicting destination or a failed rename stops startup rather than
 choosing which images to discard or leaving a partially copied store.
 
+Explicit artist-NFO edits keep exact original XML bytes in
+`artist-nfo-backups/<sha256>.nfo` in the config directory. This is a file backup,
+not a second artist catalogue: the NFO remains authoritative for its metadata,
+and audit records name the source, backup and before/after content hashes.
+
 ## `ignores.txt`
 
 bandcampsync's list of purchases it considers downloaded. Harmonist doesn't keep

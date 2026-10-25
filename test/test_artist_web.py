@@ -174,3 +174,97 @@ def test_tracks_without_artist_ids_do_not_split_an_identified_artist(artist_clie
     assert "Unidentified credit - Solo" in BeautifulSoup(detail.text, "html.parser").get_text()
     assert {p: p.read_bytes() for p in before} == before
     network.assert_not_called()
+
+
+def test_artist_sections_and_discography_do_not_change_owned_album_count(artist_client):
+    client, cfg, network = artist_client
+    path = cfg.paths.artist_info_dir / "Different directory name" / "artist.nfo"
+    path.write_text(
+        path.read_text().replace(
+            "</artist>",
+            "<genre>Rock</genre><style>Alternative</style>"
+            "<album><title>Not in library</title><year>1999</year></album></artist>",
+        )
+    )
+    response = client.get(f"/artist/{ALICE}")
+    body = BeautifulSoup(response.text, "html.parser")
+    assert body.select_one("#artist-biography p").get_text() == "<script>biography</script>"
+    assert body.select_one("#artist-biography").get("open") is None
+    assert body.select_one("#artist-discography").get("open") is None
+    assert "Not in library" in body.select_one("#artist-discography").get_text()
+    assert len(body.select("#library-grid .lib-tile")) == 2
+    assert body.select_one('[aria-label="Artist genres"]').get_text(strip=True) == "Rock"
+    assert (
+        "Alternative" in body.select_one('[aria-labelledby="artist-additional-heading"]').get_text()
+    )
+    network.assert_not_called()
+
+
+def test_edit_and_create_nfo_preserve_audio_and_show_saved_genres(artist_client):
+    client, cfg, network = artist_client
+    before = {p: p.read_bytes() for p in cfg.paths.music_dir.rglob("*") if p.is_file()}
+    editor = client.get(f"/artist/{ALICE}/nfo/edit?artist_q=Alice&artist_page=2")
+    assert editor.status_code == 200
+    token = BeautifulSoup(editor.text, "html.parser").select_one('input[name="expected"]')
+    assert token is not None
+    expected = str(token["value"])
+    saved = client.post(
+        f"/artist/{ALICE}/nfo?artist_q=Alice&artist_page=2",
+        data={
+            "expected": expected,
+            "genre": ["Rock", "Alternative"],
+            "biography": "Edited biography",
+        },
+    )
+    assert saved.status_code == 200
+    assert "artist_q=Alice" in saved.headers["HX-Redirect"]
+    page = client.get(saved.headers["HX-Redirect"])
+    assert "Edited biography" in page.text
+    assert page.context["nfo"].profile.genres == ("Rock", "Alternative")
+    assert len(list((cfg.paths.config_dir / "artist-nfo-backups").glob("*.nfo"))) == 1
+    created = client.post(
+        f"/artist/{BOB}/nfo", data={"expected": "", "name": "Bob", "genre": "Jazz"}
+    )
+    assert created.status_code == 200
+    profile = client.get(created.headers["HX-Redirect"]).context["nfo"].profile
+    assert profile.mbid == BOB and profile.genres == ("Jazz",)
+    assert profile.path == cfg.paths.artist_info_dir / BOB / "artist.nfo"
+    assert {p: p.read_bytes() for p in before} == before
+    network.assert_not_called()
+
+
+def test_stale_nfo_editor_keeps_draft_and_requires_rereading(artist_client):
+    client, cfg, _network = artist_client
+    editor = client.get(f"/artist/{ALICE}/nfo/edit")
+    token = BeautifulSoup(editor.text, "html.parser").select_one('input[name="expected"]')
+    assert token is not None
+    expected = str(token["value"])
+    path = cfg.paths.artist_info_dir / "Different directory name" / "artist.nfo"
+    path.write_text(path.read_text().replace("1980", "1981"))
+    original = path.read_bytes()
+    response = client.post(
+        f"/artist/{ALICE}/nfo", data={"expected": expected, "born": "1990", "genre": "Rock"}
+    )
+    assert "HX-Redirect" not in response.headers
+    assert "changed since" in response.text
+    assert 'value="1990"' in response.text
+    assert "Read again" in response.text
+    assert path.read_bytes() == original
+
+
+def test_nfo_editor_can_clear_fields_without_clearing_omitted_fields(artist_client):
+    client, cfg, _network = artist_client
+    path = cfg.paths.artist_info_dir / "Different directory name" / "artist.nfo"
+    token = BeautifulSoup(client.get(f"/artist/{ALICE}/nfo/edit").text, "html.parser").select_one(
+        'input[name="expected"]'
+    )
+    assert token is not None
+    saved = client.post(
+        f"/artist/{ALICE}/nfo", data={"expected": str(token["value"]), "biography": "", "genre": ""}
+    )
+    profile = client.get(saved.headers["HX-Redirect"]).context["nfo"].profile
+    assert profile.biography == ""
+    assert profile.genres == ()
+    assert profile.name == "Alice"
+    assert ("Born", "1980") in profile.facts
+    assert "biography" not in path.read_text()
