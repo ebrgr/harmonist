@@ -332,6 +332,20 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     # NULL on every row written before this, which reads as "release" — the only
     # listing that was ever asked.
     ("ALTER TABLE caa_cache ADD COLUMN source TEXT",),
+    # 10 -> 11: artist history and successful NFO changes. XML bytes stay in
+    # config/nfoartists; hashes are backup keys, not a second metadata catalogue.
+    # Old events have no artist attribution: it cannot be reconstructed safely.
+    (
+        "ALTER TABLE events ADD COLUMN artist_id TEXT",
+        "CREATE INDEX idx_events_artist_id ON events (artist_id, id)",
+        """CREATE TABLE artist_nfo_changes (
+            event_id INTEGER PRIMARY KEY REFERENCES events (id),
+            file TEXT NOT NULL,
+            before_hash TEXT,
+            after_hash TEXT,
+            changes TEXT NOT NULL
+        )""",
+    ),
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)  # the version this build expects/creates
@@ -384,7 +398,7 @@ def current_action() -> str | None:
 #: One definition rather than four copies of the same list: the id was added
 #: for #86's history join, and adding it to three of four call sites would have
 #: been an unpleasant way to find out which one was missed.
-_EVENT_COLUMNS = "id, ts, level, source, message, album_id, album_label, action_id"
+_EVENT_COLUMNS = "id, ts, level, source, message, album_id, album_label, action_id, artist_id"
 
 
 @dataclass(frozen=True)
@@ -404,11 +418,12 @@ class StoredEvent:
     # The action that produced this row — shared with every other row from the
     # same user-visible outcome (#84). None outside an action scope.
     action_id: str | None = None
+    artist_id: str | None = None
 
 
 def _event(row: tuple[Any, ...]) -> StoredEvent:
     """One `_EVENT_COLUMNS` row as a StoredEvent."""
-    row_id, ts, level, src, msg, album_id, label, action_id = row
+    row_id, ts, level, src, msg, album_id, label, action_id, artist_id = row
     return StoredEvent(
         id=int(row_id),
         ts=datetime.fromisoformat(ts),
@@ -418,6 +433,7 @@ def _event(row: tuple[Any, ...]) -> StoredEvent:
         album_id=album_id,
         album_label=label,
         action_id=action_id,
+        artist_id=artist_id,
     )
 
 
@@ -515,6 +531,7 @@ def append(
     source: Source,
     album_id: str | None = None,
     album_label: str | None = None,
+    artist_id: str | None = None,
 ) -> int | None:
     """Append one event, returning its row id — or None when nothing was written.
 
@@ -538,8 +555,8 @@ def append(
             conn = _ensure()
             cur = conn.execute(
                 "INSERT INTO events "
-                "(ts, level, source, message, album_id, album_label, action_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(ts, level, source, message, album_id, album_label, action_id, artist_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     ts,
                     level.value,
@@ -548,6 +565,7 @@ def append(
                     album_id,
                     album_label,
                     _current_action.get(),
+                    artist_id,
                 ),
             )
             conn.commit()
@@ -563,6 +581,91 @@ def append(
         # mirror re-entering record() and looping (activity._ActivityLogHandler).
         log.exception("activity_store append failed", extra=_QUIET_MIRROR)
     return None
+
+
+@dataclass(frozen=True)
+class NfoChange:
+    """A successful whole-file NFO change; None hashes mean file absence."""
+
+    event_id: int
+    file: str
+    before_hash: str | None
+    after_hash: str | None
+    changes: dict[str, list[str]]
+
+
+def record_nfo_change(change: NfoChange) -> None:
+    """Attach structured detail after a successful write, best-effort like tags."""
+    try:
+        with _LOCK:
+            conn = _ensure()
+            conn.execute(
+                "INSERT INTO artist_nfo_changes "
+                "(event_id, file, before_hash, after_hash, changes) VALUES (?, ?, ?, ?, ?)",
+                (
+                    change.event_id,
+                    change.file,
+                    change.before_hash,
+                    change.after_hash,
+                    json.dumps(change.changes, ensure_ascii=False),
+                ),
+            )
+            conn.commit()
+    except sqlite3.Error:
+        log.exception("activity_store record_nfo_change failed", extra=_QUIET_MIRROR)
+
+
+def nfo_changes_for(event_ids: Sequence[int]) -> dict[int, NfoChange]:
+    """Batch one page's NFO detail. A failed read is visibly unavailable."""
+    if not event_ids:
+        return {}
+    placeholders = ",".join("?" * len(event_ids))
+    try:
+        with _LOCK:
+            rows = (
+                _ensure()
+                .execute(
+                    "SELECT event_id, file, before_hash, after_hash, changes "
+                    f"FROM artist_nfo_changes WHERE event_id IN ({placeholders})",
+                    list(event_ids),
+                )
+                .fetchall()
+            )
+        result: dict[int, NfoChange] = {}
+        for event_id, file, before, after, payload in rows:
+            changes = json.loads(payload)
+            if not isinstance(changes, dict) or any(
+                not isinstance(key, str)
+                or not isinstance(pair, list)
+                or len(pair) != 2
+                or any(not isinstance(value, str) for value in pair)
+                for key, pair in changes.items()
+            ):
+                raise ValueError("invalid NFO change detail")
+            result[event_id] = NfoChange(event_id, file, before, after, changes)
+        return result
+    except (sqlite3.Error, ValueError, TypeError) as exc:
+        log.exception("activity_store nfo_changes_for failed", extra=_QUIET_MIRROR)
+        raise StoreUnavailableError("could not read artist NFO changes") from exc
+
+
+def artist_history(artist_id: str, limit: int = 200) -> list[StoredEvent]:
+    """Artist-scoped activity and audit, without mixing release and artist IDs."""
+    try:
+        with _LOCK:
+            rows = (
+                _ensure()
+                .execute(
+                    f"SELECT {_EVENT_COLUMNS} FROM events WHERE artist_id = ? "
+                    "ORDER BY id DESC LIMIT ?",
+                    (artist_id, limit),
+                )
+                .fetchall()
+            )
+        return [_event(row) for row in rows]
+    except sqlite3.Error as exc:
+        log.exception("activity_store artist_history failed", extra=_QUIET_MIRROR)
+        raise StoreUnavailableError("could not read this artist's history") from exc
 
 
 @dataclass(frozen=True)
@@ -1477,6 +1580,7 @@ def clear() -> None:
     try:
         with _LOCK:
             conn = _ensure()
+            conn.execute("DELETE FROM artist_nfo_changes")
             conn.execute("DELETE FROM tag_changes")
             conn.execute("DELETE FROM events")
             conn.execute("DELETE FROM album_aliases")

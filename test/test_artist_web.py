@@ -221,7 +221,7 @@ def test_edit_and_create_nfo_preserve_audio_and_show_saved_genres(artist_client)
     page = client.get(saved.headers["HX-Redirect"])
     assert "Edited biography" in page.text
     assert page.context["nfo"].profile.genres == ("Rock", "Alternative")
-    assert len(list((cfg.paths.config_dir / "artist-nfo-backups").glob("*.nfo"))) == 1
+    assert len(list((cfg.paths.config_dir / "nfoartists").glob("*.nfo"))) == 1
     created = client.post(
         f"/artist/{BOB}/nfo", data={"expected": "", "name": "Bob", "genre": "Jazz"}
     )

@@ -1,0 +1,10 @@
+{% if nfo_undo_reasons[e.id] %}
+<span class="text-2xs text-muted font-sans">{{ nfo_undo_reasons[e.id] }}</span>
+{% else %}
+<button hx-post="{{ artist_restore_url }}" hx-vals='{"event_id": {{ change.event_id }}}'
+        hx-swap="none" hx-disabled-elt="this"
+        hx-confirm="Restore the NFO version before this change? The current NFO will be backed up first. Changes made since this entry are preserved."
+        class="tag-changes__undo"
+        title="Restore the previous NFO only if the file still matches this change"
+        aria-label="Undo this artist NFO change">Undo NFO</button>
+{% endif %}

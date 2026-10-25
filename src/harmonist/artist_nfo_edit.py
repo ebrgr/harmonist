@@ -8,6 +8,7 @@ atomic replacement. A content fingerprint protects drafts against outside edits.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import stat
 import tempfile
@@ -17,14 +18,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from . import artist_nfo, audit
+from . import activity_store, artist_nfo, audit
 from .artists import Artist, mbid
 
 _LOCK = threading.Lock()
+log = logging.getLogger(__name__)
 
 
 class NfoChangedError(artist_nfo.NfoError):
     """The selected source changed or became ambiguous while it was edited."""
+
+
+class HistoryNotFound(artist_nfo.NfoError):
+    """No successful NFO write for this artist owns the requested event."""
 
 
 @dataclass(frozen=True)
@@ -106,7 +112,7 @@ def save(
     selection: str | None = None,
 ) -> Saved:
     """Write an explicit edit, with no-op, stale-draft and backup safeguards."""
-    with _LOCK:
+    with _LOCK, activity_store.action():
         result = artist_nfo.for_artist(artist, music_dir, info_dir, selection, refresh=True)
         if result.profile is None and (result.candidates or selection):
             raise NfoChangedError("The NFO source changed. Read again and choose a source.")
@@ -155,13 +161,7 @@ def save(
         after = hashlib.sha256(data).hexdigest()
         backup: Path | None = None
         if original is not None:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            backup = backup_dir / f"{digest}.nfo"
-            if backup.exists():
-                if backup.is_symlink() or not backup.is_file() or backup.read_bytes() != original:
-                    raise artist_nfo.NfoError("The existing NFO backup does not match its digest.")
-            else:
-                _atomic_write(backup, original, 0o600)
+            backup = _keep(backup_dir, original)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Recheck immediately before replacement, including an externally created
         # file. In-process edits are serialized; outside edits are never merged.
@@ -172,7 +172,7 @@ def save(
             raise NfoChangedError("An NFO appeared before it could be created. Read again.")
         audit.record(
             "artist_nfo.write",
-            artist=artist.mbid,
+            artist_id=artist.mbid,
             file=path,
             before=digest or "absent",
             after=after,
@@ -183,5 +183,175 @@ def save(
             _atomic_write(path, data, mode, create=True)
         else:
             _atomic_write(path, data, mode)
-        audit.record("artist_nfo.saved", artist=artist.mbid, file=path, digest=after)
+        _record_saved(
+            artist,
+            path,
+            digest or None,
+            after,
+            {field.tag: [current.get(field.tag, ""), cleaned[field.tag]] for field in changed},
+        )
         return Saved(result.profile.path if result.profile else path, True, original is None)
+
+
+def _keep(directory: Path, data: bytes) -> Path:
+    """No verified backup means no replacement, including an Undo."""
+    digest = hashlib.sha256(data).hexdigest()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{digest}.nfo"
+    if not path.exists() and not path.is_symlink():
+        _atomic_write(path, data, 0o600)
+    if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+        raise artist_nfo.NfoError("The existing NFO backup does not match its digest.")
+    return path
+
+
+def _record_saved(
+    artist: Artist,
+    path: Path,
+    before: str | None,
+    after: str | None,
+    changes: dict[str, list[str]],
+    *,
+    restored: bool = False,
+) -> None:
+    event_id = audit.record(
+        "artist_nfo.restored" if restored else "artist_nfo.saved",
+        artist_id=artist.mbid,
+        file=path,
+        digest=after,
+    )
+    if event_id is not None:
+        activity_store.record_nfo_change(
+            activity_store.NfoChange(event_id, str(path.resolve()), before, after, changes)
+        )
+
+
+def backup_path(directory: Path, digest: str) -> Path:
+    """Resolve only content addresses; preserve access to earlier backup storage."""
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise artist_nfo.NfoError("Invalid NFO backup digest.")
+    path = directory / f"{digest}.nfo"
+    if not path.exists():
+        legacy = directory.parent / "artist-nfo-backups" / f"{digest}.nfo"
+        if legacy.exists():
+            path = legacy
+    if path.is_symlink() or not path.is_file():
+        raise artist_nfo.NfoError("The original NFO backup is unavailable.")
+    return path
+
+
+def _restore_target(
+    change: activity_store.NfoChange,
+    music_dir: Path,
+    info_dir: Path | None,
+) -> Path:
+    path = Path(change.file)
+    roots = [music_dir.resolve(), *([info_dir.resolve()] if info_dir is not None else [])]
+    if (
+        path.is_symlink()
+        or path.name != "artist.nfo"
+        or not any(path.resolve().is_relative_to(root) for root in roots)
+    ):
+        raise artist_nfo.NfoError(
+            "The recorded NFO is outside the configured folders or is a link."
+        )
+    return path
+
+
+def undo_unavailable(
+    change: activity_store.NfoChange,
+    profile: artist_nfo.Profile | None,
+    music_dir: Path,
+    info_dir: Path | None,
+    backup_dir: Path,
+) -> str | None:
+    """A visible reason replaces Undo where the current file/backup cannot support it."""
+    try:
+        path = _restore_target(change, music_dir, info_dir)
+        if change.after_hash is None:
+            if path.exists():
+                return "An NFO has been created since this entry."
+        elif (
+            profile is None
+            or profile.path.resolve() != path
+            or profile.fingerprint != change.after_hash
+        ):
+            return "The NFO changed since this entry, or its source is not selected."
+        if change.before_hash is not None:
+            data = backup_path(backup_dir, change.before_hash).read_bytes()
+            if hashlib.sha256(data).hexdigest() != change.before_hash:
+                return "The original NFO backup does not match its digest."
+    except artist_nfo.NfoError as exc:
+        # Backups explicitly removed by the owner are genuinely unavailable,
+        # not a failed query presented as an empty history.
+        return str(exc)
+    except OSError:
+        log.exception("Could not inspect an NFO backup")
+        return "Could not read the NFO backup. Check folder permissions."
+    return None
+
+
+def restore(
+    artist: Artist,
+    music_dir: Path,
+    info_dir: Path | None,
+    backup_dir: Path,
+    event_id: int,
+) -> Saved:
+    """Undo one successful whole-file write, with a backup of what it replaces.
+
+    A request identifies an artist's event, never a filename or content address.
+    Current bytes must still match that event. External edits are never merged.
+    """
+    with _LOCK, activity_store.action():
+        events = activity_store.artist_history(artist.mbid or "")
+        change = activity_store.nfo_changes_for([e.id for e in events]).get(event_id)
+        if change is None or not artist.mbid:
+            raise HistoryNotFound("No NFO change belongs to this artist and history entry.")
+        path = _restore_target(change, music_dir, info_dir)
+        current = path.read_bytes() if path.exists() else None
+        digest = hashlib.sha256(current).hexdigest() if current is not None else None
+        if digest == change.before_hash:
+            return Saved(path, False)
+        if digest != change.after_hash:
+            raise NfoChangedError("The NFO changed since this history entry. Read again.")
+        original: bytes | None = None
+        if change.before_hash is not None:
+            original = backup_path(backup_dir, change.before_hash).read_bytes()
+            if hashlib.sha256(original).hexdigest() != change.before_hash:
+                raise artist_nfo.NfoError("The NFO backup does not match its digest.")
+            root = artist_nfo.parse_document(original, path)
+            ids = [
+                mbid(e.text or "")
+                for e in root
+                if e.tag in ("musicBrainzArtistID", "musicbrainzartistid")
+            ]
+            if set(ids) != {artist.mbid}:
+                raise artist_nfo.NfoError("The NFO backup has a different artist identity.")
+        backup = _keep(backup_dir, current) if current is not None else None
+        if (path.read_bytes() if path.exists() else None) != current:
+            raise NfoChangedError("The NFO changed before it could be restored. Read again.")
+        mode = stat.S_IMODE(path.stat().st_mode) if current is not None else 0o644
+        audit.record(
+            "artist_nfo.restore",
+            artist_id=artist.mbid,
+            file=path,
+            before=digest,
+            after=change.before_hash,
+            backup=backup,
+            event_id=event_id,
+        )
+        if original is None:
+            path.unlink()
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(path, original, mode, create=current is None)
+        _record_saved(
+            artist,
+            path,
+            digest,
+            change.before_hash,
+            {key: [pair[1], pair[0]] for key, pair in change.changes.items()},
+            restored=True,
+        )
+        return Saved(path, True, current is None)
