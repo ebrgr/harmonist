@@ -10631,6 +10631,44 @@ def test_the_page_and_the_tagger_fingerprint_one_plan_alike(client, cfg, policy)
     assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [artwork.FolderCoverPolicy.NEVER, artwork.FolderCoverPolicy.IF_MISSING],
+)
+def test_the_page_and_the_tagger_agree_on_embiggening_lossless_tracks(client, cfg, policy):
+    """#872 makes whether the audio is lossless one of the plan's inputs, and
+    the two sides learn it differently: the page from the tags it read, the
+    tagger from the files. A side that missed it would plan to keep the tracks
+    while the other replaced them, and Apply would refuse every time."""
+    from harmonist import cover_art, tagger
+    from test.test_artwork import png_bytes
+
+    client.app.state.cfg.tagging.folder_cover = policy
+    small = _png_sized(1, 60)
+    # The fixture is ALAC, and there is no folder cover.
+    d = _release_backed_album_with_art(cfg, "Lossless", "rel-lossless", covers=[small, small])
+    cover_art.cache_image("rel-lossless", png_bytes(120, 120), "image/png")
+    activity_store.store_cover_art(
+        "rel-lossless",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://coverartarchive.org/release/rel-lossless/1.png",
+            width=120,
+            height=120,
+            mime="image/png",
+        ),
+    )
+
+    html = client.get(f"/album/{_id_for(cfg, d)}/artwork").text
+
+    files = sorted(d.glob("*.m4a"))
+    plan = tagger.decide_artwork(
+        d, files, None, archive=cover_art.cached_front("rel-lossless"), folder_cover=policy
+    )
+    assert plan.track_targets(artwork.Scope.ALL) == frozenset(files)
+    assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
+
+
 def test_apply_updates_writes_the_replacements_the_page_showed(client, cfg, monkeypatch):
     """The combined control applies the plan in FULL — `Scope.ALL` (#482).
 

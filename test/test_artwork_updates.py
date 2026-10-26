@@ -195,11 +195,37 @@ def test_compilation_is_preserved_and_larger_archive_only_improves_folder(tmp_pa
     album = scanner.scan(root)[0]
     assert artwork_updates.operation(album) is None
     formats.write_cover(paths[1], png_bytes(60, 60))
-    album = scanner.scan(root)[0]
-    assert artwork_updates.operation(album) is None
     (album.path / "cover.png").write_bytes(png_bytes(70, 70))
     album = scanner.scan(root)[0]
     assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert [c.target for c in plan.changes] == [album.path / "cover.png"]
+
+
+def test_a_lossless_album_without_a_folder_cover_is_embiggened(tmp_path):
+    """#872: the fixtures are ALAC, so with no `cover.*` a larger archive front
+    is proposed for the tracks — and is downloaded to be weighed, which #479's
+    threshold never did for an album that already had embedded art."""
+    root = tmp_path / "music"
+    album = _tagged(root, _release(mbid=MBID, tracks=2), tracks=2)
+    for path in album.path.glob("*.m4a"):
+        formats.write_cover(path, png_bytes(60, 60))
+    _archive(png_bytes(120, 120))
+    artwork_updates.warm([album])
+    album = scanner.scan(root)[0]
+    assert album.artwork_local is not None and album.artwork_local.lossless
+
+    assert artwork_updates.threshold(album) == 60
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert set(plan.track_targets(artwork.Scope.ALL)) == set(album.path.glob("*.m4a"))
+
+    # Lossy audio keeps #479: nothing to fetch, nothing proposed.
+    album.artwork_local = replace(album.artwork_local, lossless=False)
+    assert artwork_updates.threshold(album) is None
+    assert artwork_updates.operation(album) is None
 
 
 def test_stand_in_yields_to_smaller_own_cover_but_not_group_or_rematch(tmp_path):

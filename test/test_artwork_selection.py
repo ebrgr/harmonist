@@ -160,7 +160,9 @@ def test_files_changed_since_the_card_was_drawn_are_left_alone(tmp_path):
     _archive()
     bare = _library(tmp_path, ROUTING, Bare=None)["Bare"]
     chosen = {bare.id: artwork_updates.fingerprint(bare)}
-    mine = png_bytes(300, 300)
+    # Larger than the archive's: a smaller one would now be a replacement on
+    # this lossless album (#872), which the card's fingerprint refuses.
+    mine = png_bytes(700, 700)
     formats.write_cover(_track(bare), mine)  # after the card was drawn
 
     assert _apply(tmp_path, [bare], chosen).failed == 0  # nothing left to add

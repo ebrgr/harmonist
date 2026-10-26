@@ -10,7 +10,7 @@ read/write functions used here, then register it in `_MODULES`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -137,6 +137,18 @@ def describe(path: Path) -> str | None:
     "FLAC"). None if no module handles the extension."""
     mod = _module_for(path)
     return mod.describe(path) if mod else None
+
+
+#: The `describe` labels, and `ScanFields.codec` / `TrackTags.codec` values, of
+#: lossless audio.
+LOSSLESS_CODECS = frozenset({"ALAC", "FLAC"})
+
+
+def all_lossless(codecs: Iterable[str | None]) -> bool:
+    """Whether every file of an album is lossless (#872). False for no files,
+    and for a file whose codec couldn't be read: unknown isn't lossless."""
+    seen = list(codecs)
+    return bool(seen) and all(c in LOSSLESS_CODECS for c in seen)
 
 
 def read_scan_fields(path: Path) -> ScanFields:
@@ -319,12 +331,14 @@ def settled(tagset: TagSet, before: Mapping[str, Any]) -> TagSet:
 
 
 __all__ = [
+    "LOSSLESS_CODECS",
     "EmbeddedArt",
     "ProvenanceTags",
     "ScanFields",
     "TagSet",
     "TrackTags",
     "UnsupportedFormatError",
+    "all_lossless",
     "describe",
     "has_superseded_tags",
     "is_supported",

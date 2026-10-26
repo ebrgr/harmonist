@@ -217,7 +217,10 @@ def summarise(
 
 
 def album(
-    *art: EmbeddedArt | None, disc: int | None = None, titles: Sequence[str] = ()
+    *art: EmbeddedArt | None,
+    disc: int | None = None,
+    titles: Sequence[str] = (),
+    codec: str | None = None,
 ) -> list[tuple[Path, TrackTags]]:
     """An album of `(path, tags)`, one entry per track, numbered from 1."""
     return [
@@ -228,6 +231,7 @@ def album(
                 track_num=i,
                 disc_num=disc,
                 title=titles[i - 1] if i <= len(titles) else None,
+                codec=codec,
             ),
         )
         for i, a in enumerate(art, start=1)
@@ -778,6 +782,108 @@ class TestArchiveWins:
         assert not any(r.writes for r in view.rows if r.tracks)
         created = next(r for r in view.rows if r.absent)
         assert created.from_archive is True
+
+
+class TestEmbiggeningLosslessTracks:
+    """#479's exception (#872): a lossless album with no folder cover takes a
+    larger archive front into its tracks.
+
+    #479 kept the tracks' own image for two reasons, and neither holds here. The
+    cost: on lossless audio a larger embedded image is a rounding error. The
+    layout: with no `cover.*` there is no high-resolution file beside the tracks
+    for anyone to have chosen.
+    """
+
+    small = art_of(1, width=500, height=500)
+    archive = art_of(2, width=1200, height=1200)
+
+    @pytest.mark.parametrize("codec", ["ALAC", "FLAC"])
+    def test_the_archive_replaces_the_tracks_image(self, codec: str) -> None:
+        # Under the SHIPPED folder-cover policy, where #479 left this album with
+        # no target at all and so nothing proposed.
+        view = summarise(
+            album(self.small, self.small, codec=codec),
+            None,
+            archive=self.archive,
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+        tracks = next(r for r in view.rows if r.tracks)
+        assert tracks.outcome is artwork.Outcome.REPLACED
+        assert tracks.written_image == self.archive
+        assert tracks.from_archive is True
+        assert view.operation is artwork.Operation.REPLACEMENT
+
+    def test_the_folder_cover_it_lacks_takes_the_same_image(self) -> None:
+        view = summarise(album(self.small, self.small, codec="ALAC"), None, archive=self.archive)
+
+        tracks, created = view.rows
+        assert tracks.written_image == self.archive
+        assert created.absent and created.written_image == self.archive
+
+    def test_gaps_are_filled_from_it_too(self) -> None:
+        """Every track ends up carrying one image, not the gap the old one."""
+        view = summarise(
+            album(self.small, None, codec="ALAC"),
+            None,
+            archive=self.archive,
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+        assert {r.written_image for r in view.rows if r.tracks} == {self.archive}
+
+    def test_lossy_tracks_keep_their_own_image(self) -> None:
+        """#479 stands where the cost is real."""
+        view = summarise(
+            album(self.small, self.small, codec="AAC"),
+            None,
+            archive=self.archive,
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+        assert not any(r.writes for r in view.rows)
+
+    def test_one_lossy_track_is_enough_to_keep_them(self) -> None:
+        tracks = album(self.small, self.small, codec="ALAC")
+        tracks[1] = (tracks[1][0], TrackTags(art=self.small, track_num=2, codec="MP3"))
+
+        view = summarise(
+            tracks, None, archive=self.archive, folder_cover=artwork.FolderCoverPolicy.NEVER
+        )
+
+        assert not any(r.writes for r in view.rows)
+
+    def test_a_folder_cover_keeps_the_479_layout(self) -> None:
+        """A `cover.*` beside the tracks is the layout #479 protects, so the
+        archive upgrades that file and the tracks keep theirs."""
+        view = summarise(
+            album(self.small, self.small, codec="FLAC"),
+            cover_of(art_of(3, width=800, height=800)),
+            archive=self.archive,
+        )
+
+        tracks, cover = view.rows
+        assert (tracks.outcome, tracks.writes) == (artwork.Outcome.KEPT, False)
+        assert cover.written_image == self.archive
+
+    def test_it_must_still_be_larger(self) -> None:
+        view = summarise(
+            album(self.archive, self.archive, codec="ALAC"),
+            None,
+            archive=art_of(4, width=1200, height=1200),
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+        assert not any(r.writes for r in view.rows)
+
+    def test_per_track_artwork_is_still_never_overwritten(self) -> None:
+        view = summarise(
+            album(self.small, art_of(5, width=500, height=500), codec="ALAC"),
+            None,
+            archive=self.archive,
+        )
+
+        assert not any(r.writes for r in view.rows if r.tracks)
 
 
 def test_a_track_row_replaced_by_the_cover_shows_the_incoming_image() -> None:

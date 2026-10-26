@@ -84,6 +84,9 @@ class LocalArtwork:
     tracks: tuple[tuple[Path, formats.EmbeddedArt | None], ...]
     cover: artwork.FolderCover | None
     unreadable: bool = False
+    #: Every audio file is lossless (`formats.all_lossless`), which lets the
+    #: plan embiggen the tracks (#872).
+    lossless: bool = False
 
     @property
     def missing(self) -> bool:
@@ -159,6 +162,7 @@ def read_local(
         tuple((p, f.art) for p, f in zip(files, fields, strict=True) if not f.unreadable),
         cover,
         unreadable,
+        formats.all_lossless(f.codec for f in fields),
     )
 
 
@@ -241,6 +245,7 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         picks=picks,
         excluded_archive=artwork_watch.excluded(sc, image),
         folder_cover=_policy(),
+        lossless=local.lossless,
     )
 
 
@@ -459,7 +464,8 @@ def threshold(album: Album) -> int | None:
     """Width a candidate must exceed to be useful; -1 means any image.
 
     A stand-in gives way regardless of dimensions. Missing images can also
-    take an unmeasurable candidate. Existing embedded art never needs enlarging.
+    take an unmeasurable candidate. Existing embedded art needs enlarging only
+    on a lossless album with no folder cover (#872).
     """
     local = album.artwork_local
     sc = album.sidecar
@@ -482,9 +488,16 @@ def download_threshold(local: LocalArtwork | None, borrowed: frozenset[str]) -> 
         carried.add(local.cover.image.digest)
     if carried & borrowed:
         return -1
+    per_track = artwork.has_per_track_art(a.digest if a else None for _, a in local.tracks)
     if local.cover is None:
-        return -1 if local.missing or _policy() is artwork.FolderCoverPolicy.IF_MISSING else None
-    if artwork.has_per_track_art(a.digest if a else None for _, a in local.tracks):
+        if local.missing or _policy() is artwork.FolderCoverPolicy.IF_MISSING:
+            return -1
+        # The one album whose tracks a larger front can embiggen (#872).
+        own = next((a for _, a in local.tracks if a), None)
+        if local.lossless and not per_track and own is not None and own.size:
+            return own.size.width
+        return None
+    if per_track:
         return None
     size = local.cover.image.size
     return size.width if size else None

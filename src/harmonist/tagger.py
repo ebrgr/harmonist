@@ -856,6 +856,9 @@ def decide_artwork(
         archive_image,
         excluded_archive=artwork_watch.excluded(sc, archive_image),
         overwrite_art=overwrite_art,
+        # From the files, as the page has it from their tags: a side without
+        # it would plan to keep tracks the other embiggens (#872).
+        lossless=formats.all_lossless(formats.describe(f) for f in files),
         chosen=chosen,
         choices=choices,
         picks={

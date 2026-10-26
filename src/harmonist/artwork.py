@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import ClassVar, Protocol
 
 from . import album_files
-from .formats import TrackTags
+from .formats import TrackTags, all_lossless
 from .formats.types import EmbeddedArt
 from .images import Size
 
@@ -403,6 +403,7 @@ def plan(
     stand_ins: frozenset[str] = frozenset(),
     excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
+    lossless: bool = False,
 ) -> ArtworkPlan:
     """The size rule's suggestion (`_suggest`), with the user's choices made
     over it carrier by carrier (#659).
@@ -436,6 +437,7 @@ def plan(
         cover_unreadable=cover_unreadable,
         chosen=chosen,
         folder_cover=folder_cover,
+        lossless=lossless,
     )
     if overwrite_art or cover_unreadable:
         return suggested
@@ -559,6 +561,7 @@ def _suggest(
     cover_unreadable: bool = False,
     chosen: Source | None = None,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
+    lossless: bool = False,
 ) -> ArtworkPlan:
     """Which image wins, and every write it takes for it to be everywhere.
 
@@ -601,6 +604,10 @@ def _suggest(
     It reaches only the CREATION. A folder cover that exists is weighed by the
     size rule either way, so turning the policy down never leaves an album's
     other artwork unimproved, and never touches a file.
+
+    `lossless` says every track is lossless audio (`formats.all_lossless`). With
+    no folder cover, that lets a larger archive front replace the tracks' own
+    image (#872), which #479 otherwise forbids.
 
     Per-track artwork is user data and nothing overwrites it. The one write
     such an album can still receive is a folder cover it lacks, and only from
@@ -660,6 +667,18 @@ def _suggest(
     if track_image is None and cover is not None:
         track_image, track_source = cover.image, Source.FOLDER
     if archive is not None and track_image is None:
+        track_image, track_source = archive, Source.ARCHIVE
+    # …EXCEPT where neither of #479's reasons holds (#872): on lossless audio a
+    # larger embedded image costs a rounding error, and with no `cover.*` there
+    # is no high-resolution file beside the tracks for anyone to have chosen.
+    # The archive's front then embiggens the tracks, provided it beats them.
+    if (
+        lossless
+        and cover is None
+        and own is not None
+        and archive is not None
+        and beats(archive.size, own.size)
+    ):
         track_image, track_source = archive, Source.ARCHIVE
 
     # WHAT THE FOLDER COVER SHOULD HOLD: the best image going (#276, #410).
@@ -1441,6 +1460,7 @@ def summarise(
         stand_ins=frozenset(borrowed or ()) if own_front is not None else frozenset(),
         excluded_archive=excluded_archive,
         folder_cover=folder_cover,
+        lossless=all_lossless(t.codec for _, t in tracks),
     )
     by_target = {c.target: c for c in the_plan.changes}
     cover_change = the_plan.cover_change(Scope.ALL)

@@ -8,6 +8,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from harmonist import formats, tagger
 from harmonist import sidecar as sc
 from harmonist.models import (
@@ -373,6 +375,23 @@ def test_expected_count_sums_the_discs_of_a_multi_disc_release(tmp_path):
     assert len(albums) == 1, "identity grouping folds the two discs into one album"
     assert albums[0].expected_track_count == 5
     assert albums[0].state == AlbumState.COMPLETE
+
+
+@pytest.mark.parametrize(("second", "lossless"), [("sine.m4a", True), ("sine-aac.m4a", False)])
+def test_a_multi_disc_album_is_lossless_only_if_every_disc_is(tmp_path, second, lossless):
+    """The artwork plan embiggens only a wholly lossless album (#872), and the
+    discs of one album are read as separate folders before they are folded."""
+    album_dir = _make_album_dir(tmp_path, "Artist", "Album", n_tracks=0)
+    for sub, source, disc in (("CD1", "sine.m4a", 1), ("CD2", second, 2)):
+        (album_dir / sub).mkdir()
+        shutil.copy(SINE_M4A.parent / source, album_dir / sub / "01 Track.m4a")
+        _tag_files(album_dir / sub, track_total=1, disc_num=disc, disc_total=2)
+        _tagged_sidecar(album_dir / sub)
+
+    (album,) = scan(tmp_path)
+
+    assert album.artwork_local is not None
+    assert album.artwork_local.lossless is lossless
 
 
 def test_a_release_missing_a_whole_disc_is_incomplete_with_no_known_total(tmp_path):

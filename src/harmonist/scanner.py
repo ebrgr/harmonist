@@ -464,6 +464,7 @@ def _combine(mbid: str | None, group: list[ScannedDir]) -> Album:
                 None,
             ),
             any(e.io.artwork_local.unreadable for e in ordered if e.io.artwork_local),
+            all(e.io.artwork_local is not None and e.io.artwork_local.lossless for e in ordered),
         ),
     )
     written = [e.album.files_written_at for e in group if e.album.files_written_at]

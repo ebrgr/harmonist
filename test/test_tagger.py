@@ -49,6 +49,7 @@ from harmonist.tagger import (
     TagMismatchError,
 )
 from harmonist.transforms import TaggingChoices
+from test.conftest import FIXTURES_DIR
 from test.helpers import keep_one
 
 
@@ -2791,19 +2792,29 @@ def test_tagging_never_asks_the_archive(album_with_tracks, tmp_path, monkeypatch
     tagger.tag_and_artwork(album_dir, _single_track_release(), cover_path=cover)
 
 
-def test_a_larger_archive_image_wins_with_no_folder_cover(album_with_tracks, tmp_path):
+@pytest.mark.parametrize(
+    ("source", "embiggened"),
+    [(FIXTURES_DIR / "sine.m4a", True), (FIXTURES_DIR / "sine-aac.m4a", False)],
+    ids=["alac", "aac"],
+)
+def test_a_larger_archive_image_wins_with_no_folder_cover(
+    album_with_tracks, tmp_path, source, embiggened
+):
     """The album shape an adopted library arrives in: art embedded in the files,
     no `cover.jpg` beside them (#442).
 
     The archive needs no folder cover to be a candidate — the folder file is not
     what carries it — so it is judged against the tracks' own image and written
     when it wins. The page says the same thing, through the same `beats`.
+
+    Both containers are `.m4a`, so only the codec inside tells the tagger
+    whether the tracks may be embiggened (#872).
     """
     from harmonist import artwork_store, cover_art
 
     artwork_store.configure(tmp_path / "artwork")
     cover_art.configure_cache(tmp_path / "caa")
-    album_dir = album_with_tracks(2)
+    album_dir = album_with_tracks(2, source=source)
     mine = _sized_jpeg(500, 500)
     for track in ("01 Track 1.m4a", "02 Track 2.m4a"):
         _embed_cover(album_dir / track, mine)
@@ -2813,12 +2824,13 @@ def test_a_larger_archive_image_wins_with_no_folder_cover(album_with_tracks, tmp
 
     changed = _update_artwork(album_dir, release, None)
 
-    # ONE write: the folder cover the album lacked, from the archive (#469) —
-    # the tracks keep the image they carry, whatever the archive measures
-    # (#479). Nothing was destroyed, so nothing needed keeping.
-    assert changed == 1
-    assert bytes(MP4(album_dir / "01 Track 1.m4a")[ATOM_COVER][0]) == mine
-    assert bytes(MP4(album_dir / "02 Track 2.m4a")[ATOM_COVER][0]) == mine
+    # The folder cover the album lacked, from the archive (#469). On lossless
+    # audio the tracks take it too (#872); on lossy they keep the image they
+    # carry, whatever the archive measures (#479).
+    assert changed == (3 if embiggened else 1)
+    tracks = mine if not embiggened else theirs
+    assert bytes(MP4(album_dir / "01 Track 1.m4a")[ATOM_COVER][0]) == tracks
+    assert bytes(MP4(album_dir / "02 Track 2.m4a")[ATOM_COVER][0]) == tracks
     assert (album_dir / "cover.jpg").read_bytes() == theirs
     # …and pressing again finds everything already where it belongs.
     assert _update_artwork(album_dir, release, None) == 0
@@ -2978,7 +2990,9 @@ def test_a_larger_archive_image_becomes_the_created_cover(album_with_tracks, tmp
 
     activity_store.init(tmp_path / "audit.db")
     monkeypatch.setattr(cover_art, "_caa_root", None)
-    album_dir = album_with_tracks(2)
+    # Lossy, where #479 keeps the tracks' own image: lossless would take the
+    # archive's into both (#872).
+    album_dir = album_with_tracks(2, source=FIXTURES_DIR / "sine-aac.m4a")
     mine = _sized_jpeg(800, 800)
     _embed_cover(album_dir / "01 Track 1.m4a", mine)
     theirs = _sized_jpeg(3000, 3000)
