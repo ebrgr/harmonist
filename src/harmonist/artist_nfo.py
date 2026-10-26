@@ -1,4 +1,4 @@
-"""Read-only Kodi/Jellyfin artist enrichment, associated by confirmed artist ID.
+"""Local Kodi/Jellyfin artist enrichment, associated by confirmed artist ID.
 
 An optional Artist Information Folder is independent of the audio layout. File
 names and artist names are discovery hints, never proof of artist identity.
@@ -26,6 +26,41 @@ class NfoError(ValueError):
 
 
 @dataclass(frozen=True)
+class Field:
+    tag: str
+    label: str
+    multiple: bool = False
+    aliases: tuple[str, ...] = ()
+
+
+EDIT_FIELDS = (
+    Field("name", "Name"),
+    Field("sortname", "Sort name", aliases=("sortName",)),
+    Field("type", "Type"),
+    Field("gender", "Gender"),
+    Field("born", "Born"),
+    Field("formed", "Formed"),
+    Field("died", "Died"),
+    Field("disbanded", "Disbanded"),
+    Field("genre", "Genres", multiple=True),
+    Field("style", "Styles", multiple=True),
+    Field("mood", "Moods", multiple=True),
+    Field("yearsactive", "Years active", multiple=True),
+    Field("instruments", "Instruments", multiple=True),
+    Field("disambiguation", "Disambiguation"),
+    Field("biography", "Biography"),
+)
+_ADDITIONAL = {"Disambiguation", "Years active", "Style", "Mood", "Instruments"}
+
+
+@dataclass(frozen=True)
+class DiscographyAlbum:
+    title: str
+    year: str
+    release_group_id: str | None
+
+
+@dataclass(frozen=True)
 class Profile:
     path: Path
     mbid: str | None
@@ -35,6 +70,18 @@ class Profile:
     facts: tuple[tuple[str, str], ...]
     image_ref: str
     modified_ns: int
+    genres: tuple[str, ...] = ()
+    discography: tuple[DiscographyAlbum, ...] = ()
+    fingerprint: str = ""
+    edit_values: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def main_facts(self) -> tuple[tuple[str, str], ...]:
+        return tuple((k, v) for k, v in self.facts if k not in _ADDITIONAL | {"Genre"})
+
+    @property
+    def additional_facts(self) -> tuple[tuple[str, str], ...]:
+        return tuple((k, v) for k, v in self.facts if k in _ADDITIONAL)
 
 
 @dataclass(frozen=True)
@@ -65,18 +112,7 @@ def _read(path: Path, modified_ns: int, size: int) -> Profile:
         raise NfoError(f"{path}: artist.nfo exceeds 1 MiB")
     with path.open("rb") as stream:
         data = stream.read(_MAX_BYTES + 1)
-    if len(data) > _MAX_BYTES:
-        raise NfoError(f"{path}: artist.nfo exceeds 1 MiB")
-    # Also cover UTF-16/32 XML: ASCII declarations are interleaved with NULs.
-    declarations = data.replace(b"\0", b"").upper()
-    if b"<!DOCTYPE" in declarations or b"<!ENTITY" in declarations:
-        raise NfoError(f"{path}: DTD and entity declarations are not supported")
-    try:
-        root = ET.fromstring(data)
-    except (ET.ParseError, LookupError, ValueError) as exc:
-        raise NfoError(f"{path}: invalid artist XML ({exc})") from exc
-    if root.tag != "artist":
-        raise NfoError(f"{path}: expected an <artist> root")
+    root = parse_document(data, path)
 
     def values(*tags: str) -> tuple[str, ...]:
         return tuple(
@@ -113,6 +149,17 @@ def _read(path: Path, modified_ns: int, size: int) -> Profile:
         )
         if (value := text(*tags))
     )
+    discography = tuple(
+        dict.fromkeys(
+            DiscographyAlbum(
+                title,
+                album.findtext("year", "").strip(),
+                mbid(album.findtext("musicbrainzreleasegroupid", "")),
+            )
+            for album in root.findall("album")
+            if (title := album.findtext("title", "").strip())
+        )
+    )
     return Profile(
         path,
         next(iter(identified)) if identified else None,
@@ -122,7 +169,34 @@ def _read(path: Path, modified_ns: int, size: int) -> Profile:
         facts,
         next(iter(values("thumb")), ""),
         modified_ns,
+        values("genre"),
+        discography,
+        hashlib.sha256(data).hexdigest(),
+        tuple(
+            (f.tag, ("\n" if f.multiple else " · ").join(values(f.tag, *f.aliases)))
+            for f in EDIT_FIELDS
+        ),
     )
+
+
+def parse_document(data: bytes, path: Path) -> ET.Element:
+    """Validate bounded artist XML; preserve unknown elements, comments and PIs."""
+    if len(data) > _MAX_BYTES:
+        raise NfoError(f"{path}: artist.nfo exceeds 1 MiB")
+    # Also cover UTF-16/32 XML: ASCII declarations are interleaved with NULs.
+    declarations = data.replace(b"\0", b"").upper()
+    if b"<!DOCTYPE" in declarations or b"<!ENTITY" in declarations:
+        raise NfoError(f"{path}: DTD and entity declarations are not supported")
+    try:
+        root = ET.fromstring(
+            data, parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True, insert_pis=True))
+        )
+    except (ET.ParseError, LookupError, ValueError) as exc:
+        raise NfoError(f"{path}: invalid artist XML ({exc})") from exc
+    if root.tag != "artist":
+        raise NfoError(f"{path}: expected an <artist> root")
+
+    return root
 
 
 def local_image(profile: Profile) -> Path | None:
@@ -150,7 +224,9 @@ def _present(path: Path) -> bool:
     return True
 
 
-def _candidate_paths(artist: Artist, music_dir: Path, info_dir: Path | None) -> set[Path]:
+def _candidate_paths(
+    artist: Artist, music_dir: Path, info_dir: Path | None
+) -> tuple[set[Path], tuple[str, ...]]:
     root = music_dir.resolve()
     directories: set[Path] = set()
     for album in artist.albums:
@@ -162,18 +238,30 @@ def _candidate_paths(artist: Artist, music_dir: Path, info_dir: Path | None) -> 
                     break
                 current = current.parent
     candidates = {d / "artist.nfo" for d in directories if _present(d / "artist.nfo")}
+    errors: tuple[str, ...] = ()
     if info_dir is not None:
         info_root = info_dir.resolve()
-        # One folder per artist, as in Kodi's Artist Information Folder. Listing
-        # directly makes missing/unreadable configured roots a visible error.
-        for child in info_root.iterdir():
+        # A missing optional source must not discard NFOs already discovered in
+        # the music library. Keep the partial discovery visible and retry on the
+        # next request; other filesystem failures still propagate.
+        try:
+            children = list(info_root.iterdir())
+        except FileNotFoundError as exc:
+            log.warning(
+                "Artist information folder is missing; using music library NFOs: %s",
+                exc,
+                exc_info=True,
+            )
+            errors = (f"Could not inspect artist information folders: {exc}",)
+            children = []
+        for child in children:
             candidate = child / "artist.nfo"
             if S_ISDIR(child.stat().st_mode) and _present(candidate):
                 candidates.add(candidate)
         if _present(info_root / "artist.nfo"):
             candidates.add(info_root / "artist.nfo")
     allowed = (root,) if info_dir is None else (root, info_dir.resolve())
-    return {p for p in candidates if any(p.resolve().is_relative_to(r) for r in allowed)}
+    return {p for p in candidates if any(p.resolve().is_relative_to(r) for r in allowed)}, errors
 
 
 def for_artist(
@@ -190,11 +278,11 @@ def for_artist(
     if refresh:
         _read.cache_clear()
     try:
-        candidates = _candidate_paths(artist, music_dir, info_dir)
+        candidates, discovery_errors = _candidate_paths(artist, music_dir, info_dir)
     except OSError as exc:
         log.exception("Could not inspect artist information folders")
         return Result(errors=(f"Could not inspect artist information folders: {exc}",))
-    errors: list[str] = []
+    errors = list(discovery_errors)
     matches: list[Profile] = []
     for path in sorted(candidates):
         try:

@@ -68,9 +68,19 @@ def test_artist_search_paging_details_and_album_return(
     page.wait_for_url(f"**/artist/{ALICE}?**")
     pw.expect(page.get_by_role("heading", name="Álice", exact=True)).to_be_visible()
     pw.expect(page.get_by_text(warning, exact=True)).to_be_visible()
-    pw.expect(page.get_by_role("region", name="Artist metadata")).to_contain_text(
-        "A locally stored biography."
-    )
+    biography = page.locator("#artist-biography")
+    assert not biography.evaluate("element => element.open")
+    pw.expect(biography.locator("p")).not_to_be_visible()
+    biography.locator("summary").click()
+    pw.expect(biography.locator("p")).to_be_visible()
+    pw.expect(biography).to_contain_text("A locally stored biography.")
+    biography.locator("summary").click()
+    pw.expect(biography.locator("p")).not_to_be_visible()
+    discography = page.locator("#artist-discography")
+    assert not discography.evaluate("element => element.open")
+    discography.locator("summary").click()
+    pw.expect(discography.get_by_text("NFO discography album", exact=True)).to_be_visible()
+    pw.expect(page.get_by_role("list", name="Artist genres")).to_contain_text("Rock")
     pw.expect(page.locator("#library-grid .lib-tile")).to_have_count(2)
     image = page.get_by_role("img", name="Álice", exact=True)
     pw.expect(image).to_be_visible()
@@ -86,4 +96,57 @@ def test_artist_search_paging_details_and_album_return(
     page.go_back()
     pw.expect(page.get_by_role("heading", name="Álice", exact=True)).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.context.close()
+
+
+@pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
+def test_artist_nfo_editor_saves_tags_and_creates_a_missing_nfo(
+    browser_factory, artists_server, engine, width
+):
+    page = browser_factory(engine).new_page(viewport={"width": width, "height": 900})
+    page.goto(artists_server + f"/artist/{ALICE}")
+    page.get_by_role("button", name="Edit", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Edit artist NFO")
+    pw.expect(dialog).to_be_visible()
+    original_bio = dialog.get_by_label("Biography").input_value()
+    dialog.get_by_label("Biography").fill("Cancelled draft")
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    pw.expect(dialog).not_to_be_visible()
+    page.get_by_role("button", name="Edit", exact=True).click()
+    pw.expect(dialog.get_by_label("Biography")).to_have_value(original_bio)
+    genre = "Browser genre " + engine
+    temporary_genre = "Temporary genre " + engine
+    dialog.get_by_role("textbox", name="New genre", exact=True).fill(temporary_genre)
+    dialog.get_by_role("button", name="Add genre", exact=True).click()
+    temporary = dialog.get_by_role("button", name="Remove genre " + temporary_genre, exact=True)
+    pw.expect(temporary).to_be_visible()
+    temporary.click()
+    pw.expect(temporary).to_have_count(0)
+    dialog.get_by_role("textbox", name="New genre", exact=True).fill(genre)
+    dialog.get_by_role("textbox", name="New genre", exact=True).press("Enter")
+    pw.expect(
+        dialog.get_by_role("button", name="Remove genre " + genre, exact=True)
+    ).to_be_visible()
+    dialog.get_by_label("Biography").fill("Edited biography from " + engine)
+    with page.expect_navigation():
+        dialog.get_by_role("button", name="Save NFO", exact=True).click()
+    pw.expect(page.get_by_role("list", name="Artist genres")).to_contain_text(genre)
+    page.locator("#artist-biography summary").click()
+    pw.expect(page.locator("#artist-biography p")).to_have_text("Edited biography from " + engine)
+    page.locator("#artist-discography summary").click()
+    pw.expect(page.get_by_text("NFO discography album", exact=True)).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    # The name without a slash in the URL is intentionally unrelated to the
+    # information folder's name: creation is scoped by the embedded artist ID.
+    bob = "22222222-2222-4222-8222-222222222222"
+    page.goto(artists_server + f"/artist/{bob}")
+    page.get_by_role("button", name="Edit", exact=True).click()
+    pw.expect(dialog).to_be_visible()
+    dialog.get_by_role("textbox", name="New genre", exact=True).fill("Created " + engine)
+    dialog.get_by_role("button", name="Add genre", exact=True).click()
+    with page.expect_navigation():
+        dialog.get_by_role("button", name="Save NFO", exact=True).click()
+    pw.expect(page.get_by_role("list", name="Artist genres")).to_contain_text("Created " + engine)
+    page.reload()
+    pw.expect(page.get_by_role("list", name="Artist genres")).to_contain_text("Created " + engine)
     page.context.close()

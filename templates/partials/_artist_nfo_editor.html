@@ -1,0 +1,77 @@
+<dialog aria-labelledby="artist-nfo-edit-heading" class="bg-transparent p-0 m-auto max-w-3xl w-full">
+    <div class="bg-white border border-line rounded-lg shadow-xl p-5 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-start justify-between gap-4 mb-4">
+            <div class="min-w-0">
+                <h2 id="artist-nfo-edit-heading" class="text-lg font-bold text-ink">Edit artist NFO</h2>
+                {% if edit_target %}<p class="text-xs text-muted break-all">{{ display_path(edit_target) }}</p>{% endif %}
+            </div>
+            <button type="button" onclick="harmonistCloseModal()" class="text-muted hover:text-ink text-lg" aria-label="Close artist editor">×</button>
+        </div>
+        {% if nfo_edit_error %}<p role="alert" class="mb-4 text-sm text-amber-800 break-words">{{ nfo_edit_error }}</p>{% endif %}
+        <form hx-post="{{ nfo_post_url }}" hx-target="#modal" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" class="space-y-4">
+            <input type="hidden" name="expected" value="{{ nfo_expected }}">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {% for field in nfo_fields if field.tag not in ['genre', 'biography'] %}
+                <label class="block text-xs font-semibold text-muted" for="artist-nfo-{{ field.tag }}">
+                    {{ field.label }}{% if field.multiple %} <span class="font-normal">(one per line)</span>{% endif %}
+                    {% if field.multiple %}
+                    <textarea id="artist-nfo-{{ field.tag }}" name="{{ field.tag }}" rows="2" class="mt-1 block w-full rounded border border-line px-2 py-1 text-sm text-ink">{{ nfo_values.get(field.tag, '') }}</textarea>
+                    {% else %}
+                    <input id="artist-nfo-{{ field.tag }}" name="{{ field.tag }}" value="{{ nfo_values.get(field.tag, '') }}" maxlength="1000" class="mt-1 block w-full rounded border border-line px-2 py-1 text-sm text-ink">
+                    {% endif %}
+                </label>
+                {% endfor %}
+            </div>
+            <fieldset class="space-y-2">
+                <legend class="text-xs font-semibold text-muted">Genres</legend>
+                <input type="hidden" name="genre" value="">
+                <div id="artist-nfo-genres" class="flex flex-wrap gap-2">
+                    {% for genre in nfo_values.get('genre', '').splitlines() %}
+                    <span class="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2 py-1 text-xs text-ink">
+                        <span>{{ genre }}</span><input type="hidden" name="genre" value="{{ genre }}">
+                        <button type="button" onclick="this.parentElement.remove()" aria-label="Remove genre {{ genre }}">×</button>
+                    </span>
+                    {% endfor %}
+                </div>
+                <div class="flex gap-2">
+                    <input id="artist-nfo-new-genre" aria-label="New genre" maxlength="200" placeholder="New genre" class="min-w-0 flex-1 rounded border border-line px-2 py-1 text-sm text-ink"
+                           onkeydown="if (event.key === 'Enter') { event.preventDefault(); harmonistAddArtistGenre(this); }">
+                    <button type="button" onclick="harmonistAddArtistGenre(document.getElementById('artist-nfo-new-genre'))" class="px-3 py-1 rounded border border-line bg-surface text-xs font-bold text-ink">Add genre</button>
+                </div>
+            </fieldset>
+            <label for="artist-nfo-biography" class="block text-xs font-semibold text-muted">Biography
+                <textarea id="artist-nfo-biography" name="biography" rows="6" maxlength="200000" class="mt-1 block w-full rounded border border-line px-2 py-1 text-sm text-ink">{{ nfo_values.get('biography', '') }}</textarea>
+            </label>
+            <div class="flex flex-wrap justify-end gap-2">
+                {% if nfo_edit_error %}<button type="button" hx-get="{{ nfo_editor_url }}" hx-target="#modal" hx-swap="innerHTML" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Read again</button>{% endif %}
+                <button type="button" onclick="harmonistCloseModal()" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Cancel</button>
+                <button type="submit" {% if not edit_target %}disabled{% endif %} class="px-3 py-1.5 rounded bg-accent text-white text-sm font-bold disabled:opacity-40">Save NFO</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+<script>
+function harmonistAddArtistGenre(input) {
+    const value = input.value.trim();
+    const container = document.getElementById('artist-nfo-genres');
+    if (!value) return;
+    if ([...container.querySelectorAll('input')].some(item => item.value === value)) {
+        input.value = '';
+        return;
+    }
+    const pill = document.createElement('span');
+    pill.className = 'inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2 py-1 text-xs text-ink';
+    const label = document.createElement('span');
+    label.textContent = value;
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = 'genre'; hidden.value = value;
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = '×';
+    remove.setAttribute('aria-label', 'Remove genre ' + value);
+    remove.addEventListener('click', () => pill.remove());
+    pill.append(label, hidden, remove);
+    container.append(pill);
+    input.value = '';
+    input.focus();
+}
+</script>

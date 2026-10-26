@@ -88,8 +88,22 @@ choice belongs to the page URL, so it can be bookmarked without modifying music
 or metadata files.
 
 Artist browsing reads local tags, NFOs and local raster artwork. It makes no
-MusicBrainz or image-provider requests, does not generate NFOs and never changes
-tags based on them. Remote image URLs in an NFO are not downloaded. With local
+MusicBrainz or image-provider requests and never changes audio tags based on
+NFOs. Artist genres belong to the NFO, independently of song genres. The NFO's
+discography describes the artist's releases, independently of which albums are
+owned. Biographies and discographies can be expanded separately.
+
+Explicit edits can change the artist information, biography and genre tags in
+the selected NFO. Unknown XML elements, artwork references and discography
+entries are preserved. An edit that changed on disk while its form was open
+requires another read before it can be saved. The original bytes are kept in
+`artist-nfo-backups` in the config directory before replacement; copying that
+backup over the edited NFO restores the original file. Identifiers and music
+files are not edited. An identified artist without an NFO can have one created
+in a subfolder named for its artist ID in the configured Artist Information
+Folder, without changing the audio layout.
+
+Remote image URLs in an NFO are not downloaded. With local
 NFOs and image files, the artist pages remain available offline. The MusicBrainz
 link opens the artist's page separately. NFO discographies do not count as owned
 albums. **Read again** reloads the local metadata; an external edit is also
