@@ -4713,10 +4713,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist_import_url=location(grid["page"]).replace(
                     f"/artist/{artist.key}?", f"/artist/{artist.key}/import?", 1
                 ),
-                artist_can_edit=bool(
-                    artist.mbid
-                    and (result.profile or (cfg.paths.artist_info_dir and not result.candidates))
-                ),
+                artist_can_edit=bool(artist.mbid and (result.profile or not result.candidates)),
                 nfo_choices=[
                     (str(p), location(grid["page"], artist_nfo.selection_key(p)))
                     for p in result.candidates
@@ -4740,6 +4737,7 @@ def _register_routes(app: FastAPI) -> None:
         query: str = "",
         fields: Sequence[str] | None = None,
         albums: Sequence[str] | None = None,
+        destination: str | None = None,
     ) -> Response:
         if review is not None and fields is not None:
             available = dict(review.get("picked_albums", {})) | {
@@ -4756,6 +4754,9 @@ def _register_routes(app: FastAPI) -> None:
                 request,
                 artist=artist,
                 import_review=review,
+                nfo_destinations=review.get("destinations", []) if review else [],
+                nfo_destination=destination or (review.get("destination", "") if review else ""),
+                nfo_destination_reasons=review.get("destination_reasons", []) if review else [],
                 import_candidates=candidates,
                 import_error=error,
                 import_language=language,
@@ -4818,6 +4819,8 @@ def _register_routes(app: FastAPI) -> None:
                 request.query_params.get("nfo"),
                 cfg.musicbrainz.user_agent,
                 refresh=refresh_online,
+                library_albums=_albums(request),
+                preference=cfg.artist_nfo.location,
             )
             return _import_panel(request, artist, review=review, language=language)
         except (
@@ -4847,6 +4850,7 @@ def _register_routes(app: FastAPI) -> None:
         refresh_online: Annotated[bool, Form()] = False,
         fields: Annotated[list[str] | None, Form()] = None,
         albums: Annotated[list[str] | None, Form()] = None,
+        destination: Annotated[str | None, Form()] = None,
     ) -> Response:
         artist = _artist_for(request, artist_key)
         snapshot = None
@@ -4859,6 +4863,7 @@ def _register_routes(app: FastAPI) -> None:
                 refresh=refresh_online,
                 fields=fields or [],
                 albums=albums or [],
+                destination=destination,
             )
             return _import_panel(request, artist, review=extended, language=extended["language"])
         except (
@@ -4868,7 +4873,13 @@ def _register_routes(app: FastAPI) -> None:
         ) as exc:
             log.exception("Could not load artist discography")
             return _import_panel(
-                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+                request,
+                artist,
+                review=snapshot,
+                error=str(exc),
+                fields=fields or [],
+                albums=albums,
+                destination=destination,
             )
 
     @app.post("/artist/{artist_key}/import/apply", response_class=HTMLResponse)
@@ -4878,6 +4889,7 @@ def _register_routes(app: FastAPI) -> None:
         review: Annotated[str, Form()],
         fields: Annotated[list[str] | None, Form()] = None,
         albums: Annotated[list[str] | None, Form()] = None,
+        destination: Annotated[str | None, Form()] = None,
         page: int = 1,
         artist_page: int = 1,
         artist_q: str = "",
@@ -4896,11 +4908,19 @@ def _register_routes(app: FastAPI) -> None:
                 cfg.paths.music_dir,
                 cfg.paths.artist_info_dir,
                 cfg.paths.config_dir / "nfoartists",
+                library_albums=_albums(request),
+                destination=destination,
             )
         except (artist_nfo.NfoError, activity_store.StoreUnavailableError) as exc:
             log.exception("Could not apply artist metadata review")
             return _import_panel(
-                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+                request,
+                artist,
+                review=snapshot,
+                error=str(exc),
+                fields=fields or [],
+                albums=albums,
+                destination=destination,
             )
         except OSError:
             log.exception("Could not save imported artist metadata")
@@ -4911,6 +4931,7 @@ def _register_routes(app: FastAPI) -> None:
                 error="Could not save the artist NFO. Check folder permissions and try again.",
                 fields=fields or [],
                 albums=albums,
+                destination=destination,
             )
         response = _flash_response(
             "Artist metadata imported" if saved.changed else "Artist NFO unchanged",
@@ -4940,6 +4961,7 @@ def _register_routes(app: FastAPI) -> None:
         draft: dict[str, str] | None = None,
         error: str | None = None,
         expected: str | None = None,
+        destination: str | None = None,
     ) -> Response:
         cfg = request.app.state.cfg
         result = artist_nfo.for_artist(
@@ -4948,13 +4970,25 @@ def _register_routes(app: FastAPI) -> None:
         profile = result.profile
         values = dict(profile.edit_values) if profile else {"name": artist.name}
         values.update(draft or {})
-        path = None
+        plan = artist_nfo_edit.Destinations((), None)
         try:
-            if profile is None and result.candidates:
+            if not artist.mbid:
+                raise artist_nfo.NfoError("Identify the artist before editing an NFO.")
+            if profile is None and (result.candidates or nfo):
                 raise artist_nfo.NfoError("Choose an NFO source on the artist page first.")
-            path = artist_nfo_edit.target(artist, profile, cfg.paths.artist_info_dir)
+            plan = artist_nfo_edit.destinations(
+                artist,
+                profile,
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                _albums(request),
+                cfg.artist_nfo.location,
+            )
         except artist_nfo.NfoError as exc:
             error = error or str(exc)
+        except OSError:
+            log.exception("Could not inspect NFO destinations")
+            error = error or "Could not inspect the NFO destinations. Check folder permissions."
         location = artists.detail_url(
             artist.key,
             page=max(1, page),
@@ -4969,7 +5003,11 @@ def _register_routes(app: FastAPI) -> None:
             _ctx(
                 request,
                 artist=artist,
-                edit_target=path,
+                nfo_destinations=plan.options,
+                nfo_destination=destination
+                if destination is not None
+                else (plan.default.key if plan.default else ""),
+                nfo_destination_reasons=plan.reasons,
                 nfo_values=values,
                 nfo_fields=artist_nfo.EDIT_FIELDS,
                 nfo_expected=expected
@@ -5023,6 +5061,9 @@ def _register_routes(app: FastAPI) -> None:
         expected = form.get("expected", "")
         if not isinstance(expected, str):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid NFO fingerprint")
+        destination = form.get("destination", "")
+        if not isinstance(destination, str):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid NFO destination")
         return await run_in_threadpool(
             _save_artist_nfo,
             request,
@@ -5033,6 +5074,7 @@ def _register_routes(app: FastAPI) -> None:
             nfo,
             values,
             expected,
+            destination,
         )
 
     def _save_artist_nfo(
@@ -5044,6 +5086,7 @@ def _register_routes(app: FastAPI) -> None:
         nfo: str | None,
         values: dict[str, str],
         expected: str,
+        destination: str,
     ) -> Response:
         request.state.skip_rescan = True
         artist = _artist_for(request, artist_key)
@@ -5057,6 +5100,8 @@ def _register_routes(app: FastAPI) -> None:
                 values,
                 expected,
                 nfo,
+                albums=_albums(request),
+                destination=destination,
             )
         except artist_nfo.NfoError as exc:
             return _nfo_editor(
@@ -5069,6 +5114,7 @@ def _register_routes(app: FastAPI) -> None:
                 draft=values,
                 error=str(exc),
                 expected=expected,
+                destination=destination,
             )
         except OSError:
             log.exception("Could not save artist NFO")
@@ -5082,6 +5128,7 @@ def _register_routes(app: FastAPI) -> None:
                 draft=values,
                 error="Could not save the artist NFO. Check folder permissions and try again.",
                 expected=expected,
+                destination=destination,
             )
         response = _flash_response(
             "Artist NFO created"
@@ -5494,6 +5541,7 @@ def _register_routes(app: FastAPI) -> None:
         # A checkbox, so an unticked one sends nothing and the default is "off".
         always_standardize_multivalue_artist: bool = Form(default=False),
         log_level: str = Form(...),
+        artist_nfo_location: str | None = Form(None),
     ) -> Response:
         cfg: config_mod.Config = request.app.state.cfg
         # Re-validate by constructing fresh sub-models (model_copy does NOT
@@ -5508,6 +5556,9 @@ def _register_routes(app: FastAPI) -> None:
                 }
             )
             new_mb = config_mod.MusicBrainzConfig(user_agent=user_agent.strip())
+            new_artist_nfo = config_mod.ArtistNfoConfig.model_validate(
+                {"location": artist_nfo_location or cfg.artist_nfo.location}
+            )
             # model_validate (vs the constructor) keeps mypy happy about the
             # str→Literal narrowing while still validating the value at runtime.
             routing: dict[str, object] = {
@@ -5542,6 +5593,7 @@ def _register_routes(app: FastAPI) -> None:
                     "gardener": new_gardener,
                     "tagging": new_tagging,
                     "log_level": log_level.strip().lower(),
+                    "artist_nfo": new_artist_nfo,
                 }
             )
         except (PydanticValidationError, ValueError) as e:
@@ -5577,6 +5629,7 @@ def _register_routes(app: FastAPI) -> None:
                     new_tagging.always_standardize_multivalue_artist
                 ),
                 "log_level": new_cfg.log_level,
+                "artist_nfo.location": new_artist_nfo.location,
             },
         )
         # Apply live — code reads these from app.state.cfg at use-time. The

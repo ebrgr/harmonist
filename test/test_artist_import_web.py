@@ -226,7 +226,7 @@ def test_unidentified_credit_requires_choice_and_survives_reopen_without_changin
         f"/artist/{local.key}/import/apply", data={"review": token(chosen), "fields": ["biography"]}
     )
     assert "HX-Redirect" in saved.headers
-    target = cfg.paths.artist_info_dir / local.key / "artist.nfo"
+    target = cfg.paths.artist_info_dir / "Alice" / "artist.nfo"
     assert artist_nfo.read(target).mbid == ALICE
     assert artist_nfo.read(target).credit == local.key
     # Re-open the store and discard parser caches as a process restart would.
