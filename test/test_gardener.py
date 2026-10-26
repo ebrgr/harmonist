@@ -72,11 +72,13 @@ def _release(title: str = "Test Album", *, tracks: int = 1, mbid: str = "rel-aaa
     }
 
 
-def _album_dir(root: Path, *, tracks: int = 1, name: str = "Test Album") -> Path:
+def _album_dir(
+    root: Path, *, tracks: int = 1, name: str = "Test Album", source: Path = SINE_M4A
+) -> Path:
     d = root / "Test Artist" / name
     d.mkdir(parents=True)
     for i in range(1, tracks + 1):
-        shutil.copy(SINE_M4A, d / f"{i:02d} Track {i}.m4a")
+        shutil.copy(source, d / f"{i:02d} Track {i}.m4a")
     return d
 
 
@@ -93,9 +95,16 @@ def _flag(album: Album, release: dict) -> bool:
     return album.update_available
 
 
-def _tagged(root: Path, release: dict, *, tracks: int = 1, name: str = "Test Album") -> Album:
+def _tagged(
+    root: Path,
+    release: dict,
+    *,
+    tracks: int = 1,
+    name: str = "Test Album",
+    source: Path = SINE_M4A,
+) -> Album:
     """An album tagged from `release`, as the scanner sees it afterwards."""
-    d = _album_dir(root, tracks=tracks, name=name)
+    d = _album_dir(root, tracks=tracks, name=name, source=source)
     tagger.tag_album(d, release)
     sc.write(d, Sidecar(mb_release_id=release["id"], tagged_at=datetime.now(UTC)))
     return next(a for a in scanner.scan(root) if a.path == d)

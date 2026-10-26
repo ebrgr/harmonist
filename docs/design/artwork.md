@@ -43,16 +43,28 @@ a high-resolution cover. A bigger folder cover therefore proposes nothing for th
 tracks (#479). Tracks with *no* art are still filled, and from the album's own
 image where it has one, so the filled track matches its neighbours.
 
-**Except where neither reason holds: a lossless album with no folder cover**
-(#872). Beside lossless audio, a larger embedded image is a rounding error: a
-1200px front in every track of an ALAC album adds about 2%. With no `cover.*`
-there is no high-resolution file beside the tracks for anyone to have chosen. The
-album just has a small image. So there, the archive's front replaces the tracks'
-image when it is larger by the size rule. It's a replacement like any other:
-nothing writes it unattended, and it's backed up first. Each condition answers
-one of #479's reasons, so relaxing either is a separate decision: a cost ratio
-for lossy audio, or the cost alone for a lossless album that has a folder cover.
-A setting was rejected for #479's reason, a rule a user can hold in their head.
+**Except where neither reason holds: an album with no folder cover, where
+embedding costs little** (#872). With no `cover.*` there is no high-resolution
+file beside the tracks for anyone to have chosen. The album just has a small
+image. So there, the archive's front replaces the tracks' image when it is larger
+by the size rule and cheap to embed. It's a replacement like any other: nothing
+writes it unattended, and it's backed up first.
+
+What counts as cheap depends on the audio. Beside lossless audio, a larger
+embedded image is a rounding error: a 1200px front in every track of an ALAC
+album adds about 2%. So a lossless album takes it whatever it weighs. On lossy
+audio the cost is real but measurable, and the front goes in while it grows the
+album's files by at most 10%: about 800 KB per four-minute track at 256 kbps,
+enough for a typical 1200px front and not for most 3000px scans. The cap is
+measured against the files' size on disk, which the scan already has, rather
+than against the audio stream alone, which would mean reading every file. An
+album whose size isn't known isn't shown to grow little. The archive's byte size
+is known only once the original is fetched, so the background check fetches any
+larger front such an album could take, and the plan weighs the bytes.
+
+A lossless album that has a folder cover keeps #479's layout, since that is the
+reason left standing there. A setting was rejected for #479's reason, a rule a
+user can hold in their head.
 
 **Different images on different tracks are never replaced by the size rule.**
 That's what a compilation correctly looks like.
@@ -173,9 +185,9 @@ the plan is judged. There is no persisted artwork status to invalidate.
 One CAA check serves every local copy of a release, but each copy has its own
 plan. The download threshold considers every copy's folder cover, rather than
 the largest embedded image: a large embedded image must not hide a candidate
-that could improve a smaller folder cover. Embedded art counts only on a
-lossless album with no folder cover, the one album whose tracks a larger front
-can replace. Stand-ins and empty albums can use
+that could improve a smaller folder cover. Embedded art counts only on an album
+with no folder cover, the one album whose tracks a larger front can replace.
+Stand-ins and empty albums can use
 any image, including one whose dimensions cannot be read.
 
 The Library separates local observations from proposed writes, so a fact about

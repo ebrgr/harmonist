@@ -26,8 +26,9 @@ versions follow [semantic versioning](https://semver.org).
 - **Times are shown in your timezone**, set with the `TZ` environment
   variable (#865).
 - **Activity rows show the date** as well as the time (#865).
-- **A lossless album with no `cover.jpg` is offered a larger Cover Art Archive
-  image for its tracks.** It's an artwork replacement, so it waits for review
+- **An album with no `cover.jpg` is offered a larger Cover Art Archive image
+  for its tracks**: always if it's lossless, and if it's lossy, when that adds
+  at most 10% to its size. It's an artwork replacement, so it waits for review
   and is never applied unattended. Elsewhere, embedded artwork is still kept
   unless you choose otherwise (#872).
 

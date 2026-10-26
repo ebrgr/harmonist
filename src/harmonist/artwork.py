@@ -35,6 +35,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from fractions import Fraction
 from pathlib import Path
 from typing import ClassVar, Protocol
 
@@ -90,6 +91,13 @@ class CoverArtAnswer(Protocol):
 
     @property
     def mime(self) -> str | None: ...
+
+
+#: How much embiggening may grow a lossy album's files (#872). On lossy audio
+#: #479's cost is real, so a larger front goes into the tracks only while it
+#: stays small beside them: about 800 KB per 4-minute track at 256 kbps.
+#: Lossless audio has no cap, since its tracks dwarf any front.
+LOSSY_GROWTH = Fraction(1, 10)
 
 
 def beats(mine: Size | None, theirs: Size | None) -> bool:
@@ -404,6 +412,7 @@ def plan(
     excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     lossless: bool = False,
+    audio_bytes: int | None = None,
 ) -> ArtworkPlan:
     """The size rule's suggestion (`_suggest`), with the user's choices made
     over it carrier by carrier (#659).
@@ -438,6 +447,7 @@ def plan(
         chosen=chosen,
         folder_cover=folder_cover,
         lossless=lossless,
+        audio_bytes=audio_bytes,
     )
     if overwrite_art or cover_unreadable:
         return suggested
@@ -562,6 +572,7 @@ def _suggest(
     chosen: Source | None = None,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     lossless: bool = False,
+    audio_bytes: int | None = None,
 ) -> ArtworkPlan:
     """Which image wins, and every write it takes for it to be everywhere.
 
@@ -607,7 +618,8 @@ def _suggest(
 
     `lossless` says every track is lossless audio (`formats.all_lossless`). With
     no folder cover, that lets a larger archive front replace the tracks' own
-    image (#872), which #479 otherwise forbids.
+    image (#872), which #479 otherwise forbids. Lossy audio may too, while that
+    grows the album's files, `audio_bytes` in all, by at most `LOSSY_GROWTH`.
 
     Per-track artwork is user data and nothing overwrites it. The one write
     such an album can still receive is a folder cover it lacks, and only from
@@ -668,16 +680,17 @@ def _suggest(
         track_image, track_source = cover.image, Source.FOLDER
     if archive is not None and track_image is None:
         track_image, track_source = archive, Source.ARCHIVE
-    # …EXCEPT where neither of #479's reasons holds (#872): on lossless audio a
-    # larger embedded image costs a rounding error, and with no `cover.*` there
-    # is no high-resolution file beside the tracks for anyone to have chosen.
-    # The archive's front then embiggens the tracks, provided it beats them.
+    # …EXCEPT where neither of #479's reasons holds (#872): with no `cover.*`
+    # there is no high-resolution file beside the tracks for anyone to have
+    # chosen, and the cost is small: on lossless audio always, on lossy while
+    # it stays under `LOSSY_GROWTH`. The archive's front then embiggens the
+    # tracks, provided it beats them.
     if (
-        lossless
-        and cover is None
+        cover is None
         and own is not None
         and archive is not None
         and beats(archive.size, own.size)
+        and (lossless or _cheap_to_embed(tracks, archive, audio_bytes))
     ):
         track_image, track_source = archive, Source.ARCHIVE
 
@@ -703,6 +716,20 @@ def _suggest(
         cover_source=cover_source,
         folder=folder_cover,
     )
+
+
+def _cheap_to_embed(
+    tracks: Sequence[tuple[Path, EmbeddedArt | None]],
+    image: EmbeddedArt,
+    audio_bytes: int | None,
+) -> bool:
+    """Whether putting `image` in every track grows the album's files by at
+    most `LOSSY_GROWTH` (#872). A track with no art grows by the whole image.
+    An album whose size isn't known can't be shown to grow little."""
+    if not audio_bytes:
+        return False
+    added = sum(image.length - (art.length if art else 0) for _, art in tracks)
+    return added <= audio_bytes * LOSSY_GROWTH
 
 
 def _plan_for(
@@ -1413,6 +1440,7 @@ def summarise(
     borrowed: Mapping[str, str] | None = None,
     excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
+    audio_bytes: int | None = None,
 ) -> ArtworkView:
     """Everything the section shows, from tags already read and a folder cover.
 
@@ -1461,6 +1489,7 @@ def summarise(
         excluded_archive=excluded_archive,
         folder_cover=folder_cover,
         lossless=all_lossless(t.codec for _, t in tracks),
+        audio_bytes=audio_bytes,
     )
     by_target = {c.target: c for c in the_plan.changes}
     cover_change = the_plan.cover_change(Scope.ALL)

@@ -2522,12 +2522,20 @@ def test_release_events_is_empty_when_musicbrainz_records_none():
 # ---------- the larger local image wins (#410) ----------
 
 
-def _sized_jpeg(width: int, height: int) -> bytes:
+def _sized_jpeg(width: int, height: int, *, padding: int = 0) -> bytes:
     """A JPEG whose frame header states a real size, so `images.dimensions` can
-    read it — `_minimal_jpeg` has no SOF and measures as unknown."""
+    read it — `_minimal_jpeg` has no SOF and measures as unknown.
+
+    A bare header is a few dozen bytes whatever it states, which embiggens any
+    lossy album (#872). `padding` gives it the weight of a real image."""
     from test.test_artwork import jpeg_bytes
 
-    return jpeg_bytes(width, height)
+    return jpeg_bytes(width, height, padding=padding)
+
+
+#: Enough bytes that embedding the image grows the AAC fixture album past
+#: `artwork.LOSSY_GROWTH`, as a real 1400px front would grow a real album.
+_HEAVY = 20_000
 
 
 def test_a_larger_embedded_image_is_promoted_to_the_folder_cover(album_with_tracks, tmp_path):
@@ -2808,7 +2816,8 @@ def test_a_larger_archive_image_wins_with_no_folder_cover(
     when it wins. The page says the same thing, through the same `beats`.
 
     Both containers are `.m4a`, so only the codec inside tells the tagger
-    whether the tracks may be embiggened (#872).
+    whether the tracks may be embiggened (#872). The archive's image is heavy:
+    past the lossy cap for the AAC album, and no matter for the ALAC one.
     """
     from harmonist import artwork_store, cover_art
 
@@ -2818,7 +2827,7 @@ def test_a_larger_archive_image_wins_with_no_folder_cover(
     mine = _sized_jpeg(500, 500)
     for track in ("01 Track 1.m4a", "02 Track 2.m4a"):
         _embed_cover(album_dir / track, mine)
-    theirs = _sized_jpeg(1400, 1400)
+    theirs = _sized_jpeg(1400, 1400, padding=_HEAVY)
     release = _release_2_tracks()
     cover_art.cache_image(release["id"], theirs, "image/jpeg")
 
@@ -2826,7 +2835,7 @@ def test_a_larger_archive_image_wins_with_no_folder_cover(
 
     # The folder cover the album lacked, from the archive (#469). On lossless
     # audio the tracks take it too (#872); on lossy they keep the image they
-    # carry, whatever the archive measures (#479).
+    # carry when it would grow them by too much (#479).
     assert changed == (3 if embiggened else 1)
     tracks = mine if not embiggened else theirs
     assert bytes(MP4(album_dir / "01 Track 1.m4a")[ATOM_COVER][0]) == tracks
@@ -2990,12 +2999,12 @@ def test_a_larger_archive_image_becomes_the_created_cover(album_with_tracks, tmp
 
     activity_store.init(tmp_path / "audit.db")
     monkeypatch.setattr(cover_art, "_caa_root", None)
-    # Lossy, where #479 keeps the tracks' own image: lossless would take the
-    # archive's into both (#872).
+    # Lossy, and heavy enough that #479 keeps the tracks' own image: a light
+    # image, or lossless audio, would take the archive's into both (#872).
     album_dir = album_with_tracks(2, source=FIXTURES_DIR / "sine-aac.m4a")
     mine = _sized_jpeg(800, 800)
     _embed_cover(album_dir / "01 Track 1.m4a", mine)
-    theirs = _sized_jpeg(3000, 3000)
+    theirs = _sized_jpeg(3000, 3000, padding=_HEAVY)
 
     tagger.tag_and_artwork(
         album_dir, _release_2_tracks(), archive=cover_art.Front(theirs, "image/jpeg")

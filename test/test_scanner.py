@@ -379,8 +379,9 @@ def test_expected_count_sums_the_discs_of_a_multi_disc_release(tmp_path):
 
 @pytest.mark.parametrize(("second", "lossless"), [("sine.m4a", True), ("sine-aac.m4a", False)])
 def test_a_multi_disc_album_is_lossless_only_if_every_disc_is(tmp_path, second, lossless):
-    """The artwork plan embiggens only a wholly lossless album (#872), and the
-    discs of one album are read as separate folders before they are folded."""
+    """The artwork plan embiggens a wholly lossless album freely and a lossy
+    one by its size (#872), and the discs of one album are read as separate
+    folders before they are folded: both facts must survive the fold."""
     album_dir = _make_album_dir(tmp_path, "Artist", "Album", n_tracks=0)
     for sub, source, disc in (("CD1", "sine.m4a", 1), ("CD2", second, 2)):
         (album_dir / sub).mkdir()
@@ -392,6 +393,9 @@ def test_a_multi_disc_album_is_lossless_only_if_every_disc_is(tmp_path, second, 
 
     assert album.artwork_local is not None
     assert album.artwork_local.lossless is lossless
+    files = list(album_dir.rglob("*.m4a"))
+    assert len(files) == 2
+    assert album.artwork_local.audio_bytes == sum(f.stat().st_size for f in files)
 
 
 def test_a_release_missing_a_whole_disc_is_incomplete_with_no_known_total(tmp_path):

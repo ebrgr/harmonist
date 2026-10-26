@@ -87,6 +87,9 @@ class LocalArtwork:
     #: Every audio file is lossless (`formats.all_lossless`), which lets the
     #: plan embiggen the tracks (#872).
     lossless: bool = False
+    #: The audio files' combined size, from the scan's stat: what lossy
+    #: embiggening's growth is measured against (#872).
+    audio_bytes: int | None = None
 
     @property
     def missing(self) -> bool:
@@ -139,7 +142,10 @@ def revision() -> int:
 
 
 def read_local(
-    files: Sequence[Path], fields: Sequence[formats.ScanFields], cover_path: Path | None
+    files: Sequence[Path],
+    fields: Sequence[formats.ScanFields],
+    cover_path: Path | None,
+    audio_bytes: int | None = None,
 ) -> LocalArtwork:
     """Finish a scan's observation with one folder-image read on a cache miss."""
     unreadable = any(f.unreadable or (f.has_cover and f.art is None) for f in fields)
@@ -163,6 +169,7 @@ def read_local(
         cover,
         unreadable,
         formats.all_lossless(f.codec for f in fields),
+        audio_bytes,
     )
 
 
@@ -246,6 +253,7 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         excluded_archive=artwork_watch.excluded(sc, image),
         folder_cover=_policy(),
         lossless=local.lossless,
+        audio_bytes=local.audio_bytes,
     )
 
 
@@ -465,7 +473,10 @@ def threshold(album: Album) -> int | None:
 
     A stand-in gives way regardless of dimensions. Missing images can also
     take an unmeasurable candidate. Existing embedded art needs enlarging only
-    on a lossless album with no folder cover (#872).
+    on an album with no folder cover (#872): always if it's lossless, and if
+    it's lossy, while that grows it little. The archive's byte size is known
+    only once it's fetched, so a lossy album fetches by width like a lossless
+    one, and the plan weighs the bytes.
     """
     local = album.artwork_local
     sc = album.sidecar
@@ -494,7 +505,7 @@ def download_threshold(local: LocalArtwork | None, borrowed: frozenset[str]) -> 
             return -1
         # The one album whose tracks a larger front can embiggen (#872).
         own = next((a for _, a in local.tracks if a), None)
-        if local.lossless and not per_track and own is not None and own.size:
+        if (local.lossless or local.audio_bytes) and not per_track and own and own.size:
             return own.size.width
         return None
     if per_track:

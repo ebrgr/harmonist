@@ -222,9 +222,34 @@ def test_a_lossless_album_without_a_folder_cover_is_embiggened(tmp_path):
     assert plan is not None
     assert set(plan.track_targets(artwork.Scope.ALL)) == set(album.path.glob("*.m4a"))
 
-    # Lossy audio keeps #479: nothing to fetch, nothing proposed.
-    album.artwork_local = replace(album.artwork_local, lossless=False)
-    assert artwork_updates.threshold(album) is None
+
+def test_a_lossy_album_is_embiggened_only_while_it_grows_little(tmp_path):
+    """Lossy audio embiggens under `LOSSY_GROWTH` (#872). The archive's byte
+    size is known only once it's fetched, so the front is fetched for any
+    album that could take it, and the plan decides."""
+    root = tmp_path / "music"
+    aac = Path(__file__).parent / "fixtures/sine-aac.m4a"
+    album = _tagged(root, _release(mbid=MBID, tracks=2), tracks=2, source=aac)
+    for path in album.path.glob("*.m4a"):
+        formats.write_cover(path, png_bytes(60, 60))
+    album = scanner.scan(root)[0]
+    local = album.artwork_local
+    assert local is not None and not local.lossless
+    files = sorted(album.path.glob("*.m4a"))
+    assert local.audio_bytes == sum(f.stat().st_size for f in files)
+    assert artwork_updates.threshold(album) == 60
+
+    # A small front grows two ~16 KB tracks by under 10%…
+    _archive(png_bytes(120, 120))
+    artwork_updates.observe(MBID)
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert plan.track_targets(artwork.Scope.ALL) == frozenset(files)
+
+    # …and a large one by far more, so they keep their own image.
+    _archive(png_bytes(1200, 1200))
+    artwork_updates.observe(MBID)
     assert artwork_updates.operation(album) is None
 
 

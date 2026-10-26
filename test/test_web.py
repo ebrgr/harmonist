@@ -10197,15 +10197,23 @@ def test_the_outlier_popover_still_reads_as_a_plural_when_it_is_one(client, cfg,
 # ---------- Artwork section (#155) ----------
 
 
-def _album_with_art(cfg, name: str, *, covers: list[bytes | None], folder: bytes | None = None):
-    """An album whose tracks carry the given images (None = no embedded art)."""
+def _album_with_art(
+    cfg,
+    name: str,
+    *,
+    covers: list[bytes | None],
+    folder: bytes | None = None,
+    source: Path = SINE_M4A,
+):
+    """An album whose tracks carry the given images (None = no embedded art).
+    ALAC unless `source` is another `.m4a`, such as `sine-aac.m4a`."""
     from harmonist import formats
 
     d = cfg.paths.music_dir / "Artist" / name
     d.mkdir(parents=True)
     for i, cover in enumerate(covers, start=1):
         f = d / f"{i:02d} Track.m4a"
-        shutil.copy(SINE_M4A, f)
+        shutil.copy(source, f)
         # Numbered, because the Artwork section names the tracks carrying each
         # image by position — an unnumbered file can only be counted (#400).
         audio = MP4(f)
@@ -10666,6 +10674,54 @@ def test_the_page_and_the_tagger_agree_on_embiggening_lossless_tracks(client, cf
         d, files, None, archive=cover_art.cached_front("rel-lossless"), folder_cover=policy
     )
     assert plan.track_targets(artwork.Scope.ALL) == frozenset(files)
+    assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
+
+
+@pytest.mark.parametrize(("front", "embiggened"), [(120, True), (1200, False)])
+def test_the_page_and_the_tagger_agree_on_embiggening_lossy_tracks(client, cfg, front, embiggened):
+    """A lossy album embiggens while that grows its files by at most
+    `LOSSY_GROWTH` (#872), so the album's size is a plan input too, and again
+    the two sides measure it separately. Two ~16 KB AAC tracks: a 120px front
+    grows them by about 1%, a 1200px one by about 40%.
+
+    Under `IF_MISSING`, so the page has a plan to fingerprint either way: the
+    missing `cover.png` is created whether or not the tracks take the front.
+    """
+    from harmonist import cover_art, tagger
+    from test.test_artwork import png_bytes
+
+    client.app.state.cfg.tagging.folder_cover = artwork.FolderCoverPolicy.IF_MISSING
+    small = _png_sized(1, 60)
+    d = _release_backed_album_with_art(
+        cfg,
+        "Lossy",
+        "rel-lossy",
+        covers=[small, small],
+        source=SINE_M4A.parent / "sine-aac.m4a",
+    )
+    cover_art.cache_image("rel-lossy", png_bytes(front, front), "image/png")
+    activity_store.store_cover_art(
+        "rel-lossy",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://coverartarchive.org/release/rel-lossy/1.png",
+            width=front,
+            height=front,
+            mime="image/png",
+        ),
+    )
+
+    html = client.get(f"/album/{_id_for(cfg, d)}/artwork").text
+
+    files = sorted(d.glob("*.m4a"))
+    plan = tagger.decide_artwork(
+        d,
+        files,
+        None,
+        archive=cover_art.cached_front("rel-lossy"),
+        folder_cover=artwork.FolderCoverPolicy.IF_MISSING,
+    )
+    assert plan.track_targets(artwork.Scope.ALL) == (frozenset(files) if embiggened else set())
     assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
 
 

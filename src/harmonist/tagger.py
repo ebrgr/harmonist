@@ -859,6 +859,7 @@ def decide_artwork(
         # From the files, as the page has it from their tags: a side without
         # it would plan to keep tracks the other embiggens (#872).
         lossless=formats.all_lossless(formats.describe(f) for f in files),
+        audio_bytes=album_files.total_bytes(files),
         chosen=chosen,
         choices=choices,
         picks={

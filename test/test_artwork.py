@@ -193,6 +193,7 @@ def summarise(
     picks: dict[str, EmbeddedArt] | None = None,
     candidates: Sequence[artwork.Candidate] = (),
     folder_cover: artwork.FolderCoverPolicy = artwork.FolderCoverPolicy.IF_MISSING,
+    audio_bytes: int | None = None,
 ) -> artwork.ArtworkView:
     """`artwork.summarise` for an album at `ALBUM`.
 
@@ -213,6 +214,7 @@ def summarise(
         picks=picks or {},
         candidates=candidates,
         folder_cover=folder_cover,
+        audio_bytes=audio_bytes,
     )
 
 
@@ -832,26 +834,17 @@ class TestEmbiggeningLosslessTracks:
 
         assert {r.written_image for r in view.rows if r.tracks} == {self.archive}
 
-    def test_lossy_tracks_keep_their_own_image(self) -> None:
-        """#479 stands where the cost is real."""
+    def test_however_much_it_grows_the_album(self) -> None:
+        """Lossless audio has no growth cap: here the image is most of it."""
         view = summarise(
-            album(self.small, self.small, codec="AAC"),
+            album(self.small, self.small, codec="FLAC"),
             None,
             archive=self.archive,
+            audio_bytes=1,
             folder_cover=artwork.FolderCoverPolicy.NEVER,
         )
 
-        assert not any(r.writes for r in view.rows)
-
-    def test_one_lossy_track_is_enough_to_keep_them(self) -> None:
-        tracks = album(self.small, self.small, codec="ALAC")
-        tracks[1] = (tracks[1][0], TrackTags(art=self.small, track_num=2, codec="MP3"))
-
-        view = summarise(
-            tracks, None, archive=self.archive, folder_cover=artwork.FolderCoverPolicy.NEVER
-        )
-
-        assert not any(r.writes for r in view.rows)
+        assert {r.written_image for r in view.rows if r.tracks} == {self.archive}
 
     def test_a_folder_cover_keeps_the_479_layout(self) -> None:
         """A `cover.*` beside the tracks is the layout #479 protects, so the
@@ -884,6 +877,80 @@ class TestEmbiggeningLosslessTracks:
         )
 
         assert not any(r.writes for r in view.rows if r.tracks)
+
+
+class TestEmbiggeningLossyTracks:
+    """The same exception for lossy audio, while embiggening grows the album's
+    files by at most `artwork.LOSSY_GROWTH` (#872).
+
+    On lossy audio #479's cost is real, but measurable: an image the size of
+    the audio is not worth embedding N times, and one a few percent of it is.
+    """
+
+    small = art_of(1, width=500, height=500)
+    archive = art_of(2, width=1200, height=1200)
+
+    def _view(
+        self, tracks: list[tuple[Path, TrackTags]], audio_bytes: int | None
+    ) -> artwork.ArtworkView:
+        return summarise(
+            tracks,
+            None,
+            archive=self.archive,
+            audio_bytes=audio_bytes,
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+    def _embiggened(self, view: artwork.ArtworkView) -> bool:
+        return {r.written_image for r in view.rows if r.tracks} == {self.archive}
+
+    def test_up_to_the_cap_it_embiggens(self) -> None:
+        tracks = album(self.small, self.small, codec="AAC")
+        added = 2 * (self.archive.length - self.small.length)
+        cap = artwork.LOSSY_GROWTH
+
+        at = self._view(tracks, int(added / cap))
+        over = self._view(tracks, int(added / cap) - 1)
+
+        assert self._embiggened(at)
+        assert at.operation is artwork.Operation.REPLACEMENT
+        assert not any(r.writes for r in over.rows)
+
+    def test_a_gap_counts_the_whole_image(self) -> None:
+        """A track with no art grows by the whole image, not the difference."""
+        tracks = album(self.small, None, codec="MP3")
+        added = (self.archive.length - self.small.length) + self.archive.length
+        cap = artwork.LOSSY_GROWTH
+
+        assert self._embiggened(self._view(tracks, int(added / cap)))
+        # Over the cap, the gap is still filled — from the album's own image.
+        over = self._view(tracks, int(added / cap) - 1)
+        assert {r.written_image for r in over.rows if r.tracks} == {None, self.small}
+
+    def test_an_unknown_size_keeps_their_own_image(self) -> None:
+        """Growth that can't be measured can't be shown to be small."""
+        assert not any(r.writes for r in self._view(album(self.small, codec="AAC"), None).rows)
+
+    def test_one_lossy_track_makes_the_album_lossy(self) -> None:
+        tracks = album(self.small, self.small, codec="ALAC")
+        tracks[1] = (tracks[1][0], TrackTags(art=self.small, track_num=2, codec="MP3"))
+        added = 2 * (self.archive.length - self.small.length)
+
+        over = self._view(tracks, int(added / artwork.LOSSY_GROWTH) - 1)
+
+        assert not any(r.writes for r in over.rows)
+
+    def test_a_folder_cover_keeps_the_479_layout(self) -> None:
+        view = summarise(
+            album(self.small, self.small, codec="AAC"),
+            cover_of(art_of(3, width=800, height=800)),
+            archive=self.archive,
+            audio_bytes=10**9,
+        )
+
+        tracks, cover = view.rows
+        assert (tracks.outcome, tracks.writes) == (artwork.Outcome.KEPT, False)
+        assert cover.written_image == self.archive
 
 
 def test_a_track_row_replaced_by_the_cover_shows_the_incoming_image() -> None:

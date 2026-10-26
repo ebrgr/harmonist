@@ -271,10 +271,11 @@ Harmonist's rules:
 
 - A track with **no** embedded artwork gets the album's image when it's tagged.
 - Existing embedded artwork is **not** replaced unless you choose to replace it,
-  with one exception: on a lossless album (ALAC or FLAC) with no `cover.jpg`,
-  a larger image from the Cover Art Archive is offered for the tracks. Embedding
-  it costs little beside lossless audio. Like any replacement, it's never
-  applied without someone reviewing it.
+  with one exception. On an album with no `cover.jpg`, a larger image from the
+  Cover Art Archive is offered for the tracks when embedding it costs little:
+  on lossless audio (ALAC or FLAC) always, and on lossy audio while it adds at
+  most 10% to the album's size. Like any replacement, it's never applied
+  without someone reviewing it.
 - For `cover.jpg`, the largest image wins, whether it comes from your files or
   the [Cover Art Archive](https://coverartarchive.org) (MusicBrainz's image
   library). When there's a bigger one, the album's page offers it. A missing

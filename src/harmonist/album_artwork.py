@@ -205,6 +205,9 @@ def view(
         candidates=candidates,
         borrowed=borrowed,
         folder_cover=folder_cover,
+        # Stat'ed here as the tagger stats them at write time, so the page's
+        # plan and the write's are weighed against the same size (#872).
+        audio_bytes=album_files.total_bytes(p for p, _ in tracks),
     )
 
 
