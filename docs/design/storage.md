@@ -1,13 +1,27 @@
 # What is stored where
 
-Harmonist keeps three kinds of state, and each lives where its lifetime and its
-readers put it:
+Harmonist keeps durable records where their lifetime and their readers put them:
 
 | What | Where | Why there |
 |---|---|---|
 | What the user decided about an album, and its link to a release and a purchase | The **sidecar**, `.harmonist.json`, in the album's folder | It travels with the music. Move, copy or back up the folder and the decisions go with it. |
 | What Harmonist did, and what it has heard from MusicBrainz and the Cover Art Archive | **`activity.db`**, SQLite in the config folder | Append-only history and caches, polled constantly, and nothing a user would want inside their music folders. |
 | What has been downloaded from Bandcamp | **`ignores.txt`** in the config folder | It's bandcampsync's own record, and bandcampsync is what downloads. |
+| Local artist metadata and imported biography attribution | **`artist.nfo`** in an artist information folder or beside the music | The profile travels independently of the application and stays readable offline. |
+
+Artist profile metadata lives in the local `artist.nfo`, independently of album
+sidecars. Its imported Wikipedia biography carries source, language, revision
+and licence in the `urn:harmonist:artist-metadata:1` XML namespace, so attribution
+travels with the text and remains readable offline. A namespaced credit reference
+records an explicitly identified local credit or a redirected artist ID without
+changing embedded audio tags. It earns persistence because that user decision
+cannot be reconstructed from the tags.
+
+Artist query responses and immutable import reviews live in separate tables in
+`activity.db`. The cache answers display queries; reviews retain exactly what a
+user compared with a specific NFO. Sharing one mutable row would let a concurrent
+refresh change a pending write. NFOs remain the saved profile's source of truth;
+neither cache nor review is needed for reading them after confirmation.
 
 Everything else is either derived or held in memory and rebuilt.
 

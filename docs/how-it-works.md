@@ -87,8 +87,8 @@ directory layout. Multiple matching files require a source choice. A source
 choice belongs to the page URL, so it can be bookmarked without modifying music
 or metadata files.
 
-Artist browsing reads local tags, NFOs and local raster artwork. It makes no
-MusicBrainz or image-provider requests and never changes audio tags based on
+Artist browsing reads local tags, NFOs and local raster artwork. Browsing makes
+no MusicBrainz or image-provider requests and never changes audio tags based on
 NFOs. Artist genres belong to the NFO, independently of song genres. The NFO's
 discography describes the artist's releases, independently of which albums are
 owned. Biographies and discographies can be expanded separately.
@@ -114,6 +114,28 @@ NFOs and image files, the artist pages remain available offline. The MusicBrainz
 link opens the artist's page separately. NFO discographies do not count as owned
 albums. **Read again** reloads the local metadata; an external edit is also
 noticed on the next visit.
+
+An explicit metadata import can query the chosen artist on MusicBrainz and
+follow its Wikidata or Wikipedia relationships to an introductory biography in
+English, Portuguese, German or Italian. A missing translation is shown as
+missing, independently of service failures, and never silently replaced by
+another language. Names without an artist ID require an explicit identity
+choice. That choice can identify just the selected local credit through its NFO;
+it does not modify audio tags or merge other credits with the same name.
+
+The proposed values are compared with the local NFO. Only selected fields are
+imported, and missing online fields never clear local values. MusicBrainz
+community tags are offered as suggestions for artist genres. Discography is a
+separate, paginated query of release groups; selected entries can be accumulated
+across pages without treating one page as the complete discography.
+
+Confirmation writes exactly the reviewed answer without another network request,
+even if that answer's cache has expired. A changed local NFO or missing review
+requires another review. Imports use the same backups, history and Undo as manual
+NFO edits. Wikipedia attribution, language and revision are saved alongside the
+biography in a namespaced NFO extension, keeping the profile readable offline.
+Locally adapting an imported biography preserves its attribution and marks it as
+edited; Undo restores both text and attribution. Online updates remain explicit.
 
 ## The Inbox
 

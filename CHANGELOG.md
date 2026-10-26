@@ -6,6 +6,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Artist metadata and Wikipedia biographies can be reviewed in four languages and imported into local NFOs with source attribution, paginated discography and Undo (#5).
+
 - **Artists browses local album artists** with artwork, collapsible profiles, an NFO editor with genre tags, and backed-up NFO history with Undo (#813).
 
 ## [1.30.0] - 2026-10-22

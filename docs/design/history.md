@@ -145,7 +145,9 @@ user clicked. A request can name an entry, but never a file or an image.
 ## Artist NFO history
 
 Artist history uses the same activity-and-audit presentation, scoped by the
-confirmed artist ID rather than an album ID. Each successful NFO write records
+stable artist page key rather than an album ID. For an artist identified in the
+audio, that key is its original artist ID; for a user-identified local credit,
+it stays the album-scoped credit key. Each successful NFO write records
 the source path, before/after SHA-256 hashes and changed fields. Exact original
 bytes stay outside SQLite, keyed by their hash, so XML formatting, encoding and
 unknown elements can be recovered as well as the editable metadata.
@@ -161,3 +163,8 @@ NFO backups are retained without automatic pruning. They are small text files
 and the owner has asked to retain every version; artwork's image-size cap would
 make that promise false. Missing backups remain visible in history and disable
 Undo rather than erasing evidence of the change.
+
+An imported biography's attribution and an explicitly chosen artist identity
+are part of the same file change, not separate database decisions that could
+survive an Undo of the text. Their before/after values are recorded alongside
+the metadata fields, and whole-file restoration puts them back together.
