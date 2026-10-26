@@ -141,7 +141,7 @@
                 ] %}
                 {% if when %}
                 <dt>{{ label }}</dt>
-                <dd title="{{ when.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ ago(when) }}</dd>
+                <dd title="{{ local_stamp(when) }}">{{ ago(when) }}</dd>
                 {% endif %}
                 {% endfor %}
             </dl>

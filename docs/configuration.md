@@ -118,6 +118,7 @@ Needs a restart.
 |---|---|---|---|
 | `log_level` | `HARMONIST_LOG_LEVEL` | `"info"` | `debug`, `info`, `warning` or `error`. On the Settings page. |
 | `demo_mode` | `HARMONIST_DEMO_MODE` | `false` | Runs the sample library with simulated services. Your music folder is never touched. |
+| | `TZ` | UTC in Docker; the system's zone elsewhere | The timezone Activity, History and other times are shown in, as a name such as `Europe/London`. Stored times are UTC whatever it says. An unknown name is reported at startup and leaves times in UTC. |
 
 ## Example
 

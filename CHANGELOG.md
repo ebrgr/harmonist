@@ -23,6 +23,9 @@ versions follow [semantic versioning](https://semver.org).
   MusicBrainz (#863).
 - **Background artwork check failures stay out of Activity**: the container
   log has them, and the checks retry on their own (#864).
+- **Times are shown in your timezone**, set with the `TZ` environment
+  variable (#865).
+- **Activity rows show the date** as well as the time (#865).
 
 ## [1.30.0] - 2026-10-22
 

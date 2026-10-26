@@ -3,7 +3,7 @@
     <dt class="col-start-1 text-2xs text-muted uppercase tracking-widest self-baseline">CAA checked</dt>
     {% if checked_at %}
     <dd class="caa-last text-ink tabular-nums self-baseline whitespace-nowrap"
-        title="Cover Art Archive last asked {{ checked_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">
+        title="Cover Art Archive last asked {{ local_stamp(checked_at) }}">
         {{ ago(checked_at) }}
     </dd>
     {% else %}

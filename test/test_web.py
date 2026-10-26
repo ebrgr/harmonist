@@ -7,9 +7,11 @@ templates render without crashing for each AlbumState.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
+import time
 import zipfile
 from collections.abc import Sequence
 from dataclasses import replace
@@ -17,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6529,6 +6532,77 @@ def test_until_rounds_remaining_time_up(offset, said):
     from harmonist.web.main import _until
 
     assert _until(datetime.now(UTC) + offset) == said
+
+
+@pytest.fixture
+def zone(monkeypatch):
+    """Run under a `TZ`, as the container does, restoring the process's zone."""
+
+    def use(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield use
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize(
+    ("tz", "at", "short", "exact"),
+    [
+        (
+            "America/New_York",
+            datetime(2026, 10, 26, 11, 15, 14, tzinfo=UTC),
+            "Oct 26 07:15",
+            "2026-10-26 07:15:14 EDT (11:15:14 UTC)",
+        ),
+        # The local date, not the UTC one, when the zone puts it on another day.
+        (
+            "America/New_York",
+            datetime(2026, 10, 26, 0, 5, 6, tzinfo=UTC),
+            "Oct 25 20:05",
+            "2026-10-25 20:05:06 EDT (00:05:06 UTC)",
+        ),
+        # A single-digit day keeps the column's width.
+        (
+            "UTC",
+            datetime(2026, 3, 5, 4, 15, 23, tzinfo=UTC),
+            "Mar \N{FIGURE SPACE}5 04:15",
+            "2026-03-05 04:15:23 UTC",
+        ),
+    ],
+)
+def test_times_are_shown_in_the_tz_zone(zone, tz, at, short, exact):
+    from harmonist.web.main import _local_stamp, _local_time
+
+    zone(tz)
+    assert _local_time(at) == short
+    assert _local_stamp(at) == exact
+
+
+def test_activity_feed_rows_carry_a_local_date(client, cfg, zone):
+    zone("America/New_York")
+    activity.clear()
+    activity.record("Sync finished")
+    ts = activity.recent()[0].ts
+    local = ts.astimezone(ZoneInfo("America/New_York"))
+
+    body = client.get("/activity").text
+    shown = f"{local:%b} {local.day:\N{FIGURE SPACE}>2} {local:%H:%M}"
+    assert re.search(rf"<time[^>]*>\s*{shown}\s*</time>", body)
+    assert f"{ts:%H:%M:%S} UTC)" in body
+
+
+def test_an_unknown_tz_is_a_warning(zone, caplog):
+    from harmonist.web.main import _check_timezone
+
+    zone("America/New_York")
+    _check_timezone()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    zone("Mars/Olympus_Mons")
+    _check_timezone()
+    assert "TZ=Mars/Olympus_Mons" in caplog.records[-1].getMessage()
+    assert caplog.records[-1].levelno == logging.WARNING
 
 
 def test_tasks_shows_scanning_placeholder_while_scanning(client, cfg, monkeypatch):

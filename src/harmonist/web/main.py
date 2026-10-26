@@ -15,6 +15,7 @@ import re
 import sys
 import threading
 import unicodedata
+import zoneinfo
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
@@ -541,6 +542,7 @@ def _validate_runtime_paths(cfg: config_mod.Config) -> None:
     if hasattr(os, "getuid"):
         ids = f"uid={os.getuid()} gid={os.getgid()} groups={sorted(os.getgroups())}"
     log.info("Harmonist starting (%s)", ids or "user id unavailable on this platform")
+    _check_timezone()
     for label, d in (("music", cfg.paths.music_dir), ("config", cfg.paths.config_dir)):
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -847,6 +849,8 @@ def create_app(
     templates.env.globals["rel_path"] = _rel_path
     templates.env.globals["ago"] = _ago
     templates.env.globals["until"] = _until
+    templates.env.globals["local_time"] = _local_time
+    templates.env.globals["local_stamp"] = _local_stamp
     templates.env.globals["missing_discs"] = _missing_discs
     # The one MusicBrainz note's legend (#328), composed from BOTH comparisons.
     # A global rather than a context key because the two partials that render
@@ -1487,6 +1491,46 @@ def _until(when: datetime) -> str:
         return f"in {n} hour{'s' if n != 1 else ''}"
     n = math.ceil(seconds / 60)
     return f"in {n} minute{'s' if n != 1 else ''}"
+
+
+def _check_timezone() -> None:
+    """Say which zone times are shown in, and warn about a `TZ` the system does
+    not know (#865): libc quietly falls back to UTC for one, which would show
+    every time an offset away from where the user set it, with no other sign."""
+    zone = datetime.now().astimezone().tzname()
+    tz = os.environ.get("TZ")
+    if tz:
+        try:
+            zoneinfo.ZoneInfo(tz.removeprefix(":"))
+        except zoneinfo.ZoneInfoNotFoundError, ValueError:
+            log.warning(
+                "TZ=%s is not a timezone this system knows; times are shown in %s", tz, zone
+            )
+            return
+    log.info("times are shown in %s", zone)
+
+
+def _local_time(when: datetime) -> str:
+    """A stored UTC time as a short local date and time — "Oct 26 07:15" (#865).
+
+    Local means the process's zone: `TZ` in a container, as other self-hosted
+    images read it, and the system's zone elsewhere. Stored times stay UTC; only
+    what the reader sees moves, so changing `TZ` re-renders every row at once.
+
+    A single-digit day is padded with a figure space, one digit wide, so the
+    feed's column of times stays aligned without a leading zero."""
+    local = when.astimezone()
+    return f"{local:%b} {local.day:\N{FIGURE SPACE}>2} {local:%H:%M}"
+
+
+def _local_stamp(when: datetime) -> str:
+    """The exact time for a tooltip, with its zone, and the UTC time beside it
+    when they differ, since that is how `docker logs -t` stamps the log."""
+    local = when.astimezone()
+    exact = f"{local:%Y-%m-%d %H:%M:%S} {local.tzname()}"
+    if local.utcoffset():
+        return f"{exact} ({when.astimezone(UTC):%H:%M:%S} UTC)"
+    return exact
 
 
 # Libraries Harmonist builds on, for the About page. (name, pip distribution or

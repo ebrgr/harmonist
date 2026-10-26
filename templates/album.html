@@ -270,8 +270,8 @@
             {% for e in history %}
             <li class="flex items-baseline gap-3 py-1.5 text-sm{% if e.source == 'audit' %} album-history__audit{% endif %}">
                 <time class="flex-shrink-0 font-mono text-2xs text-muted tabular-nums"
-                      title="{{ e.ts.strftime('%Y-%m-%d %H:%M:%S UTC') }}">
-                    {{ e.ts.strftime('%Y-%m-%d %H:%M') }}
+                      datetime="{{ e.ts.isoformat() }}" title="{{ local_stamp(e.ts) }}">
+                    {{ e.ts.astimezone().strftime('%Y-%m-%d %H:%M') }}
                 </time>
                 {# self-START, not self-center: a row carrying a tag-change
                    summary (#86) is many lines tall, and centring left the dot
