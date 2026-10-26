@@ -173,8 +173,8 @@ and never compared with MusicBrainz, and a tag joins the set only when something
 reads it. What they decide is whether an album is a download, which
 [contributions](contributions.md#which-albums-qualify) depends on.
 
-Automatic detection needs positive evidence: a store's own mark for a download,
-or AccurateRip's verification for a rip. Neither, or both, is no answer. Marks
+Automatic detection needs positive evidence: a store's own mark or a linked
+Bandcamp purchase for a download, or AccurateRip's verification for a rip. Neither, or both, is no answer. Marks
 can survive copying metadata between files, so the owner's explicit choice can
 overrule them without erasing the evidence.
 
@@ -204,6 +204,13 @@ place it points to (Bandcamp, Qobuz, Amazon, Beatport or CD), or **Unknown** whe
 it points to none or to more than one (#634). Two stores' marks are as
 inconclusive as a store's mark beside a rip's. Harmonist's own Bandcamp download
 settles automatic detection.
+
+A link to a Bandcamp purchase counts as Bandcamp evidence beside the tags
+(#867). Only an exact match in the owner's own collection makes one, and the
+commonest reason a purchase's files lack Bandcamp's comment is a conversion or a
+retag that dropped it, which leaves the album no other evidence. Counting it as
+evidence rather than as a settlement keeps the rule below. A purchase beside a
+rip's or another store's marks is still Unknown.
 
 The origin names the files, not the purchase. A CD bought from Bandcamp and then
 ripped is a CD. Inherited purchase comments cannot disprove the owner's knowledge

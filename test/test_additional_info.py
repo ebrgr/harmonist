@@ -4,7 +4,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from harmonist import provenance, scanner, sidecar
-from harmonist.models import Sidecar
+from harmonist.models import BandcampInfo, Sidecar
 from harmonist.provenance import Origin
 from harmonist.url_recovery import link_parts
 from test.helpers import ACCURATERIP_TAGS, BEATPORT_TAGS, QOBUZ_TAGS, write_provenance_tags
@@ -72,6 +72,32 @@ def test_harmonists_own_download_is_bandcamp_without_a_tag_to_show(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "link",
+    [BandcampInfo(item_id=102578858), BandcampInfo(candidate_item_ids=[1, 2])],
+    ids=["one purchase", "ambiguous between purchases"],
+)
+def test_a_linked_bandcamp_purchase_is_bandcamp_without_a_tag_to_show(tmp_path, link):
+    """A download from before Harmonist, its comment lost to a conversion (#867).
+    Every purchase an ambiguous link could be is still a Bandcamp purchase."""
+    folder = download(tmp_path, (None,), marks={})
+    sidecar.write(folder, Sidecar(mb_release_id=MBID, bandcamp=link))
+    found = info(folder)
+    assert found.origin is Origin.BANDCAMP
+    assert found.why == "It's linked to your Bandcamp purchase."
+    assert found.rows == ()
+
+
+def test_a_linked_purchase_beside_a_rips_tags_is_unknown(tmp_path):
+    """The purchase is evidence, not the last word: a Bandcamp-bought CD ripped
+    with AccurateRip points two ways, as two stores' marks do."""
+    folder = download(tmp_path, (None,), marks=ACCURATERIP_TAGS)
+    sidecar.write(folder, Sidecar(mb_release_id=MBID, bandcamp=BandcampInfo(item_id=1)))
+    found = info(folder)
+    assert found.origin is Origin.UNKNOWN
+    assert found.why == "Its tags point to more than one origin."
+
+
+@pytest.mark.parametrize(
     ("text", "parts"),
     [
         (
@@ -128,6 +154,27 @@ def test_origin_links_only_its_own_store(client, cfg, ripped):  # noqa: F811
         assert link is not None
         assert link in origin.descendants
     assert bool(page.select_one("#album-info")) is ripped
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://artist.bandcamp.com/album/record",
+        # A Bandcamp page on the artist's own domain. The purchase id is what
+        # makes it Bandcamp's, not the hostname.
+        "https://store.blamstra.in/album/selected-ambient-dub-works-06-09",
+    ],
+)
+def test_a_linked_purchase_links_its_store_page_from_origin(client, cfg, url):  # noqa: F811
+    d = _make_album(cfg, "Linked", mbid=MBID)
+    sidecar.write(d, Sidecar(mb_release_id=MBID, store_url=url, bandcamp=BandcampInfo(item_id=7)))
+    page = BeautifulSoup(client.get(f"/album/{_id_for(cfg, d)}").text, "html.parser")
+    origin = page.select_one("#album-identity dd[data-field='origin']")
+    assert origin is not None
+    link = origin.select_one(f'a[href="{url}"]')
+    assert link is not None
+    assert link.get_text(strip=True) == "Bandcamp ↗"
+    assert "item #7" in link["title"]
 
 
 def test_album_page_has_no_additional_info_without_those_tags(client, cfg):  # noqa: F811

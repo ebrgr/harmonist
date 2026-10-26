@@ -3,7 +3,9 @@
    to the page now (#129), so every `full_page` branch this carried is gone. #}
 {% set sc = album.sidecar %}
 {% set bc = sc.bandcamp if sc else None %}
-{% set store = store_name(sc.store_url if sc else None) %}
+{# A linked purchase's URL came from the owner's Bandcamp collection, so it is a
+   Bandcamp page even on the artist's own domain, which the hostname can't tell. #}
+{% set store = 'bandcamp' if bc and (bc.item_id is not none or bc.candidate_item_ids) else store_name(sc.store_url if sc else None) %}
 {% set info = additional_info(album) %}
 {% set origin_links_store = info and store and store == info.origin | lower %}
 {% set store_tip %}

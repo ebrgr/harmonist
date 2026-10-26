@@ -27,6 +27,11 @@ versions follow [semantic versioning](https://semver.org).
   variable (#865).
 - **Activity rows show the date** as well as the time (#865).
 
+### Fixed
+
+- **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with
+  a link to the purchase, even when its files have lost Bandcamp's comment (#867).
+
 ## [1.30.0] - 2026-10-22
 
 ### Added

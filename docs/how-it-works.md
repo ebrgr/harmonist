@@ -323,8 +323,11 @@ no marks, or they disagree (a rip's and a store's, or two stores'), the origin
 is Unknown. An album Harmonist downloaded from Bandcamp itself is detected as
 Bandcamp.
 
-The origin describes the files, not the purchase: a CD bought on Bandcamp and
-then ripped is a CD.
+An album linked to a Bandcamp purchase counts as Bandcamp too, even when a
+conversion or another tagger has dropped the comment, and its Origin links to
+the purchase's page. The link is evidence alongside the tags, not instead of
+them: the origin describes the files, not the purchase, so a CD bought on
+Bandcamp and ripped with AccurateRip verification is Unknown until you choose.
 
 For Qobuz albums with several barcode matches, a single release linked to Qobuz
 can become the suggested match when its digital format and track count agree

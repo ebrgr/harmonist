@@ -14,13 +14,14 @@ themselves:
 
 - **Harmonist downloaded them** (recorded in the sidecar), or
 - **a store left its mark on them**: a Bandcamp URL in the comment, or a tag only
-  that store writes (see [tagging](tagging.md#tags-read-for-provenance)),
+  that store writes (see [tagging](tagging.md#tags-read-for-provenance)), or
+- **they are linked to a Bandcamp purchase** in the owner's collection (#867),
 - and **nothing points elsewhere**: no file carries AccurateRip's verification,
   which only a rip produces, and no second store's mark. Evidence pointing to
   more than one [origin](tagging.md#the-origin) proves nothing.
 
-Owning a Bandcamp purchase of the same album doesn't qualify a CD rip as a
-download. Neither does a `BARCODE` tag, which may have been written from a
+A linked purchase doesn't qualify a verified CD rip as a download: the rip's
+evidence points elsewhere, so the origin is Unknown. Nor does a `BARCODE` tag, which may have been written from a
 previous MusicBrainz match. An original `UPC` tag, consistent across every file,
 is kept apart from `BARCODE` and survives tagging and undo, because it is the
 barcode a download was sold under. But it isn't proof of a download on its own:
