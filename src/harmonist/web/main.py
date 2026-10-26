@@ -2914,6 +2914,10 @@ def _widest(view: artwork.ArtworkView) -> int | None:
         tuple((Path(t.name), r.image) for r in view.rows for t in r.tracks),
         view.cover,
         bool(view.unreadable or view.cover_unreadable),
+        # Without these, an album whose tracks a larger front could embiggen
+        # (#872) downloaded nothing, so the page never proposed it.
+        view.lossless,
+        view.audio_bytes,
     )
     return artwork_updates.download_threshold(local, frozenset(view.borrowed))
 

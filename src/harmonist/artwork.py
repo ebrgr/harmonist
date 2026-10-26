@@ -1191,6 +1191,10 @@ class ArtworkView:
     #: The album's stand-in covers for its release (#663), by digest, with the
     #: listing each came from.
     borrowed: Mapping[str, str] = field(default_factory=dict)
+    #: The audio facts the plan was weighed with (#872), kept for the page's
+    #: archive check: its download threshold needs them as the plan does.
+    lossless: bool = False
+    audio_bytes: int | None = None
 
     @property
     def front_only(self) -> bool:
@@ -1476,6 +1480,7 @@ def summarise(
     readable = [(path, t) for path, t in tracks if not t.unreadable]
     taken = chosen if chosen is Source.ARCHIVE and archive is not None else None
     own_front = archive if caa is not None and not caa.from_release_group else None
+    lossless = all_lossless(t.codec for _, t in tracks)
     the_plan = plan(
         album_dir,
         [(path, t.art) for path, t in readable],
@@ -1488,7 +1493,7 @@ def summarise(
         stand_ins=frozenset(borrowed or ()) if own_front is not None else frozenset(),
         excluded_archive=excluded_archive,
         folder_cover=folder_cover,
-        lossless=all_lossless(t.codec for _, t in tracks),
+        lossless=lossless,
         audio_bytes=audio_bytes,
     )
     by_target = {c.target: c for c in the_plan.changes}
@@ -1626,4 +1631,6 @@ def summarise(
         choices=the_plan.choices,
         candidates=tuple(candidates),
         borrowed=dict(borrowed or {}),
+        lossless=lossless,
+        audio_bytes=audio_bytes,
     )

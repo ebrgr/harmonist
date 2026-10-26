@@ -81,15 +81,22 @@ class _Failures:
 
 @dataclass(frozen=True)
 class LocalArtwork:
+    """What an album's files carry, for the plan and its download threshold.
+
+    No field has a default, on purpose: the page once built one of these
+    without the audio facts, and its threshold downloaded nothing for an album
+    the plan could embiggen (#872). mypy now names every construction that
+    forgets one."""
+
     tracks: tuple[tuple[Path, formats.EmbeddedArt | None], ...]
     cover: artwork.FolderCover | None
-    unreadable: bool = False
+    unreadable: bool
     #: Every audio file is lossless (`formats.all_lossless`), which lets the
     #: plan embiggen the tracks (#872).
-    lossless: bool = False
+    lossless: bool
     #: The audio files' combined size, from the scan's stat: what lossy
     #: embiggening's growth is measured against (#872).
-    audio_bytes: int | None = None
+    audio_bytes: int | None
 
     @property
     def missing(self) -> bool:
@@ -145,7 +152,7 @@ def read_local(
     files: Sequence[Path],
     fields: Sequence[formats.ScanFields],
     cover_path: Path | None,
-    audio_bytes: int | None = None,
+    audio_bytes: int | None,
 ) -> LocalArtwork:
     """Finish a scan's observation with one folder-image read on a cache miss."""
     unreadable = any(f.unreadable or (f.has_cover and f.art is None) for f in fields)

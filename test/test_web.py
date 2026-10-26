@@ -12023,6 +12023,32 @@ def test_the_archive_check_downloads_any_cover_for_an_album_with_no_art(client, 
     assert seen == [-1]
 
 
+@pytest.mark.parametrize("source", ["sine.m4a", "sine-aac.m4a"], ids=["alac", "aac"])
+def test_the_archive_check_downloads_a_front_that_could_embiggen_the_tracks(
+    client, cfg, monkeypatch, source
+):
+    """With no folder cover, a larger front can replace the tracks' own image
+    (#872), so the page's check has to download one to propose it: a plan
+    proposes only an image in the cache. The page used to work out its
+    threshold without the audio's facts, and downloaded nothing, so the
+    proposal never appeared."""
+    client.app.state.cfg.tagging.folder_cover = artwork.FolderCoverPolicy.NEVER
+    small = _png_sized(1, 60)
+    d = _release_backed_album_with_art(
+        cfg, "Embiggenable", "rel-big", covers=[small, small], source=SINE_M4A.parent / source
+    )
+    seen: list[int | None] = []
+
+    def front(mbid, **kw):
+        seen.append(kw.get("keep_if_wider_than"))
+
+    monkeypatch.setattr("harmonist.caa_cache.front", front)
+
+    client.get(f"/album/{_id_for(cfg, d)}/artwork?check=1")
+
+    assert seen == [60]
+
+
 def test_the_artwork_action_writes_artwork_and_not_tags(client, cfg):
     """The separation, end to end: images change, the title does not (#418)."""
     from mutagen.mp4 import MP4

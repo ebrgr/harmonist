@@ -278,7 +278,11 @@ def resolve_dir(
     reuse = cached[2].fields if (cached is not None and cached[0][0] == signature[0]) else None
     try:
         io = read_album_io(
-            album_dir, audio_files, video_files, reuse, _audio_bytes(signature, audio_files)
+            album_dir,
+            audio_files,
+            video_files,
+            reuse,
+            audio_bytes=_audio_bytes(signature, audio_files),
         )
         album = build_album(album_dir, audio_files, io, _written_at(signature))
         contributions.warm(album)
@@ -635,7 +639,8 @@ def read_album_io(
     audio_files: list[Path],
     video_files: list[Path] | None = None,
     reuse_fields: list[formats.ScanFields] | None = None,
-    audio_bytes: int | None = None,
+    *,
+    audio_bytes: int | None,
 ) -> AlbumIO:
     """Do an album's blocking reads in one place: the sidecar, each track's tags
     (one open per file), and the cover lookup. Touches no shared state, so the

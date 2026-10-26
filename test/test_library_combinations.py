@@ -22,7 +22,13 @@ def test_combinations_and_contextual_counts(tmp_path):
         "Artist",
         1,
         AlbumState.COMPLETE,
-        artwork_local=artwork_updates.LocalArtwork(((tmp_path / "track.m4a", None),), None),
+        artwork_local=artwork_updates.LocalArtwork(
+            ((tmp_path / "track.m4a", None),),
+            None,
+            unreadable=False,
+            lossless=False,
+            audio_bytes=None,
+        ),
     )
     albums = [
         replace(base, id="cd-bare", sidecar=Sidecar(origin_override=provenance.Origin.CD)),
