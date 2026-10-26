@@ -31,6 +31,14 @@ separate information folder under an artist-ID directory: a collaboration's
 audio directory cannot safely be claimed as one participant's metadata folder.
 NFO discographies enrich the page without declaring their entries owned.
 
+Explicit online import adds a second authoritative way to identify a credit:
+the user's selection. Its NFO records the stable local credit key alongside the
+confirmed artist ID. The key scopes that decision to the chosen credit; a
+same-named artist elsewhere gains no association, and embedded tags remain
+untouched. A redirected MusicBrainz identity uses the same reference to keep the
+existing page and history reachable. This is a deliberate write with history,
+unlike merely choosing between already matching NFO sources while browsing.
+
 ## An album is its release, not its folder
 
 A library assembled over decades keeps one release in several places:

@@ -15,6 +15,7 @@ def seed(music_dir, **kwargs):
     make_album(music_dir, "Unstructured collaboration", RELEASE, ["Álice", "Zed"], [ALICE, BOB])
     solo = make_album(music_dir, "Another arbitrary folder", SOLO, ["Álice"], [ALICE])
     add_unidentified_tracks(solo)
+    make_album(music_dir, "Unidentified artist profile", RELEASE, ["Unknown fixture artist"], [])
     # Exercise the second Artists page as well as the search/back path.
     for i in range(31):
         release = f"99999999-9999-4999-8999-{i:012d}"

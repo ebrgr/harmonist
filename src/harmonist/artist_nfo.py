@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
+from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
 from .artists import Artist, mbid
@@ -19,6 +20,10 @@ from .artists import Artist, mbid
 log = logging.getLogger(__name__)
 _MAX_BYTES = 1024 * 1024
 _IMAGES = {".jpg", ".jpeg", ".png", ".webp"}
+METADATA_NS = "urn:harmonist:artist-metadata:1"
+SOURCE_TAG = f"{{{METADATA_NS}}}biography"
+CREDIT_TAG = f"{{{METADATA_NS}}}credit"
+ET.register_namespace("harmonist", METADATA_NS)
 
 
 class NfoError(ValueError):
@@ -74,6 +79,8 @@ class Profile:
     discography: tuple[DiscographyAlbum, ...] = ()
     fingerprint: str = ""
     edit_values: tuple[tuple[str, str], ...] = ()
+    biography_source: dict[str, str] | None = None
+    credit: str | None = None
 
     @property
     def main_facts(self) -> tuple[tuple[str, str], ...]:
@@ -176,7 +183,39 @@ def _read(path: Path, modified_ns: int, size: int) -> Profile:
             (f.tag, ("\n" if f.multiple else " · ").join(values(f.tag, *f.aliases)))
             for f in EDIT_FIELDS
         ),
+        biography_source(root),
+        root.findtext(CREDIT_TAG),
     )
+
+
+def biography_source(root: ET.Element) -> dict[str, str] | None:
+    """Only this namespaced extension carries imported biography attribution."""
+    node = root.find(SOURCE_TAG)
+    if node is None:
+        return None
+    return validate_source(node.attrib)
+
+
+def validate_source(source: dict[str, str]) -> dict[str, str]:
+    required = {"provider", "language", "url", "title", "license", "license_url"}
+    if not required.issubset(source) or any(not source[key] for key in required):
+        raise NfoError("The biography source is incomplete.")
+    try:
+        url, license_url = urlsplit(source["url"]), urlsplit(source["license_url"])
+    except ValueError as exc:
+        raise NfoError("The biography source contains an invalid URL.") from exc
+    if (
+        source["provider"] != "Wikipedia"
+        or source["language"] not in {"en", "pt", "de", "it"}
+        or url.scheme != "https"
+        or url.hostname != source["language"] + ".wikipedia.org"
+        or url.username is not None
+        or license_url.scheme != "https"
+        or license_url.hostname not in {"creativecommons.org", "www.creativecommons.org"}
+        or license_url.username is not None
+    ):
+        raise NfoError("The biography source contains an unsupported URL or language.")
+    return dict(source)
 
 
 def parse_document(data: bytes, path: Path) -> ET.Element:
@@ -273,8 +312,6 @@ def for_artist(
     refresh: bool = False,
 ) -> Result:
     """No network or writes; ambiguous NFOs require an explicit page selection."""
-    if artist.mbid is None:
-        return Result()
     if refresh:
         _read.cache_clear()
     try:
@@ -291,7 +328,12 @@ def for_artist(
             log.exception("Could not read artist NFO %s", path)
             errors.append(str(exc))
             continue
-        if profile.mbid == artist.mbid:
+        if (
+            not artist.key.startswith("local-")
+            and artist.mbid is not None
+            and profile.mbid == artist.mbid
+            and not (profile.credit or "").startswith("local-")
+        ) or (profile.credit == artist.key and profile.mbid is not None):
             matches.append(profile)
     paths = tuple(p.path for p in matches)
     selected = [p for p in matches if selection_key(p.path) == selection]

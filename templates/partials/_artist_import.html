@@ -1,0 +1,111 @@
+<dialog aria-labelledby="artist-import-heading" class="bg-transparent p-0 m-auto max-w-4xl w-full">
+    <div class="bg-white border border-line rounded-lg shadow-xl p-5 max-h-[85vh] overflow-y-auto space-y-4">
+        <div class="flex items-start justify-between gap-4">
+            <h2 id="artist-import-heading" class="text-lg font-bold text-ink">Import artist metadata</h2>
+            <button type="button" onclick="harmonistCloseModal()" aria-label="Close metadata import" class="text-lg text-muted hover:text-ink">×</button>
+        </div>
+        {% if import_error %}<p role="alert" class="text-sm text-amber-800 break-words">{{ import_error }}</p>{% endif %}
+        <form hx-post="{{ import_base }}/lookup?{{ import_query_string }}" hx-target="#modal" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#artist-import-loading" class="flex flex-wrap items-end gap-3">
+            {% if not artist.mbid and not import_review %}
+            <label class="min-w-0 flex-1 text-xs font-semibold text-muted">Artist name
+                <input name="query" value="{{ import_query }}" maxlength="200" required class="block w-full mt-1 border border-line rounded px-2 py-1 text-sm text-ink">
+            </label>
+            {% endif %}
+            {% if import_review %}
+            <input type="hidden" name="chosen_mbid" value="{{ import_review.mbid }}">
+            <input type="hidden" name="previous_review" value="{{ import_review.token }}">
+            {% endif %}
+            <label class="text-xs font-semibold text-muted">Biography language
+                <select name="language" class="block mt-1 border border-line rounded px-2 py-1 text-sm text-ink">
+                    {% for code, name in import_languages.items() %}
+                    <option value="{{ code }}" {% if code == (import_review.language if import_review else import_language) %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="px-3 py-1.5 rounded bg-accent text-white text-sm font-bold">{{ 'Search artists' if not artist.mbid and not import_review else 'Fetch metadata' }}</button>
+            {% if import_review %}<button type="submit" name="refresh_online" value="true" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Refresh online</button>{% endif %}
+            <span id="artist-import-loading" class="htmx-indicator text-xs text-muted" role="status">Loading artist metadata…</span>
+        </form>
+        {% if import_candidates is not none %}
+        {% if not import_candidates %}<p class="text-sm text-muted">No artists found. Try another name.</p>{% endif %}
+        <ul aria-label="MusicBrainz artist results" class="divide-y divide-line">
+            {% for candidate in import_candidates %}
+            <li class="flex flex-wrap items-start justify-between gap-3 py-3">
+                <div class="min-w-0 text-sm text-ink">
+                    <a href="https://musicbrainz.org/artist/{{ candidate.id }}" target="_blank" rel="noopener noreferrer" class="font-bold text-mb-purple hover:underline">{{ candidate.name }} ↗</a>
+                    <p class="text-xs text-muted break-words">{{ candidate.type }}{% if candidate.country %} · {{ candidate.country }}{% endif %}{% if candidate.disambiguation %} · {{ candidate.disambiguation }}{% endif %}</p>
+                    <p class="text-xs text-muted break-all">{{ candidate.id }}</p>
+                </div>
+                <form hx-post="{{ import_base }}/lookup?{{ import_query_string }}" hx-target="#modal" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#artist-import-loading">
+                    <input type="hidden" name="chosen_mbid" value="{{ candidate.id }}">
+                    <input type="hidden" name="language" value="{{ import_language }}">
+                    <button type="submit" class="px-3 py-1 rounded border border-line bg-surface text-xs font-bold text-ink">Use this artist</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if import_review %}
+        {% set review = import_review %}
+        <div class="space-y-1 text-xs text-muted">
+            <a href="https://musicbrainz.org/artist/{{ review.mbid }}" target="_blank" rel="noopener noreferrer" class="font-bold text-mb-purple hover:underline">{{ review.name }} · MusicBrainz ↗</a>
+            <p class="break-all">{{ review.mbid }}</p>
+            <p>Review created <time datetime="{{ review.prepared_at }}" title="{{ review.prepared_at }}">{{ ago(import_review_time) }}</time> · MusicBrainz fetched <time datetime="{{ review.fetched_at }}" title="{{ review.fetched_at }}">{{ ago(import_mb_time) }}</time></p>
+            <p class="break-all">{{ display_path(review.target) }}</p>
+        </div>
+        {% if review.biography_error %}<p role="alert" class="text-sm text-amber-800 break-words">{{ review.biography_error }}</p>
+        {% elif not review.biography %}<p class="text-sm text-muted">No linked biography in {{ import_languages[review.language] }}.{% if review.languages %} Available: {% for code in review.languages if code in import_languages %}{{ import_languages[code] }}{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}</p>{% endif %}
+        <form id="artist-import-selection" hx-post="{{ import_base }}/apply?{{ import_query_string }}" hx-target="#modal" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#artist-import-loading" class="space-y-4">
+            <input type="hidden" name="review" value="{{ review.token }}">
+            <div class="space-y-3">
+                {% for field in nfo_fields if field.tag in review['values'] %}
+                <fieldset class="border border-line rounded p-3 space-y-2">
+                    <legend class="px-1 text-sm font-bold text-ink">
+                        <label class="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" name="fields" value="{{ field.tag }}" {% if field.tag in review.get('selected_fields', []) %}checked{% endif %}>Import {{ field.label }}</label>
+                    </legend>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div><h3 class="text-xs text-muted">Current</h3><p class="whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{{ review.current.get(field.tag, '') or '—' }}</p></div>
+                        <div><h3 class="text-xs text-muted">Found</h3><p class="whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{{ review['values'][field.tag] }}</p></div>
+                    </div>
+                    {% if field.tag == 'biography' %}
+                    <p class="text-xs text-muted break-words">
+                        <a href="{{ review.biography.url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">{{ review.biography.title }} · Wikipedia ↗</a>
+                        · {{ review.biography.language }} · introduction
+                        · <a href="{{ review.biography.license_url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">{{ review.biography.license }} ↗</a>
+                        · fetched <time datetime="{{ review.biography_fetched_at }}" title="{{ review.biography_fetched_at }}">{{ ago(import_biography_time) }}</time>
+                    </p>
+                    {% else %}<p class="text-xs text-muted">MusicBrainz{% if field.tag == 'genre' %} · community tags{% endif %}</p>{% endif %}
+                </fieldset>
+                {% endfor %}
+            </div>
+            <section class="border border-line rounded p-3 space-y-3" aria-label="Online discography">
+                <h3 class="text-sm font-bold text-ink">Discography · MusicBrainz</h3>
+                {% if review.discography %}
+                {% set disc = review.discography %}
+                <p class="text-xs text-muted">{{ disc.offset + 1 if disc.albums else 0 }}–{{ disc.offset + disc.albums | length }} of {{ disc.total }} release groups · fetched {{ disc.fetched_at }}</p>
+                {% set page_ids = disc.albums | map(attribute='id') | list %}
+                {% for id, album in review.get('picked_albums', {}).items() if id not in page_ids %}
+                <label class="flex items-start gap-2 text-sm text-ink"><input type="checkbox" name="albums" value="{{ id }}" checked><span>{{ album.title }} · {{ album.year }} · selected from another page</span></label>
+                {% endfor %}
+                {% for album in disc.albums %}
+                <label class="flex items-start gap-2 text-sm text-ink"><input type="checkbox" name="albums" value="{{ album.id }}" {% if album.id in review.get('picked_albums', {}) %}checked{% endif %}><span>{{ album.title }}{% if album.year %} · {{ album.year }}{% endif %}</span></label>
+                {% endfor %}
+                <div class="flex flex-wrap gap-2">
+                    {% if disc.offset > 0 %}<button type="button" hx-post="{{ import_base }}/discography?{{ import_query_string }}" hx-include="closest form" hx-vals='{"offset": {{ disc.offset - 20 }}}' hx-target="#modal" hx-swap="innerHTML" class="px-3 py-1 rounded border border-line text-xs font-bold text-ink">Previous page</button>{% endif %}
+                    {% if disc.offset + disc.albums | length < disc.total %}<button type="button" hx-post="{{ import_base }}/discography?{{ import_query_string }}" hx-include="closest form" hx-vals='{"offset": {{ disc.offset + 20 }}}' hx-target="#modal" hx-swap="innerHTML" class="px-3 py-1 rounded border border-line text-xs font-bold text-ink">Next page</button>{% endif %}
+                    <button type="button" hx-post="{{ import_base }}/discography?{{ import_query_string }}" hx-include="closest form" hx-vals='{"offset": {{ disc.offset }}, "refresh_online": true}' hx-target="#modal" hx-swap="innerHTML" class="px-3 py-1 rounded border border-line text-xs font-bold text-ink">Refresh discography</button>
+                </div>
+                {% else %}
+                <button type="button" hx-post="{{ import_base }}/discography?{{ import_query_string }}" hx-include="closest form" hx-target="#modal" hx-swap="innerHTML" class="px-3 py-1 rounded border border-line text-xs font-bold text-ink">Load discography</button>
+                {% endif %}
+            </section>
+            <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" onclick="harmonistCloseModal()" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Cancel</button>
+                <button type="submit" class="px-3 py-1.5 rounded bg-accent text-white text-sm font-bold">Import selected</button>
+            </div>
+        </form>
+        {% else %}
+        <div class="flex justify-end"><button type="button" onclick="harmonistCloseModal()" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Cancel</button></div>
+        {% endif %}
+    </div>
+</dialog>

@@ -8,13 +8,14 @@ atomic replacement. A content fingerprint protects drafts against outside edits.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import stat
 import tempfile
 import threading
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -49,7 +50,8 @@ def target(artist: Artist, profile: artist_nfo.Profile | None, info_dir: Path | 
     if info_dir is None:
         raise artist_nfo.NfoError("Configure an Artist Information Folder to create an artist NFO.")
     root = info_dir.resolve()
-    path = root / artist_id / "artist.nfo"
+    folder = artist.key if artist.key.startswith("local-") else artist_id
+    path = root / folder / "artist.nfo"
     if not path.resolve().is_relative_to(root):
         raise artist_nfo.NfoError("The artist NFO target is outside the Artist Information Folder.")
     return path
@@ -110,13 +112,20 @@ def save(
     values: Mapping[str, str],
     expected: str,
     selection: str | None = None,
+    *,
+    confirmed_mbid: str | None = None,
+    biography_source: Mapping[str, str] | None = None,
+    discography: Sequence[artist_nfo.DiscographyAlbum] = (),
 ) -> Saved:
     """Write an explicit edit, with no-op, stale-draft and backup safeguards."""
     with _LOCK, activity_store.action():
         result = artist_nfo.for_artist(artist, music_dir, info_dir, selection, refresh=True)
         if result.profile is None and (result.candidates or selection):
             raise NfoChangedError("The NFO source changed. Read again and choose a source.")
-        path = target(artist, result.profile, info_dir)
+        chosen_id = mbid(confirmed_mbid or artist.mbid or "")
+        if chosen_id is None:
+            raise artist_nfo.NfoError("A MusicBrainz artist ID is required to edit an artist NFO.")
+        path = target(replace(artist, mbid=chosen_id), result.profile, info_dir)
         roots = [music_dir.resolve(), *([info_dir.resolve()] if info_dir is not None else [])]
         if not any(path.resolve().is_relative_to(root) for root in roots):
             raise artist_nfo.NfoError("The NFO target is outside the configured folders.")
@@ -136,13 +145,91 @@ def save(
             if path.exists():
                 raise NfoChangedError("An NFO already exists at the target. Read again.")
             root = ET.Element("artist")
-            ET.SubElement(root, "musicBrainzArtistID").text = artist.mbid
+            ET.SubElement(root, "musicBrainzArtistID").text = chosen_id
             digest = ""
         cleaned = normalise(
             (current if original is not None else {"name": artist.name}) | dict(values)
         )
         changed = [f for f in artist_nfo.EDIT_FIELDS if cleaned[f.tag] != current.get(f.tag, "")]
-        if not changed and original is not None:
+        extra: dict[str, list[str]] = {}
+        if confirmed_mbid is not None:
+            old_id = result.profile.mbid if result.profile else ""
+            if old_id != chosen_id:
+                extra["musicBrainzArtistID"] = [old_id or "", chosen_id]
+                for node in list(root):
+                    if node.tag in {"musicBrainzArtistID", "musicbrainzartistid"}:
+                        root.remove(node)
+                ET.SubElement(root, "musicBrainzArtistID").text = chosen_id
+            if artist.key != chosen_id and root.findtext(artist_nfo.CREDIT_TAG) != artist.key:
+                extra["local_credit"] = [root.findtext(artist_nfo.CREDIT_TAG) or "", artist.key]
+                for node in list(root.findall(artist_nfo.CREDIT_TAG)):
+                    root.remove(node)
+                ET.SubElement(root, artist_nfo.CREDIT_TAG).text = artist.key
+        old_source = artist_nfo.biography_source(root)
+        source = old_source
+        if "biography" in values:
+            if biography_source is not None:
+                source = artist_nfo.validate_source(dict(biography_source))
+            elif cleaned["biography"] != current.get("biography", ""):
+                # Preserve attribution for a locally adapted article; clearing
+                # the biography removes the attribution with the text.
+                source = (
+                    old_source | {"modified": "true"}
+                    if old_source and cleaned["biography"]
+                    else None
+                )
+        if source != old_source:
+            extra["biography_source"] = [
+                json.dumps(value, ensure_ascii=False, sort_keys=True) if value else ""
+                for value in (old_source, source)
+            ]
+            for node in list(root.findall(artist_nfo.SOURCE_TAG)):
+                root.remove(node)
+            if source:
+                ET.SubElement(root, artist_nfo.SOURCE_TAG, source)
+        if discography:
+            before = ET.tostring(root, encoding="unicode")
+            for album in discography:
+                if mbid(album.release_group_id or "") is None:
+                    raise artist_nfo.NfoError("A discography selection needs a release-group ID.")
+                matching = [
+                    node
+                    for node in root.findall("album")
+                    if mbid(node.findtext("musicbrainzreleasegroupid", ""))
+                    == album.release_group_id
+                ]
+                if not matching:
+                    matching = [ET.SubElement(root, "album")]
+                for node in matching:
+                    # Preserve ordering, unknown children and attributes.
+                    for tag, value in (
+                        ("title", album.title),
+                        ("year", album.year),
+                        ("musicbrainzreleasegroupid", album.release_group_id),
+                    ):
+                        if not value:
+                            # An absent provider value is never an instruction
+                            # to clear metadata already present on disk.
+                            continue
+                        children = node.findall(tag)
+                        if not children:
+                            children = [ET.SubElement(node, tag)]
+                        for child in children:
+                            child.text = value
+            after_xml = ET.tostring(root, encoding="unicode")
+            if before != after_xml:
+
+                def albums_text(document: ET.Element) -> str:
+                    return "\n".join(
+                        " · ".join(
+                            n.findtext(k, "")
+                            for k in ("title", "year", "musicbrainzreleasegroupid")
+                        )
+                        for n in document.findall("album")
+                    )
+
+                extra["discography"] = [albums_text(ET.fromstring(before)), albums_text(root)]
+        if not changed and not extra and original is not None:
             return Saved(result.profile.path if result.profile else path, False)
         if expected != digest:
             raise NfoChangedError("The NFO changed since this editor was opened. Read again.")
@@ -172,12 +259,12 @@ def save(
             raise NfoChangedError("An NFO appeared before it could be created. Read again.")
         audit.record(
             "artist_nfo.write",
-            artist_id=artist.mbid,
+            artist_id=artist.key,
             file=path,
             before=digest or "absent",
             after=after,
             backup=backup,
-            fields=",".join(f.tag for f in changed),
+            fields=",".join([f.tag for f in changed] + list(extra)),
         )
         if original is None:
             _atomic_write(path, data, mode, create=True)
@@ -188,7 +275,8 @@ def save(
             path,
             digest or None,
             after,
-            {field.tag: [current.get(field.tag, ""), cleaned[field.tag]] for field in changed},
+            {field.tag: [current.get(field.tag, ""), cleaned[field.tag]] for field in changed}
+            | extra,
         )
         return Saved(result.profile.path if result.profile else path, True, original is None)
 
@@ -216,7 +304,7 @@ def _record_saved(
 ) -> None:
     event_id = audit.record(
         "artist_nfo.restored" if restored else "artist_nfo.saved",
-        artist_id=artist.mbid,
+        artist_id=artist.key,
         file=path,
         digest=after,
     )
@@ -304,9 +392,9 @@ def restore(
     Current bytes must still match that event. External edits are never merged.
     """
     with _LOCK, activity_store.action():
-        events = activity_store.artist_history(artist.mbid or "")
+        events = activity_store.artist_history(artist.key)
         change = activity_store.nfo_changes_for([e.id for e in events]).get(event_id)
-        if change is None or not artist.mbid:
+        if change is None:
             raise HistoryNotFound("No NFO change belongs to this artist and history entry.")
         path = _restore_target(change, music_dir, info_dir)
         current = path.read_bytes() if path.exists() else None
@@ -326,7 +414,9 @@ def restore(
                 for e in root
                 if e.tag in ("musicBrainzArtistID", "musicbrainzartistid")
             ]
-            if set(ids) != {artist.mbid}:
+            if set(ids) not in ({artist.mbid}, {mbid(artist.key)}) and not (
+                root.findtext(artist_nfo.CREDIT_TAG) == artist.key and None not in ids and ids
+            ):
                 raise artist_nfo.NfoError("The NFO backup has a different artist identity.")
         backup = _keep(backup_dir, current) if current is not None else None
         if (path.read_bytes() if path.exists() else None) != current:
@@ -334,7 +424,7 @@ def restore(
         mode = stat.S_IMODE(path.stat().st_mode) if current is not None else 0o644
         audit.record(
             "artist_nfo.restore",
-            artist_id=artist.mbid,
+            artist_id=artist.key,
             file=path,
             before=digest,
             after=change.before_hash,

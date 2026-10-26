@@ -346,6 +346,20 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
             changes TEXT NOT NULL
         )""",
     ),
+    # 11 -> 12: artist answers are independent of release includes. Reviews
+    # retain immutable evidence even when another tab refreshes the live cache.
+    (
+        """CREATE TABLE artist_query_cache (
+            key TEXT PRIMARY KEY,
+            fetched_at TEXT NOT NULL,
+            payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE artist_import_reviews (
+            key TEXT PRIMARY KEY,
+            fetched_at TEXT NOT NULL,
+            payload TEXT NOT NULL
+        )""",
+    ),
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)  # the version this build expects/creates
@@ -1546,6 +1560,54 @@ def ignored_updates() -> dict[str, IgnoredUpdate]:
     return out
 
 
+@dataclass(frozen=True)
+class ArtistDocument:
+    """An artist response or immutable review, with its observation time."""
+
+    payload: dict[str, Any]
+    fetched_at: datetime
+
+
+def artist_document(key: str, *, review: bool = False) -> ArtistDocument | None:
+    """Missing evidence is distinct from an unavailable or corrupt store."""
+    table = "artist_import_reviews" if review else "artist_query_cache"
+    try:
+        with _LOCK:
+            row = (
+                _ensure()
+                .execute(f"SELECT payload, fetched_at FROM {table} WHERE key = ?", (key,))
+                .fetchone()
+            )
+        if row is None:
+            return None
+        payload = json.loads(row[0])
+        stamp = datetime.fromisoformat(row[1])
+        if not isinstance(payload, dict):
+            raise TypeError("artist document is not an object")
+        return ArtistDocument(payload, stamp)
+    except (sqlite3.Error, ValueError, TypeError) as exc:
+        log.exception("Could not read artist metadata evidence", extra=_QUIET_MIRROR)
+        raise StoreUnavailableError("Could not read artist metadata evidence. Try again.") from exc
+
+
+def store_artist_document(key: str, payload: Mapping[str, Any], *, review: bool = False) -> None:
+    """Reviews are insert-only; a failed evidence write prevents confirmation."""
+    table = "artist_import_reviews" if review else "artist_query_cache"
+    conflict = "IGNORE" if review else "REPLACE"
+    try:
+        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        with _LOCK:
+            _ensure().execute(
+                f"INSERT OR {conflict} INTO {table} (key, fetched_at, payload) VALUES (?, ?, ?)",
+                (key, datetime.now(UTC).isoformat(), blob),
+            )
+    except (sqlite3.Error, ValueError, TypeError) as exc:
+        log.exception("Could not retain artist metadata evidence", extra=_QUIET_MIRROR)
+        raise StoreUnavailableError(
+            "Could not retain artist metadata evidence. Try again."
+        ) from exc
+
+
 def clear() -> None:
     """Drop all stored state — events, their tag detail, AND aliases (tests /
     demo reset).
@@ -1580,6 +1642,8 @@ def clear() -> None:
     try:
         with _LOCK:
             conn = _ensure()
+            conn.execute("DELETE FROM artist_import_reviews")
+            conn.execute("DELETE FROM artist_query_cache")
             conn.execute("DELETE FROM artist_nfo_changes")
             conn.execute("DELETE FROM tag_changes")
             conn.execute("DELETE FROM events")
