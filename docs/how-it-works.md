@@ -72,6 +72,9 @@ separate collaborators. MusicBrainz artist IDs keep different people with the
 same name apart and let one collaborative album appear under each artist. A name
 without a usable ID stays an unidentified credit scoped to its album; it does
 not silently become the same person as another credit with that spelling.
+Album cards link each credited artist to this same local profile. Navigation
+from Library retains its page size, page, search and filters through artist and
+album views; artist metadata remains independent of that navigation context.
 
 When only some tracks lack artist IDs, consistent artist credits on the other
 tracks can identify the album's artist if all tracks name the same release.
