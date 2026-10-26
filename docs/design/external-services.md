@@ -94,6 +94,29 @@ A **deletion** is a 404. It's an answer, not a failure: the album page says the
 release is gone and offers to find another, and nothing is written. Treating it
 as a network error would hide a fact the user needs to act on.
 
+## Explicit artist enrichment
+
+Artist lookups have their own includes and cache keys. They cannot share release
+rows: artist identity, multilingual biographies and paginated release groups are
+different observations, and changing release includes would invalidate every
+album's existing baseline for unrelated work.
+
+An artist profile costs one shared, rate-limited `musicbrainzngs` request. Its
+Wikidata and Wikipedia relationships establish the biography's identity without
+name-based scraping. Wikimedia requests use the configured contact User-Agent
+and fixed API hosts. A missing translation offers another explicit language
+choice; provider failures remain failures and never become empty replacements.
+The profile and each requested discography page are independent so reading a
+biography does not spend requests enumerating an artist's releases.
+
+Successful artist responses are reused for one hour and labelled with their
+fetch time. Explicit refresh asks again; it never discards the previous
+successful response on failure. Empty sitelinks and empty discography pages are
+not reusable negative cache entries. The API response and the user's review are
+different objects: a review is immutable evidence, bound to a local NFO path and
+content fingerprint, so another tab's refresh cannot replace what confirmation
+will write. Confirmation has no network path, regardless of cache age.
+
 ## The Cover Art Archive
 
 The archive's costs are the opposite of MusicBrainz's. There's no request budget,

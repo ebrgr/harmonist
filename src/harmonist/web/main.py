@@ -49,8 +49,10 @@ from harmonist import (
     activity_store,
     album_files,
     archive,
+    artist_lookup,
     artist_nfo,
     artist_nfo_edit,
+    artist_online,
     artists,
     artwork,
     artwork_store,
@@ -3143,6 +3145,14 @@ def _artist_for(request: Request, key: str) -> artists.Artist:
     found = next((a for a in artists.build_index(eligible) if a.key == key), None)
     if found is None:
         raise HTTPException(status_code=404, detail="artist not found in the library")
+    cfg = request.app.state.cfg
+    bound = artist_nfo.for_artist(
+        found, cfg.paths.music_dir, cfg.paths.artist_info_dir, request.query_params.get("nfo")
+    ).profile
+    if bound is not None and bound.credit == key:
+        # An explicit import can identify one local credit without changing the
+        # embedded tags, its stable page key, or any other same-named credit.
+        found = replace(found, mbid=bound.mbid)
     return found
 
 
@@ -4602,7 +4612,7 @@ def _register_routes(app: FastAPI) -> None:
         nfo_changes: dict[int, activity_store.NfoChange] = {}
         history_unavailable = False
         try:
-            history = activity_store.artist_history(artist.mbid or artist.key)
+            history = activity_store.artist_history(artist.key)
             detail = activity_store.nfo_changes_for([event.id for event in history])
             anchors = {
                 event.action_id: event.id
@@ -4639,7 +4649,13 @@ def _register_routes(app: FastAPI) -> None:
                     )
                     for anchor, change in nfo_changes.items()
                 },
-                nfo_labels={field.tag: field.label for field in artist_nfo.EDIT_FIELDS},
+                nfo_labels={field.tag: field.label for field in artist_nfo.EDIT_FIELDS}
+                | {
+                    "biography_source": "Biography source",
+                    "discography": "Discography",
+                    "musicBrainzArtistID": "MusicBrainz artist ID",
+                    "local_credit": "Local artist credit",
+                },
                 artist_restore_url=location(grid["page"]).replace(
                     f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo/restore?", 1
                 ),
@@ -4654,6 +4670,9 @@ def _register_routes(app: FastAPI) -> None:
                 artist_reload_url=location(grid["page"]) + "&refresh=1",
                 artist_edit_url=location(grid["page"]).replace(
                     f"/artist/{artist.key}?", f"/artist/{artist.key}/nfo/edit?", 1
+                ),
+                artist_import_url=location(grid["page"]).replace(
+                    f"/artist/{artist.key}?", f"/artist/{artist.key}/import?", 1
                 ),
                 artist_can_edit=bool(
                     artist.mbid
@@ -4670,6 +4689,205 @@ def _register_routes(app: FastAPI) -> None:
                 ),
             ),
         )
+
+    def _import_panel(
+        request: Request,
+        artist: artists.Artist,
+        *,
+        review: dict[str, Any] | None = None,
+        candidates: list[dict[str, str]] | None = None,
+        error: str | None = None,
+        language: str = "en",
+        query: str = "",
+        fields: Sequence[str] | None = None,
+        albums: Sequence[str] | None = None,
+    ) -> Response:
+        if review is not None and fields is not None:
+            available = dict(review.get("picked_albums", {})) | {
+                row["id"]: row for row in (review.get("discography") or {}).get("albums", [])
+            }
+            review = review | {
+                "selected_fields": [key for key in fields if key in review["values"]],
+                "picked_albums": {key: available[key] for key in albums or [] if key in available},
+            }
+        return _templates(request).TemplateResponse(
+            request,
+            "partials/_artist_import.html",
+            _ctx(
+                request,
+                artist=artist,
+                import_review=review,
+                import_candidates=candidates,
+                import_error=error,
+                import_language=language,
+                import_query=query or artist.name,
+                import_languages=artist_online.LANGUAGES,
+                nfo_fields=artist_nfo.EDIT_FIELDS,
+                import_base=f"/artist/{artist.key}/import",
+                import_query_string=str(request.url.query),
+                import_mb_time=datetime.fromisoformat(review["fetched_at"]) if review else None,
+                import_review_time=datetime.fromisoformat(review["prepared_at"])
+                if review
+                else None,
+                import_biography_time=(
+                    datetime.fromisoformat(review["biography_fetched_at"])
+                    if review and review.get("biography_fetched_at")
+                    else None
+                ),
+            ),
+        )
+
+    @app.get("/artist/{artist_key}/import", response_class=HTMLResponse)
+    def artist_import_open(request: Request, artist_key: str) -> Response:
+        return _import_panel(request, _artist_for(request, artist_key))
+
+    @app.post("/artist/{artist_key}/import/lookup", response_class=HTMLResponse)
+    def artist_import_lookup(
+        request: Request,
+        artist_key: str,
+        language: Annotated[str, Form()] = "en",
+        query: Annotated[str, Form()] = "",
+        chosen_mbid: Annotated[str, Form()] = "",
+        refresh_online: Annotated[bool, Form()] = False,
+        previous_review: Annotated[str, Form()] = "",
+    ) -> Response:
+        artist = _artist_for(request, artist_key)
+        cfg = request.app.state.cfg
+        previous = None
+        try:
+            if previous_review:
+                previous = artist_online.stored_review(previous_review, artist.key)
+            if language not in artist_online.LANGUAGES:
+                raise artist_online.ReviewError("Choose a supported biography language.")
+            if artist.mbid and chosen_mbid and chosen_mbid != artist.mbid:
+                raise artist_online.ReviewError("This artist already has a confirmed identity.")
+            identified = artist.mbid or artists.mbid(chosen_mbid)
+            if not identified:
+                return _import_panel(
+                    request,
+                    artist,
+                    candidates=artist_lookup.search_artists(query.strip() or artist.name),
+                    language=language,
+                    query=query,
+                )
+            review = artist_online.prepare(
+                artist,
+                identified,
+                language,
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                request.query_params.get("nfo"),
+                cfg.musicbrainz.user_agent,
+                refresh=refresh_online,
+            )
+            return _import_panel(request, artist, review=review, language=language)
+        except (
+            artist_lookup.LookupError,
+            artist_nfo.NfoError,
+            activity_store.StoreUnavailableError,
+        ) as exc:
+            log.exception("Could not prepare artist metadata review")
+            return _import_panel(
+                request, artist, review=previous, error=str(exc), language=language, query=query
+            )
+        except OSError:
+            log.exception("Could not inspect the artist NFO import target")
+            return _import_panel(
+                request,
+                artist,
+                error="Could not inspect the NFO folder. Check permissions and try again.",
+                language=language,
+            )
+
+    @app.post("/artist/{artist_key}/import/discography", response_class=HTMLResponse)
+    def artist_import_discography(
+        request: Request,
+        artist_key: str,
+        review: Annotated[str, Form()],
+        offset: Annotated[int, Form()] = 0,
+        refresh_online: Annotated[bool, Form()] = False,
+        fields: Annotated[list[str] | None, Form()] = None,
+        albums: Annotated[list[str] | None, Form()] = None,
+    ) -> Response:
+        artist = _artist_for(request, artist_key)
+        snapshot = None
+        try:
+            snapshot = artist_online.stored_review(review, artist.key)
+            extended = artist_online.extend_discography(
+                review,
+                artist.key,
+                offset,
+                refresh=refresh_online,
+                fields=fields or [],
+                albums=albums or [],
+            )
+            return _import_panel(request, artist, review=extended, language=extended["language"])
+        except (
+            artist_lookup.LookupError,
+            artist_nfo.NfoError,
+            activity_store.StoreUnavailableError,
+        ) as exc:
+            log.exception("Could not load artist discography")
+            return _import_panel(
+                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+            )
+
+    @app.post("/artist/{artist_key}/import/apply", response_class=HTMLResponse)
+    def artist_import_apply(
+        request: Request,
+        artist_key: str,
+        review: Annotated[str, Form()],
+        fields: Annotated[list[str] | None, Form()] = None,
+        albums: Annotated[list[str] | None, Form()] = None,
+        page: int = 1,
+        artist_page: int = 1,
+        artist_q: str = "",
+    ) -> Response:
+        request.state.skip_rescan = True
+        artist = _artist_for(request, artist_key)
+        cfg = request.app.state.cfg
+        snapshot = None
+        try:
+            snapshot = artist_online.stored_review(review, artist.key)
+            saved = artist_online.apply(
+                artist,
+                review,
+                fields or [],
+                albums or [],
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                cfg.paths.config_dir / "nfoartists",
+            )
+        except (artist_nfo.NfoError, activity_store.StoreUnavailableError) as exc:
+            log.exception("Could not apply artist metadata review")
+            return _import_panel(
+                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+            )
+        except OSError:
+            log.exception("Could not save imported artist metadata")
+            return _import_panel(
+                request,
+                artist,
+                review=snapshot,
+                error="Could not save the artist NFO. Check folder permissions and try again.",
+                fields=fields or [],
+                albums=albums,
+            )
+        response = _flash_response(
+            "Artist metadata imported" if saved.changed else "Artist NFO unchanged",
+            artist.name,
+            tasks_changed=False,
+            record_activity=saved.changed,
+            artist=artist,
+        )
+        response.headers["HX-Redirect"] = artists.detail_url(
+            artist.key,
+            artist_q=artist_q[:100],
+            page=max(1, page),
+            artist_page=max(1, artist_page),
+            nfo=artist_nfo.selection_key(saved.path),
+        )
+        return response
 
     def _nfo_editor(
         request: Request,
@@ -9149,7 +9367,7 @@ def _flash_response(
             level,
             album_id=album_id,
             album_label=album_label,
-            artist_id=artist.mbid or artist.key if artist is not None else None,
+            artist_id=artist.key if artist is not None else None,
         )
     triggers: dict[str, Any] = {
         "harmonist-status": {

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from harmonist import cover_art, formats, mb_lookup, mb_search
+from harmonist import artist_lookup, cover_art, formats, mb_lookup, mb_search
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SINE_M4A = FIXTURES_DIR / "sine.m4a"
@@ -19,6 +19,11 @@ SINE_M4A = FIXTURES_DIR / "sine.m4a"
 # implementations. Snapshotting at test-start instead is fragile: a leak from a
 # prior test would be captured and faithfully "restored", perpetuating it.
 _PRISTINE_GLOBALS = {
+    (artist_lookup, "fetch_artist"): artist_lookup.fetch_artist,
+    (artist_lookup, "search_artists"): artist_lookup.search_artists,
+    (artist_lookup, "fetch_discography"): artist_lookup.fetch_discography,
+    (artist_lookup, "fetch_sitelinks"): artist_lookup.fetch_sitelinks,
+    (artist_lookup, "fetch_biography"): artist_lookup.fetch_biography,
     (formats, "write_tags"): formats.write_tags,
     (mb_lookup, "fetch_release"): mb_lookup.fetch_release,
     (mb_lookup, "fetch_release_urls"): mb_lookup.fetch_release_urls,

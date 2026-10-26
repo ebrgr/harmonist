@@ -1235,7 +1235,7 @@ def install() -> None:
 
     Idempotent. Called once at app construction when demo mode is on.
     """
-    from . import cover_art, mb_lookup, mb_search
+    from . import artist_lookup, cover_art, mb_lookup, mb_search
 
     mb_lookup.fetch_release = fetch_release
     mb_lookup.fetch_release_urls = fetch_release_urls
@@ -1247,6 +1247,11 @@ def install() -> None:
     # Barcode discovery is a separate search entry point; never let a demo
     # file carrying a barcode reach the real MusicBrainz service.
     mb_search.search_barcode = lambda evidence: ([], 0)
+    artist_lookup.fetch_artist = artist_metadata
+    artist_lookup.search_artists = artist_search
+    artist_lookup.fetch_discography = artist_discography
+    artist_lookup.fetch_sitelinks = artist_sitelinks
+    artist_lookup.fetch_biography = artist_biography
     cover_art.front_image = front_image
     cover_art.check_front = check_front
     cover_art.fetch_image = fetch_image
@@ -1255,6 +1260,69 @@ def install() -> None:
     cover_art.fetch_head = fetch_head
     formats.write_tags = _paced_write_tags
     log.info("demo mode: monkey-patched mb_lookup, mb_search, cover_art")
+
+
+def artist_metadata(artist_id: str) -> dict[str, Any]:
+    """Deterministic artist API fixtures; demo imports never reach the network."""
+    return {
+        "id": artist_id,
+        "name": "Demo artist",
+        "sort-name": "Artist, Demo",
+        "type": "Group",
+        "life-span": {"begin": "1999", "ended": "false"},
+        "tag-list": [{"name": "rock"}, {"name": "alternative"}],
+        "url-relation-list": [{"type": "wikidata", "target": "https://www.wikidata.org/wiki/Q1"}],
+    }
+
+
+def artist_search(query: str) -> list[dict[str, str]]:
+    return [
+        {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": query,
+            "type": "Group",
+            "country": "US",
+            "disambiguation": "Demo artist identity",
+        }
+    ]
+
+
+def artist_sitelinks(entity_id: str, user_agent: str) -> dict[str, str]:
+    return {lang: "Demo artist" for lang in ("en", "pt", "de", "it")}
+
+
+def artist_biography(language: str, title: str, user_agent: str) -> dict[str, str]:
+    text = {
+        "en": "An artist biography kept locally after your review.",
+        "pt": "Uma biografia do artista salva localmente depois da sua revisão.",
+        "de": "Eine Künstlerbiografie, die nach Ihrer Prüfung lokal gespeichert wird.",
+        "it": "Una biografia dell’artista salvata localmente dopo la revisione.",
+    }
+    return {
+        "text": text[language],
+        "url": f"https://{language}.wikipedia.org/wiki/Demo_artist",
+        "language": language,
+        "title": title,
+        "provider": "Wikipedia",
+        "revision": "12345",
+        "license": "Creative Commons Attribution-ShareAlike 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    }
+
+
+def artist_discography(artist_id: str, offset: int) -> dict[str, Any]:
+    return {
+        "albums": [
+            {
+                "id": f"77777777-7777-4777-8777-{i:012d}",
+                "title": f"Discography album {i + 1:02d}",
+                "year": str(2000 + i),
+            }
+            for i in range(offset, min(offset + 20, 22))
+        ],
+        "total": 22,
+        "offset": offset,
+    }
 
 
 # ---------------------------------------------------------------------------
