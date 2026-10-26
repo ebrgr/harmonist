@@ -144,12 +144,13 @@ time budget; failed attempts back off without replacing the last observation.
 
 A failure delays the worker across releases, because a delay for one release
 alone merely sends an outage to the next album. Successful checks restore the
-normal pace. Activity summarises failures at most once per six hours, with the
-latest reason and a count, and records the first success after each notice.
-Success does not reset that reporting window: intermittent failures would
-otherwise fill the feed just as surely as a continuous outage. Every attempted
-failure retains its traceback in the container log. Backoff belongs to this
-worker, so an explicit check on the album page remains available.
+normal pace. Failures and the recovery that follows them go to the container
+log, with every attempt's traceback, and never to Activity. Nothing is lost,
+the worker never gives up, and an archive outage offers the user nothing to do.
+Summarising failures in the feed was tried: under an archive that failed
+intermittently for days, the summaries crowded out everything else there.
+Backoff belongs to this worker, so an explicit check on the album page remains
+available.
 
 The scan keeps compact descriptions of every audio track's image and the folder
 cover, never their bytes. The Library applies the shared plan to those facts and

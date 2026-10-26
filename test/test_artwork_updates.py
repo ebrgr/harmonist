@@ -1,5 +1,6 @@
 """Artwork discovery uses all local carriers, and never the tag-update verdict."""
 
+import logging
 import shutil
 import threading
 from dataclasses import replace
@@ -379,56 +380,26 @@ def test_background_failure_backs_off_across_releases_and_caps_delay(failing_arc
         assert len(calls) == before + 1
 
 
-def test_background_failure_summaries_and_recovery(failing_archive, caplog):
+def test_background_failures_and_recovery_are_logged_not_posted(failing_archive, caplog):
     albums, clock, calls, failing = failing_archive
-    artwork_updates.sweep(albums, limit=1)
-    first = activity.recent()
-    assert len(first) == 1
-    assert "500" in first[0].message
-    assert "10 minutes" in first[0].message
-    for _ in range(5):
-        clock[0] += timedelta(hours=1)
+    caplog.set_level(logging.INFO, logger="harmonist.artwork_updates")
+    for _ in range(7):
         artwork_updates.sweep(albums, limit=1)
-    assert len(activity.recent()) == 1
-    assert len(calls) == 6
-    diagnostics = [r for r in caplog.records if r.name == "harmonist.artwork_updates"]
-    assert len(diagnostics) == 6
-    assert all(r.exc_info for r in diagnostics)
-
-    clock[0] += timedelta(hours=1)
-    artwork_updates.sweep(albums, limit=1)
-    entries = activity.recent()
-    assert len(entries) == 2
-    assert "7 failed checks" in entries[0].message
-    assert "500" in entries[0].message
+        clock[0] += timedelta(hours=1)
+    assert len(calls) == 7
+    # Through the real log mirror: an archive outage is not the user's to act on.
+    assert activity.recent() == []
+    failures = [r for r in caplog.records if r.name == "harmonist.artwork_updates"]
+    assert len(failures) == 7
+    assert all(r.levelno == logging.WARNING and r.exc_info for r in failures)
+    assert "500" in str(failures[-1].exc_info[1])
 
     failing[0] = False
-    clock[0] += timedelta(hours=1)
     assert artwork_updates.sweep(albums, limit=1) == 1
-    entries = activity.recent()
-    assert len(entries) == 3
-    assert "succeeded" in entries[0].message
-    assert "7 failed checks" in entries[0].message
+    assert activity.recent() == []
+    assert "after 7 failed checks" in caplog.records[-1].getMessage()
     # Recovery resets pacing; another release can be checked immediately.
     assert artwork_updates.sweep(albums, limit=1) == 1
-    assert len(activity.recent()) == 3
-
-
-def test_intermittent_failures_do_not_restart_activity_notice_window(failing_archive):
-    albums, clock, calls, failing = failing_archive
-    for _ in range(4):
-        failing[0] = True
-        assert artwork_updates.sweep(albums, limit=1) == 0
-        failing[0] = False
-        clock[0] += timedelta(minutes=10)
-        assert artwork_updates.sweep(albums, limit=1) == 1
-    assert len(calls) == 8
-    # One error and one successful-check notice, despite four separate failures.
-    assert len(activity.recent()) == 2
-    clock[0] += timedelta(hours=6)
-    failing[0] = True
-    artwork_updates.sweep(albums, limit=1)
-    assert "4 failed checks" in activity.recent()[0].message
 
 
 def test_background_failure_preserves_observation_and_configure_resets_backoff(failing_archive):
@@ -443,7 +414,6 @@ def test_background_failure_preserves_observation_and_configure_resets_backoff(f
     artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER)
     artwork_updates.sweep(albums, limit=1)
     assert len(calls) == 2
-    assert len(activity.recent()) == 2
 
 
 def test_any_image_threshold_fetches_and_recovers_unmeasurable_artwork(tmp_path):

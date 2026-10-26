@@ -21,6 +21,8 @@ versions follow [semantic versioning](https://semver.org).
   shown under that track**, instead of in a box in the Tags section. Composer
   and work credits take one column each, with every name linking to
   MusicBrainz (#863).
+- **Background artwork check failures stay out of Activity**: the container
+  log has them, and the checks retry on their own (#864).
 
 ## [1.30.0] - 2026-10-22
 

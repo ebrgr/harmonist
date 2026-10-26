@@ -39,7 +39,6 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=10)
 _WINDOW = timedelta(days=1)
 _RETRY = timedelta(hours=1)
-_FAILURE_NOTICE_INTERVAL = timedelta(hours=6)
 #: Albums an artwork update can be routed for, as for a tag update: one still in
 #: an Inbox state is listed there under its state, which is the next thing to do.
 _LIBRARY_STATES = frozenset({AlbumState.COMPLETE, AlbumState.INCOMPLETE})
@@ -53,47 +52,31 @@ _NAMED_MAX = 5
 
 @dataclass
 class _Failures:
-    """Worker-local pacing and reporting, independent of per-release observations.
+    """Worker-local pacing, independent of per-release observations.
 
-    A successful check resets backoff, but not the notice window: intermittent
-    failures must not generate a new pair of Activity entries every ten minutes.
-    Unreported failures accumulate for the next summary. Nothing here is an
-    archive answer, and restarting simply permits another attempt and notice.
+    Kept out of Activity (#864): the check changes nothing, retries on its own
+    and never gives up, and an archive outage is not the user's to act on, as
+    for the album page's own check (`_check_cover_art`). Nothing here is an
+    archive answer, and restarting permits another attempt.
     """
 
     delay: float = 0
     retry_after: float = 0
     count: int = 0
-    last_notice: float | None = None
-    reported: bool = False
 
-    def failed(self, error: cover_art.CoverArtError | mb_lookup.MBError) -> None:
-        now = time.monotonic()
+    def failed(self) -> None:
         self.delay = min(max(TICK.total_seconds(), self.delay * 2), _RETRY.total_seconds())
-        self.retry_after = now + self.delay
+        self.retry_after = time.monotonic() + self.delay
         self.count += 1
-        if (
-            self.last_notice is None
-            or now - self.last_notice >= _FAILURE_NOTICE_INTERVAL.total_seconds()
-        ):
-            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
-            activity.error(
-                f"Background artwork checks delayed — {failures}; latest error: {error}. "
-                f"Next attempt in at least {int(self.delay / 60)} minutes."
-            )
-            self.last_notice = now
-            self.reported = True
 
     def succeeded(self) -> None:
-        self.delay = 0
-        self.retry_after = 0
-        if self.reported:
-            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
+        if self.count:
             # This one check is evidence of progress, not proof that every
             # release endpoint has recovered.
-            activity.info(f"Background artwork check succeeded after {failures}.")
-            self.reported = False
-            self.count = 0
+            log.info("background artwork check succeeded after %d failed checks", self.count)
+        self.delay = 0
+        self.retry_after = 0
+        self.count = 0
 
 
 @dataclass(frozen=True)
@@ -569,15 +552,17 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
                 release_group_mbid=group if isinstance(group, str) else None,
                 keep_if_wider_than=width,
             )
-        except (cover_art.CoverArtError, mb_lookup.MBError) as error:
-            # Keep every attempted failure's traceback without mirroring it
-            # into Activity: the bounded summary below is its visible record.
-            log.exception(
-                "background artwork check failed for %s; will retry later",
+        except cover_art.CoverArtError, mb_lookup.MBError:
+            _failures.failed()
+            # Kept out of the Activity feed (`_diagnostic`, see `_Failures`);
+            # the log keeps every attempt's traceback.
+            log.warning(
+                "background artwork check failed for %s; next attempt in at least %d minutes",
                 mbid,
-                extra={"_activity": True},
+                _failures.delay // 60,
+                exc_info=True,
+                extra={"_diagnostic": True},
             )
-            _failures.failed(error)
             break
         observe(mbid)
         _failures.succeeded()
