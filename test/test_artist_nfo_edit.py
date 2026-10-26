@@ -94,9 +94,9 @@ def test_stale_draft_preserves_external_edit(local_nfo):
 def test_create_uses_configured_information_folder_and_fixed_artist_identity(local_nfo):
     artist, music, info, _source, backups, _db = local_nfo
     missing = info.parent / "not created yet"
-    bob = replace(artist, key=BOB, mbid=BOB, name="Bob / unsafe folder name")
+    bob = replace(artist, key=BOB, mbid=BOB, name="Bób & Friends")
     created = artist_nfo_edit.save(bob, music, missing, backups, {"genre": "Rock"}, "")
-    assert created.path == missing / BOB / "artist.nfo"
+    assert created.path == missing / "Bób & Friends" / "artist.nfo"
     assert created.created
     profile = artist_nfo.for_artist(bob, music, missing).profile
     assert profile is not None and profile.mbid == BOB
@@ -112,10 +112,94 @@ def test_creation_cannot_follow_artist_directory_outside_information_root(local_
     artist, _music, info, _source, _backups, _db = local_nfo
     outside = tmp_path / "outside"
     outside.mkdir()
-    (info / BOB).symlink_to(outside, target_is_directory=True)
+    (info / "André").symlink_to(outside, target_is_directory=True)
     with pytest.raises(artist_nfo.NfoError, match="outside"):
         artist_nfo_edit.target(replace(artist, mbid=BOB), None, info)
     assert not list(outside.iterdir())
+
+
+@pytest.mark.parametrize(
+    "name,folder",
+    [
+        ("AC/DC", "ACDC"),
+        ("Batman: Begins", "Batman Begins"),
+        ("Artist\\Name", "ArtistName"),
+        ('A < B > C | D * E ? F "G"', "A B C D E F G"),
+        (".  André\t &\n Friends ...", "André & Friends"),
+        ("NUL", "_NUL"),
+        ("con", "_con"),
+        ("COM1", "_COM1"),
+        ("LPT9.txt", "_LPT9.txt"),
+        ("COM10", "COM10"),
+        ("../", "Noname Artist"),
+        ("", "Noname Artist"),
+    ],
+)
+def test_creation_sanitizes_only_the_folder_and_preserves_identity(local_nfo, name, folder):
+    artist, music, info, _source, backups, _db = local_nfo
+    other = replace(artist, key=BOB, mbid=BOB, name=name)
+    saved = artist_nfo_edit.save(other, music, info, backups, {"genre": "Rock"}, "")
+    assert saved.created and saved.path == info / folder / "artist.nfo"
+    profile = artist_nfo.for_artist(other, music, info).profile
+    assert profile is not None
+    assert profile.mbid == BOB and profile.name == name.strip()
+    assert profile.genres == ("Rock",)
+    assert not artist_nfo_edit.save(other, music, info, backups, {"genre": "Rock"}, "").changed
+
+
+@pytest.mark.parametrize("name", ["Name\x00", "Name\ud800", "a" * 256])
+def test_creation_refuses_unrepresentable_folder_names(local_nfo, name):
+    artist, music, info, _source, backups, _db = local_nfo
+    before = {p: p.read_bytes() for p in info.rglob("*") if p.is_file()}
+    with pytest.raises(artist_nfo.NfoError, match="artist name"):
+        artist_nfo_edit.save(
+            replace(artist, key=BOB, mbid=BOB, name=name),
+            music,
+            info,
+            backups,
+            {"genre": "Rock"},
+            "",
+        )
+    assert {p: p.read_bytes() for p in info.rglob("*") if p.is_file()} == before
+
+
+def test_sanitized_folder_collision_never_overwrites_another_artist(local_nfo):
+    artist, music, info, _source, backups, _db = local_nfo
+    separate = info.parent / "sanitized"
+    first = replace(artist, name="AC/DC")
+    saved = artist_nfo_edit.save(first, music, separate, backups, {"genre": "Rock"}, "")
+    original = saved.path.read_bytes()
+    with pytest.raises(artist_nfo_edit.NfoChangedError, match="already exists"):
+        artist_nfo_edit.save(
+            replace(artist, key=BOB, mbid=BOB, name="ACDC"),
+            music,
+            separate,
+            backups,
+            {"genre": "Jazz"},
+            "",
+        )
+    assert saved.path.read_bytes() == original
+    assert artist_nfo.read(saved.path).mbid == ALICE
+    assert list(separate.iterdir()) == [separate / "ACDC"]
+
+
+def test_creation_refuses_case_insensitive_folder_collisions(local_nfo):
+    artist, music, info, _source, backups, _db = local_nfo
+    other = info / "BOB"
+    other.mkdir()
+    original = b"<artist><name>Another Bob</name></artist>"
+    (other / "artist.nfo").write_bytes(original)
+    with pytest.raises(artist_nfo.NfoError, match="folder.*already exists"):
+        artist_nfo_edit.save(
+            replace(artist, key=BOB, mbid=BOB, name="Bob"),
+            music,
+            info,
+            backups,
+            {"genre": "Rock"},
+            "",
+        )
+    assert (other / "artist.nfo").read_bytes() == original
+    assert sorted(p.name for p in info.iterdir()) == ["BOB", "arbitrary folder"]
 
 
 @pytest.mark.parametrize("fail_backup", [True, False])
@@ -154,7 +238,7 @@ def test_ambiguous_sources_require_selection_and_cannot_overwrite_an_unmatched_f
             artist, music, info, backups, {"name": "Draft"}, artist_nfo.read(source).fingerprint
         )
     assert source.read_bytes() == local.read_bytes() == original
-    target = info / BOB / "artist.nfo"
+    target = info / "André" / "artist.nfo"
     target.parent.mkdir()
     target.write_bytes(original)
     with pytest.raises(artist_nfo_edit.NfoChangedError, match="already exists"):
@@ -165,7 +249,7 @@ def test_ambiguous_sources_require_selection_and_cannot_overwrite_an_unmatched_f
 def test_creation_does_not_replace_a_concurrently_created_file(local_nfo, monkeypatch):
     artist, music, info, _source, backups, _db = local_nfo
     other = replace(artist, key=BOB, mbid=BOB)
-    target = info / BOB / "artist.nfo"
+    target = info / "André" / "artist.nfo"
     original_link = artist_nfo_edit.os.link
 
     def created_elsewhere(source, destination):

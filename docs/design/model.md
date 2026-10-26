@@ -26,9 +26,22 @@ An explicit NFO edit is a local artist-metadata operation, separate from music
 tagging. The selected source is re-discovered by artist identity at save time,
 and its content fingerprint protects the draft from an intervening edit. Keeping
 the original bytes before replacement makes XML normalization reversible while
-unrecognized elements remain in the edited document. New files belong in the
-separate information folder under an artist-ID directory: a collaboration's
-audio directory cannot safely be claimed as one participant's metadata folder.
+unrecognized elements remain in the edited document. New files use one reviewed
+destination: an eligible directory beside the audio or the separate information
+folder under a sanitized version of the local artist credit. Placement is an
+explicit choice, not a declaration of directory ownership. Suggestions inspect
+all credits in the complete snapshot, including incomplete albums; a shared
+ancestor alone cannot identify an artist folder. Single albums and split layouts
+need an explicit choice rather than an automatic audio-folder selection. The
+review binds the concrete path and local evidence so a changed destination
+requires review rather than a silent fallback. Existing sources stay in place
+regardless of the creation preference. The original name and MBID remain in the
+XML; names only determine placement. Removing illegal filename characters makes directories portable but
+can introduce collisions or prevent lookup by an external consumer that expects
+the exact original name. Such collisions stop creation instead of overwriting
+or inferring identity. A collaboration's audio directory cannot safely be claimed
+as one participant's metadata folder. Keeping existing sources in place also
+preserves artwork and history links.
 NFO discographies enrich the page without declaring their entries owned.
 
 Explicit online import adds a second authoritative way to identify a credit:

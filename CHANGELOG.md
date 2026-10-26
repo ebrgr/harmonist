@@ -6,6 +6,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- New artist NFOs can use one reviewed location beside the audio or in the Artist Information Folder, with a saved preference and portable artist folder names (#8).
+
 - Artist names on album cards open their local profiles, with a return to the same Library page, filters and search (#7).
 
 - Artist metadata and Wikipedia biographies can be reviewed in four languages and imported into local NFOs with source attribution, paginated discography and Undo (#5).

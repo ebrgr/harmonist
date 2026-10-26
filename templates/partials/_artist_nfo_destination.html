@@ -1,0 +1,11 @@
+<fieldset class="space-y-2">
+    <legend class="text-xs font-semibold text-muted">Save location</legend>
+    {% for option in nfo_destinations %}
+    <label class="flex items-start gap-2 rounded border border-line p-2 text-sm text-ink">
+        <input type="radio" name="destination" value="{{ option.key }}" required {% if option.key == nfo_destination %}checked{% endif %} class="mt-1">
+        <span class="min-w-0"><span class="font-semibold">{{ option.label }}</span><span class="block break-all text-xs text-muted">{{ display_path(option.path) }}</span></span>
+    </label>
+    {% endfor %}
+    {% for reason in nfo_destination_reasons %}<p class="text-xs text-muted">{{ reason }}</p>{% endfor %}
+    {% if not nfo_destinations %}<a href="/settings" class="text-xs text-accent hover:underline">Settings</a>{% endif %}
+</fieldset>

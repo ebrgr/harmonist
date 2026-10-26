@@ -252,6 +252,17 @@ not while a sync is running.
 
 ## Library
 
+### No location is available for a new artist NFO
+
+The artist NFO editor only offers directories supported by the complete local
+album snapshot. Shared artists, unresolved credits, unscanned tracks and a flat
+layout can prevent an audio-folder suggestion. A separate Artist Information
+Folder configured through `HARMONIST_ARTIST_INFO_DIR` provides an alternative.
+Single-album and split layouts require an explicit selection. Permission errors
+need to be resolved at the displayed destination; Save never switches paths
+after confirmation. If a folder or its files changed after opening the editor,
+read again and review the destination before saving the preserved draft.
+
 ### An album's Origin is wrong
 
 Tags can outlive the audio they described. A CD rip may carry an Amazon purchase

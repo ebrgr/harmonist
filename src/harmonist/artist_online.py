@@ -17,6 +17,7 @@ from typing import Any
 
 from . import activity_store, artist_lookup, artist_nfo, artist_nfo_edit
 from .artists import Artist, mbid
+from .models import Album
 
 LANGUAGES = artist_lookup.LANGUAGES
 log = logging.getLogger(__name__)
@@ -89,6 +90,8 @@ def prepare(
     selection: str | None,
     user_agent: str,
     *,
+    library_albums: Sequence[Album],
+    preference: str = "info_preferred",
     refresh: bool = False,
 ) -> dict[str, Any]:
     if language not in LANGUAGES or mbid(artist_id) is None:
@@ -99,7 +102,14 @@ def prepare(
     observed = _artist(artist_id, refresh=refresh)
     data = observed.payload
     canonical = str(data["id"])
-    target = artist_nfo_edit.target(replace(artist, mbid=canonical), local.profile, info_dir)
+    plan = artist_nfo_edit.destinations(
+        replace(artist, mbid=canonical),
+        local.profile,
+        music_dir,
+        info_dir,
+        library_albums,
+        preference,
+    )
     values = {
         tag: str(data.get(key) or "")
         for tag, key in (
@@ -164,7 +174,11 @@ def prepare(
             "current": current,
             "expected": local.profile.fingerprint if local.profile else "",
             "selection": selection,
-            "target": str(target.resolve()),
+            "destination": plan.default.key if plan.default else "",
+            "destinations": [
+                {"key": d.key, "path": str(d.path), "label": d.label} for d in plan.options
+            ],
+            "destination_reasons": list(plan.reasons),
             "biography": biography,
             "biography_error": biography_error,
             "biography_fetched_at": biography_fetched_at,
@@ -182,6 +196,7 @@ def extend_discography(
     refresh: bool = False,
     fields: Sequence[str] = (),
     albums: Sequence[str] = (),
+    destination: str | None = None,
 ) -> dict[str, Any]:
     payload = stored_review(token, artist_key)
     if offset < 0 or offset % artist_lookup.PAGE_SIZE or offset > 100_000:
@@ -193,6 +208,10 @@ def extend_discography(
         raise ReviewError("The selection does not belong to this review.")
     payload["picked_albums"] = {key: available[key] for key in dict.fromkeys(albums)}
     payload["selected_fields"] = list(dict.fromkeys(fields))
+    if destination is not None:
+        if destination not in {d["key"] for d in payload.get("destinations", [])}:
+            raise ReviewError("Choose a destination from this review.")
+        payload["destination"] = destination
     observed = _query(
         _key("musicbrainz", "discography", payload["mbid"], offset, artist_lookup.PAGE_SIZE),
         lambda: artist_lookup.fetch_discography(payload["mbid"], offset),
@@ -213,15 +232,47 @@ def apply(
     music_dir: Path,
     info_dir: Path | None,
     backup_dir: Path,
+    *,
+    library_albums: Sequence[Album],
+    destination: str | None = None,
 ) -> artist_nfo_edit.Saved:
     payload = stored_review(token, artist.key)
     selected = set(fields)
     if not selected.issubset(payload["values"]):
         raise ReviewError("The field selection does not belong to this review.")
     local = artist_nfo.for_artist(artist, music_dir, info_dir, payload["selection"], refresh=True)
-    path = artist_nfo_edit.target(replace(artist, mbid=payload["mbid"]), local.profile, info_dir)
-    if str(path.resolve()) != payload["target"]:
-        raise ReviewError("The NFO target changed. Review the source again.")
+    identified = replace(artist, mbid=payload["mbid"])
+    plan = artist_nfo_edit.destinations(
+        identified, local.profile, music_dir, info_dir, library_albums
+    )
+    selected_destination = (
+        destination if destination is not None else payload.get("destination", "")
+    )
+    if "destinations" in payload:
+        reviewed = next(
+            (d for d in payload["destinations"] if d["key"] == selected_destination), None
+        )
+        if reviewed is None:
+            raise ReviewError("Choose an NFO destination from this review.")
+        # Replaying a successful creation may return the existing writer's no-op.
+        # Any further mutation still fails its original absent-file fingerprint.
+        replay = (
+            local.profile is not None
+            and not payload["expected"]
+            and str(local.profile.path.resolve()) == reviewed["path"]
+        )
+        if replay:
+            selected_destination = None
+        else:
+            current = artist_nfo_edit.chosen_destination(plan, selected_destination)
+            if str(current.path) != reviewed["path"]:
+                raise ReviewError("The NFO destination changed. Review the source again.")
+    else:
+        # Pre-placement reviews retain their exact target; never substitute one.
+        path = artist_nfo_edit.target(identified, local.profile, info_dir)
+        if str(path.resolve()) != payload["target"]:
+            raise ReviewError("The NFO target changed. Review the source again.")
+        selected_destination = next((d.key for d in plan.options if d.path == path), "")
     available = dict(payload.get("picked_albums", {})) | {
         row["id"]: row for row in (payload.get("discography") or {}).get("albums", [])
     }
@@ -246,4 +297,6 @@ def apply(
             artist_nfo.DiscographyAlbum(available[key]["title"], available[key]["year"], key)
             for key in dict.fromkeys(albums)
         ],
+        albums=library_albums,
+        destination=selected_destination,
     )
