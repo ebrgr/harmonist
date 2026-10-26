@@ -33,6 +33,17 @@
         <div role="alert" class="my-4 px-4 py-2 rounded-md bg-red-50 border border-red-300 text-red-700 text-sm">Couldn't save: {{ error }}</div>
         {% endif %}
 
+        <section aria-labelledby="artist-nfo-settings-heading" class="border border-line rounded-lg">
+            <h2 id="artist-nfo-settings-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Artist metadata</h2>
+            <div class="p-4">
+                <label for="artist-nfo-location" class="block text-xs font-bold text-ink mb-1">Preferred location for new artist.nfo files</label>
+                <select id="artist-nfo-location" name="artist_nfo_location" class="w-full bg-white border border-line rounded px-3 py-2 text-sm text-ink focus:border-accent">
+                    <option value="audio_preferred" {% if cfg.artist_nfo.location == 'audio_preferred' %}selected{% endif %}>Audio folders</option>
+                    <option value="info_preferred" {% if cfg.artist_nfo.location == 'info_preferred' %}selected{% endif %}>Artist Information Folder</option>
+                </select>
+            </div>
+        </section>
+
         <section id="tagging" aria-labelledby="tagging-heading" class="border border-line rounded-lg scroll-mt-20">
             <h2 id="tagging-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Tagging</h2>
             {# A rule between settings, so each example reads with the control

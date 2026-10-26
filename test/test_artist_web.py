@@ -334,13 +334,24 @@ def test_edit_and_create_nfo_preserve_audio_and_show_saved_genres(artist_client)
     assert "Edited biography" in page.text
     assert page.context["nfo"].profile.genres == ("Rock", "Alternative")
     assert len(list((cfg.paths.config_dir / "nfoartists").glob("*.nfo"))) == 1
+    creation = client.get(f"/artist/{BOB}/nfo/edit")
+    destination = BeautifulSoup(creation.text, "html.parser").select_one(
+        'input[name="destination"]'
+    )
+    assert destination is not None
     created = client.post(
-        f"/artist/{BOB}/nfo", data={"expected": "", "name": "Bob", "genre": "Jazz"}
+        f"/artist/{BOB}/nfo",
+        data={
+            "expected": "",
+            "name": "Bob",
+            "genre": "Jazz",
+            "destination": str(destination["value"]),
+        },
     )
     assert created.status_code == 200
     profile = client.get(created.headers["HX-Redirect"]).context["nfo"].profile
     assert profile.mbid == BOB and profile.genres == ("Jazz",)
-    assert profile.path == cfg.paths.artist_info_dir / BOB / "artist.nfo"
+    assert profile.path == cfg.paths.artist_info_dir / "Bob" / "artist.nfo"
     assert {p: p.read_bytes() for p in before} == before
     network.assert_not_called()
 
