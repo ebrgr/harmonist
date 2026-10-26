@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import compare, formats, match, mb_lookup, pregaps, tagger, track_structure
+from .formats import TagSet
 from .models import IncludedPregap, Release
 from .transforms import TaggingChoices
 
@@ -156,7 +158,17 @@ def panel(
     *,
     confirmed: bool = False,
     included_pregaps: tuple[IncludedPregap, ...] = (),
+    fill: Mapping[int, Sequence[Path]] | None = None,
 ) -> Panel:
+    """Pair `files` with the release's tracks, or replay the user's `draft`.
+
+    `fill` names discs that another folder is filling (#876): disc number to
+    the files that came from it. Its files take that disc's tracks in file
+    order, and the rest of `files` is paired against the remaining tracks.
+    The user chose the folder for that disc, so a number in its files can't
+    send one of them to another disc. Only the starting pairing depends on it;
+    a draft already says where every file goes.
+    """
     tags = [formats.read_tags(f) for f in files]
     if any(t.unreadable for t in tags):
         raise OSError("A file could not be read. Repair it before editing assignments.")
@@ -197,13 +209,25 @@ def panel(
     eligible = {i for i, t in enumerate(mb_tags) if t.disc_num not in video}
     known = track_structure.pairs(tags, mb_tags, eligible)
     if draft is None:
-        slots = compare.assign(
-            [compare.identity_of(t) for t in tags],
-            [compare.TrackIdentity.of_tagset(t) for t in mb_tags],
-        )
+        filled = _filled_slots(files, mb_tags, eligible, fill or {})
+        rest = [i for i in range(len(files)) if i not in filled]
+        open_tracks = [m for m in range(len(mb_tags)) if m not in filled.values()]
         if confirmed:
-            proposal = track_structure.pairs(tags, mb_tags, eligible, propose=True)
-            slots = list(proposal.slots)
+            proposal = track_structure.pairs(
+                [tags[i] for i in rest], mb_tags, eligible - set(filled.values()), propose=True
+            )
+            rest_slots = list(proposal.slots)
+        else:
+            rest_slots = [
+                None if s is None else open_tracks[s]
+                for s in compare.assign(
+                    [compare.identity_of(tags[i]) for i in rest],
+                    [compare.TrackIdentity.of_tagset(mb_tags[m]) for m in open_tracks],
+                )
+            ]
+        slots: list[int | None] = [filled.get(i) for i in range(len(files))]
+        for i, slot in zip(rest, rest_slots, strict=True):
+            slots[i] = slot
         disk_order: list[int | None] = [None] * len(mb)
         for i, slot in enumerate(slots):
             if slot is not None:
@@ -231,3 +255,19 @@ def panel(
         if draft
         else tuple(p.pregap for p in included_pregaps if p.release == release["id"]),
     )
+
+
+def _filled_slots(
+    files: Sequence[Path],
+    mb_tags: Sequence[TagSet],
+    eligible: set[int],
+    fill: Mapping[int, Sequence[Path]],
+) -> dict[int, int]:
+    """File index to track index for the discs another folder fills."""
+    index = {f: i for i, f in enumerate(files)}
+    out: dict[int, int] = {}
+    for disc, disc_files in fill.items():
+        tracks = [m for m, t in enumerate(mb_tags) if t.disc_num == disc and m in eligible]
+        for f, m in zip(disc_files, tracks, strict=False):
+            out[index[f]] = m
+    return out

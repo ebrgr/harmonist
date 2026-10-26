@@ -58,6 +58,7 @@ from harmonist import (
     compare,
     contributions,
     cover_art,
+    disc_fill,
     formats,
     gardener,
     id_registry,
@@ -7361,10 +7362,65 @@ def _register_routes(app: FastAPI) -> None:
             )
         return None
 
+    def _review_fill(request: Request, album: Album, fill: Sequence[str]) -> dict[int, Album]:
+        """The folders a review has added to `album`, by the disc each fills (#876).
+
+        Posted as `disc:album_id`, and resolved against the library as it is
+        now: an added album that has since been matched, or has gone, can't be
+        taken into this release, so the review has to be looked at again.
+        """
+        pool = {
+            a.id: a for a in disc_fill.eligible(album, _albums(request), exclude=set(album.folders))
+        }
+        added: dict[int, Album] = {}
+        for value in fill:
+            disc, _, album_id = value.partition(":")
+            if not disc.isdecimal() or int(disc) in added or album_id not in pool:
+                raise track_assignment.AssignmentChanged(
+                    "A folder added to this review has changed. Review the assignments again."
+                )
+            added[int(disc)] = pool[album_id]
+        if len({a.id for a in added.values()}) != len(added):
+            raise track_assignment.AssignmentChanged("A folder can fill only one disc.")
+        return added
+
+    def _fill_changed(fill: Sequence[str], add: str, remove: str) -> list[str]:
+        """The review's added folders after one add (`disc:album_id`) or remove (`disc`)."""
+        changed = [v for v in fill if v.partition(":")[0] not in {remove, add.partition(":")[0]}]
+        return [*changed, add] if add else changed
+
+    def _folder_lengths(request: Request, album: Album) -> list[int | None]:
+        """Each file's length, from what the scan already read where it can."""
+        runner: ScanRunner = request.app.state.scan_runner
+        lengths: list[int | None] = []
+        for folder in sorted(album.folders):
+            fields = runner.scanned_fields(folder)
+            if fields is None:
+                fields = [formats.read_scan_fields(f) for f in album_files.audio_files(folder)]
+            lengths.extend(f.duration_ms for f in fields)
+        return lengths
+
+    def _fill_choices(
+        request: Request,
+        album: Album,
+        panel: track_assignment.Panel,
+        release: Release,
+        added: Mapping[int, Album],
+    ) -> dict[int, list[disc_fill.Candidate]]:
+        """For each disc with nothing on disk, the unmatched albums that could fill it."""
+        exclude = set(album.folders).union(*(a.folders for a in added.values()))
+        pool = disc_fill.eligible(album, _albums(request), exclude=exclude)
+        return {
+            gap.disc: disc_fill.candidates(gap, pool, lambda a: _folder_lengths(request, a))
+            for gap in disc_fill.gaps(panel, release)
+        }
+
     def _assignment_editor(
         request: Request,
         album_id: str,
         *,
+        fill: Sequence[str] = (),
+        fill_decided: bool = False,
         draft: track_assignment.Draft | None = None,
         review_draft: track_assignment.Draft | None = None,
         release_fingerprint: str = "",
@@ -7386,6 +7442,8 @@ def _register_routes(app: FastAPI) -> None:
         checked_at = None
         assignment_changes = None
         assignment_error = None
+        added: dict[int, Album] = {}
+        fill_choices: dict[int, list[disc_fill.Candidate]] = {}
         tagging = _tagging(request, album)
         # Opening the inbox may display many candidates. Only an explicit
         # refresh (or entering an uncached editor) may spend an MB request.
@@ -7406,18 +7464,35 @@ def _register_routes(app: FastAPI) -> None:
                     raise track_assignment.AssignmentChanged(
                         "MusicBrainz changed. Reset assignments to review the current release."
                     )
-                panel = track_assignment.panel(
-                    album_files.for_paths(album.folders),
-                    release,
-                    draft,
-                    # A merged release still reviews the confirmed album; its
-                    # returned ID differs, but that cannot permit positional
-                    # guesses for the old track identities.
-                    confirmed=bool(
-                        album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
-                    ),
-                    included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
-                )
+                added = _review_fill(request, album, fill)
+
+                def build(added: Mapping[int, Album]) -> track_assignment.Panel:
+                    assert release is not None
+                    return track_assignment.panel(
+                        album_files.for_paths(
+                            [*album.folders, *(f for a in added.values() for f in a.folders)]
+                        ),
+                        release,
+                        draft,
+                        # A merged release still reviews the confirmed album; its
+                        # returned ID differs, but that cannot permit positional
+                        # guesses for the old track identities.
+                        confirmed=bool(
+                            album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
+                        ),
+                        included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
+                        fill={d: album_files.for_paths(a.folders) for d, a in added.items()},
+                    )
+
+                panel = build(added)
+                fill_choices = _fill_choices(request, album, panel, release, added)
+                if not fill_decided and draft is None and not added:
+                    # The one folder that fits a missing disc is filled in on
+                    # first sight; the user can still take it out (#876).
+                    added = disc_fill.automatic(fill_choices)
+                    if added:
+                        panel = build(added)
+                        fill_choices = _fill_choices(request, album, panel, release, added)
                 release_fingerprint = current
                 if move:
                     panel.move(move)
@@ -7468,6 +7543,8 @@ def _register_routes(app: FastAPI) -> None:
                 assignment_changes=assignment_changes,
                 assignment_error=assignment_error,
                 review_draft=review_draft,
+                added=added,
+                fill_choices=fill_choices,
                 artwork=(
                     _artwork_view(album, folder_cover=_folder_cover_policy(request))
                     if panel is not None and not album_tracks
@@ -7512,8 +7589,26 @@ def _register_routes(app: FastAPI) -> None:
         on_album_page: bool = Form(False),
         album_tracks: bool = Form(False),
         included_pregaps: list[str] = Form([]),
+        fill: list[str] = Form([]),
+        fill_add: list[str] = Form([]),
+        fill_remove: str = Form(""),
+        view: bool = Form(False),
     ) -> Response:
         request.state.skip_rescan = True  # page-local draft; no library mutation
+        # One picker per missing disc, and only the one just changed has a value.
+        add = next((v for v in fill_add if v), "")
+        if add or fill_remove:
+            # Different files make a different review: pair them afresh, and
+            # stay on whichever view the folder was chosen from.
+            return _assignment_editor(
+                request,
+                album_id,
+                fill=_fill_changed(fill, add, fill_remove),
+                fill_decided=True,
+                cancel=view,
+                on_album_page=on_album_page,
+                album_tracks=album_tracks,
+            )
         draft = track_assignment.Draft(
             disk_order, mb_order, disk_fingerprint, tuple(included_pregaps)
         )
@@ -7532,6 +7627,8 @@ def _register_routes(app: FastAPI) -> None:
         return _assignment_editor(
             request,
             album_id,
+            fill=fill,
+            fill_decided=True,
             draft=editor_draft,
             review_draft=None if assignment_action in {"review", "cancel"} else baseline,
             cancel=assignment_action in {"review", "cancel"},
@@ -7654,6 +7751,7 @@ def _register_routes(app: FastAPI) -> None:
         disk_fingerprint: str = Form(""),
         incomplete: bool = Form(False),
         included_pregaps: list[str] = Form([]),
+        fill: list[str] = Form([]),
     ) -> Response:
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         sc = album.sidecar
@@ -7674,7 +7772,13 @@ def _register_routes(app: FastAPI) -> None:
             )
         if request.url.path.endswith("/accept") and draft is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "review assignments before applying")
+        if fill and draft is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "review the added folders first")
         try:
+            # The folders the review added are tagged with the album's own, and
+            # the draft's fingerprint holds them to the files that were shown.
+            added = _review_fill(request, album, fill)
+            folders = [*album.folders, *(f for a in added.values() for f in a.folders)]
             if candidate_mbid and candidate_mbid != candidate.mb_release_id:
                 raise retag_mod.ConfirmationChanged(
                     "The selected release changed. Review the new suggestion."
@@ -7702,7 +7806,7 @@ def _register_routes(app: FastAPI) -> None:
                 request.app.state.tagger,
                 incomplete=incomplete,
                 store_url_override=candidate.mistag_owned_url,
-                paths=album.folders,
+                paths=folders,
                 expected_release=release_fingerprint or None,
                 expected_artwork=art_plan or None,
                 artwork_included=include_artwork and bool(release_fingerprint and art_plan),
@@ -7760,10 +7864,13 @@ def _register_routes(app: FastAPI) -> None:
         # visible before the page refreshes or redirects to its new album URL.
         runner = request.app.state.scan_runner
         if runner.is_engaged():
-            request.state.skip_rescan = runner.refresh_album(album.folders, notify=True)
+            request.state.skip_rescan = runner.refresh_album(folders, notify=True)
         current = next(a for a in _albums(request) if album.path in a.folders)
         if current.id != sidecar_mod.album_id_for(album.path):
             activity_store.record_alias(album.id, current.id)
+        for part in added.values():
+            # A link to the folder's own album now leads to the one it joined.
+            activity_store.record_alias(part.id, current.id)
         response = _flash_response(
             "Matched as incomplete" if current.state == AlbumState.INCOMPLETE else "Matched",
             "; ".join(details),

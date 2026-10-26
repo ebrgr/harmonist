@@ -476,6 +476,31 @@ LIBRARY: list[dict[str, Any]] = [
         # A Qobuz purchase: its per-track id (#634).
         "provenance": {"QBZ:TID": "7917370{n}"},
     },
+    {
+        "artist": "Various Artists",
+        "album": "Night Bus Remixes",
+        "tracks": [
+            "Last Stop (Owl Service remix)",
+            "Sodium Lights (Kerbside dub)",
+            "Ring the Bell (Upper Deck mix)",
+            "Request Stop (Conductor edit)",
+            "Fare Dodger (Night Rider remix)",
+            "Terminus (Depot version)",
+            "Out of Service (Garage dub)",
+            "First Light (Morning Shift remix)",
+        ],
+        "mbid": "demo-rel-night-bus",
+        "fmt": "flac",
+        # Ripped a disc at a time into folders of their own, with no disc
+        # numbers in the tags, so the scan adopts two albums. The first has the
+        # release as a suggestion, and the second is the one folder that fills
+        # its missing disc (#876): no other unmatched album has four tracks.
+        "discs": True,
+        "split": True,
+        "unmatched": True,
+        "candidate": True,
+        "lengths_ms": [1000] * 8,
+    },
 ]
 
 PENDING_PURCHASES: list[dict[str, Any]] = [
@@ -525,7 +550,8 @@ def _catalogue() -> dict[str, Release]:
             spec["artist"],
             spec["album"],
             spec["tracks"],
-            lengths_ms=[6000, 7000, 5500] if spec.get("candidate") else spec.get("lengths_ms"),
+            lengths_ms=spec.get("lengths_ms")
+            or ([6000, 7000, 5500] if spec.get("candidate") else None),
             disambiguation=spec.get("disambiguation", ""),
             track_artists=spec.get("credits"),
             credited_as=spec.get("credited_as"),
@@ -533,6 +559,7 @@ def _catalogue() -> dict[str, Release]:
         )
         if spec.get("discs"):
             tracks = release["medium-list"][0]["track-list"]
+            half = len(tracks) // 2 if spec.get("split") else 2
             release["medium-list"] = [
                 {
                     "position": str(disc),
@@ -541,7 +568,7 @@ def _catalogue() -> dict[str, Release]:
                         {**track, "position": str(i)} for i, track in enumerate(part, 1)
                     ],
                 }
-                for disc, part in enumerate((tracks[:2], tracks[2:]), 1)
+                for disc, part in enumerate((tracks[:half], tracks[half:]), 1)
             ]
         # What MusicBrainz says about each release's artwork, as a browse
         # carries it: the picker skips a release that has none (#659).
@@ -1297,7 +1324,11 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
     fixture = ASSETS_DIR / AUDIO_ASSETS[spec.get("fmt", "alac")]
     folders: set[Path] = set()
     for i, tags in enumerate(baseline, 1):
-        folder = album_dir / f"CD{tags.disc_num}" if spec.get("discs") else album_dir
+        folder = (
+            album_dir / f"{'Disc ' if spec.get('split') else 'CD'}{tags.disc_num}"
+            if spec.get("discs")
+            else album_dir
+        )
         folder.mkdir(parents=True, exist_ok=True)
         folders.add(folder)
         target = folder / f"{tags.track_num:02d} {_safe(tags.title)}{fixture.suffix}"
@@ -1329,6 +1360,8 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
         if cover_name:
             shutil.copy(ASSETS_DIR / cover_name, folder / f"cover{Path(cover_name).suffix}")
         _embed_art(folder, spec, cover_name)
+        if spec.get("split") and folder != min(folders):
+            continue  # adopted on its own: nothing has been decided about it
         if (sc_spec := spec.get("sidecar")) is not None:
             sidecar_mod.write(folder, _build_sidecar(sc_spec, spec))
 

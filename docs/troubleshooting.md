@@ -131,6 +131,17 @@ track count doesn't match.
 Check the side-by-side tracklist and **Tag changes**, then **Confirm
 suggestion**, or **Dismiss suggestion** to search for another release.
 
+### An album's discs show up as separate albums
+
+Folders that carry no MusicBrainz tags can't be told apart from two copies of the
+same disc, so each is adopted on its own until a release joins them.
+
+Find the release for one disc. In its review, the other disc's rows read
+**Missing on disk**: choose the other folder from **Fill disc N from another
+folder**, check the tracklist, then **Confirm suggestion**. If exactly one
+unmatched folder fits the missing disc, it's filled in already. Once both
+folders are tagged they're one album.
+
 ### An album is marked Inconsistent
 
 The files in one folder disagree about which album they belong to, usually

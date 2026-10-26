@@ -38,6 +38,7 @@ from harmonist import (
     activity_store,
     audit,
     contributions,
+    formats,
     library_index,
     library_titles,
     live_counts,
@@ -187,6 +188,14 @@ class ScanRunner:
 
     def has_completed(self) -> bool:
         return self._completed_once
+
+    def scanned_fields(self, album_dir: Path) -> list[formats.ScanFields] | None:
+        """The tag fields the last scan read for one directory, in file order.
+
+        None when the scan hasn't seen it. Lets a request ask about a folder's
+        files (#876) without opening them again."""
+        cached = self._cache.get(album_dir)
+        return cached[2].fields if cached is not None else None
 
     def cache_size(self) -> int:
         """Number of albums held in the mtime cache (one entry per album dir
