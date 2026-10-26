@@ -84,17 +84,42 @@ class Artist:
         )
 
 
+@dataclass(frozen=True)
+class LibraryOrigin:
+    """Validated Library navigation, carried in URLs rather than stored state."""
+
+    page: int
+    limit: int
+    filter: str | None = None
+    q: str | None = None
+
+    def params(self) -> dict[str, str]:
+        result = {"library_page": str(self.page), "library_limit": str(self.limit)}
+        if self.filter:
+            result["library_filter"] = self.filter
+        if self.q:
+            result["library_q"] = self.q
+        return result
+
+
+def keyed_credits(album: Album) -> tuple[tuple[str, AlbumArtist], ...]:
+    """Keep the index and card links on the same identity, in credit order."""
+    return tuple(
+        (
+            credit.mbid
+            or "local-" + hashlib.sha256((album.id + "\0" + credit.name).encode()).hexdigest()[:24],
+            credit,
+        )
+        for credit in album.artist_credits or (AlbumArtist(album.artist or "Unknown artist"),)
+    )
+
+
 def build_index(albums: Sequence[Album]) -> list[Artist]:
     """Share identified collaborations without coalescing homonymous artists."""
     credits: dict[str, AlbumArtist] = {}
     groups: dict[str, dict[str, Album]] = {}
     for album in sorted(albums, key=lambda a: a.id):
-        for credit in album.artist_credits or (AlbumArtist(album.artist or "Unknown artist"),):
-            key = (
-                credit.mbid
-                or "local-"
-                + hashlib.sha256((album.id + "\0" + credit.name).encode()).hexdigest()[:24]
-            )
+        for key, credit in keyed_credits(album):
             credits.setdefault(key, credit)
             groups.setdefault(key, {})[album.id] = album
     result = [
@@ -121,10 +146,15 @@ def detail_url(
     artist_page: int = 1,
     artist_q: str = "",
     nfo: str | None = None,
+    library: LibraryOrigin | None = None,
 ) -> str:
-    params = {"page": str(page), "artist_page": str(artist_page), "artist_q": artist_q}
+    params = {"page": str(page), "artist_page": str(artist_page)}
+    if artist_q:
+        params["artist_q"] = artist_q
     if nfo:
         params["nfo"] = nfo
+    if library:
+        params.update(library.params())
     return f"/artist/{key}?{urlencode(params)}"
 
 

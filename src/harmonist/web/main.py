@@ -1851,6 +1851,22 @@ def _library_index_url(page: int, limit: int, filter_: str | None, q: str | None
     return url
 
 
+def _artist_library_origin(request: Request) -> artists.LibraryOrigin | None:
+    """Read bounded navigation hints; never accept a user-supplied return URL."""
+    raw_page = request.query_params.get("library_page", "")
+    if not re.fullmatch(r"[0-9]{1,9}", raw_page):
+        # Absent/malformed hints mean a normal visit from the Artists view.
+        return None
+    raw_limit = request.query_params.get("library_limit", "")
+    limit = int(raw_limit) if re.fullmatch(r"[0-9]{1,9}", raw_limit) else None
+    return artists.LibraryOrigin(
+        max(1, int(raw_page)),
+        _library_limit(request, limit),
+        _library_filter(request.query_params.get("library_filter")),
+        _library_search(request.query_params.get("library_q")),
+    )
+
+
 def _library_page_vars(
     albums: list[Album],
     page: int,
@@ -1961,6 +1977,14 @@ def _library_page_vars(
     rows = done[start : start + limit]
     return {
         "rows": rows,
+        "album_artist_links": {
+            album.id: [
+                (credit.name, artists.detail_url(key))
+                for key, credit in artists.keyed_credits(album)
+            ]
+            for album in rows
+        },
+        "library_artist_query": urlencode(artists.LibraryOrigin(page, limit, filter_, q).params()),
         "new_album_ids": new_album_ids,
         "artwork_operations": artwork_operations,
         "page": page,
@@ -4589,6 +4613,8 @@ def _register_routes(app: FastAPI) -> None:
                     result.candidates,
                 )
         grid = _library_page_vars(list(artist.albums), page, _library_limit(request, None))
+        library_origin = _artist_library_origin(request)
+        grid["library_artist_query"] = urlencode(library_origin.params()) if library_origin else ""
         # The same tiles retain the return context for this artist and album page.
         query = {
             "from_artist": artist.key,
@@ -4598,6 +4624,8 @@ def _register_routes(app: FastAPI) -> None:
         }
         if nfo:
             query["from_nfo"] = nfo
+        if library_origin:
+            query.update(library_origin.params())
 
         def location(number: int, selected_nfo: str | None = nfo) -> str:
             return artists.detail_url(
@@ -4606,6 +4634,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist_page=max(1, artist_page),
                 artist_q=artist_q[:100],
                 nfo=selected_nfo,
+                library=library_origin,
             )
 
         history: list[activity_store.StoredEvent] = []
@@ -4663,7 +4692,17 @@ def _register_routes(app: FastAPI) -> None:
                 artist_image=image is not None,
                 artist_image_url=f"/artist/{artist.key}/image"
                 + ("?" + urlencode({"nfo": nfo}) if nfo else ""),
-                artist_back_url=artists.index_url(max(1, artist_page), artist_q[:100]),
+                artist_back_url=(
+                    _library_index_url(
+                        library_origin.page,
+                        library_origin.limit,
+                        library_origin.filter,
+                        library_origin.q,
+                    )
+                    if library_origin
+                    else artists.index_url(max(1, artist_page), artist_q[:100])
+                ),
+                artist_back_label="Back to library" if library_origin else "Back to artists",
                 artist_album_query=urlencode(query),
                 artist_previous=location(grid["prev_page"]) if grid["prev_page"] else None,
                 artist_next=location(grid["next_page"]) if grid["next_page"] else None,
@@ -4886,6 +4925,7 @@ def _register_routes(app: FastAPI) -> None:
             page=max(1, page),
             artist_page=max(1, artist_page),
             nfo=artist_nfo.selection_key(saved.path),
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -4921,6 +4961,7 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=nfo,
+            library=_artist_library_origin(request),
         )
         return _templates(request).TemplateResponse(
             request,
@@ -5059,6 +5100,7 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=artist_nfo.selection_key(saved.path),
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -5115,6 +5157,7 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=artist_nfo.selection_key(saved.path) if saved.path.exists() else None,
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -5968,6 +6011,7 @@ def _register_routes(app: FastAPI) -> None:
                     artist_page=max(1, artist_page),
                     artist_q=artist_q[:100],
                     nfo=from_nfo,
+                    library=_artist_library_origin(request),
                 )
                 if from_artist
                 and (artists.mbid(from_artist) or re.fullmatch(r"local-[0-9a-f]{24}", from_artist))

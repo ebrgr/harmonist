@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="space-y-5">
-    <a href="{{ artist_back_url }}" class="inline-block text-2xs text-muted hover:text-accent uppercase tracking-widest font-bold">← Back to artists</a>
+    <a href="{{ artist_back_url }}" class="inline-block text-2xs text-muted hover:text-accent uppercase tracking-widest font-bold">← {{ artist_back_label }}</a>
 
     <header class="flex flex-col sm:flex-row items-start gap-5">
         {% if artist_image %}
