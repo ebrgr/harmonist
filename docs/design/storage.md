@@ -120,9 +120,14 @@ move. A conflicting destination or a failed rename stops startup rather than
 choosing which images to discard or leaving a partially copied store.
 
 Explicit artist-NFO edits keep exact original XML bytes in
-`artist-nfo-backups/<sha256>.nfo` in the config directory. This is a file backup,
+`nfoartists/<sha256>.nfo` in the config directory. This is a file backup,
 not a second artist catalogue: the NFO remains authoritative for its metadata,
 and audit records name the source, backup and before/after content hashes.
+Artist-scoped events and successful NFO field changes live in `activity.db`,
+apart from audio tag changes: an artist is not an album or a recording. A
+successful-write record is separate from the intent record so a failed write
+cannot be offered as something to undo. Existing audit-only entries remain as
+they were; parsing log text cannot reliably reconstruct earlier field values.
 
 ## `ignores.txt`
 

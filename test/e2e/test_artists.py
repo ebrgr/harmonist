@@ -150,3 +150,38 @@ def test_artist_nfo_editor_saves_tags_and_creates_a_missing_nfo(
     page.reload()
     pw.expect(page.get_by_role("list", name="Artist genres")).to_contain_text("Created " + engine)
     page.context.close()
+
+
+@pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
+def test_artist_history_discloses_changes_and_undo_can_itself_be_undone(
+    browser_factory, artists_server, engine, width
+):
+    page = browser_factory(engine).new_page(viewport={"width": width, "height": 900})
+    page.goto(artists_server + f"/artist/{ALICE}")
+    page.get_by_role("button", name="Edit", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Edit artist NFO")
+    previous = dialog.get_by_label("Biography").input_value()
+    edited = "History biography " + engine
+    dialog.get_by_label("Biography").fill(edited)
+    with page.expect_navigation():
+        dialog.get_by_role("button", name="Save NFO", exact=True).click()
+    history = page.locator(".album-history")
+    pw.expect(history.get_by_role("heading", name="History")).to_be_visible()
+    details = history.locator('details[id^="nfo-change-"]').first
+    details.locator("summary").click()
+    pw.expect(details.get_by_text(edited, exact=True)).to_be_visible()
+    pw.expect(details).to_contain_text("SHA-256 before:")
+    history.get_by_role("checkbox", name="Show details").uncheck()
+    pw.expect(history.locator(".album-history__audit").first).not_to_be_visible()
+    pw.expect(details.get_by_text(edited, exact=True)).to_be_visible()
+    page.once("dialog", lambda confirmation: confirmation.accept())
+    with page.expect_navigation():
+        history.get_by_role("button", name="Undo this artist NFO change").first.click()
+    pw.expect(page.locator("#artist-biography p")).to_have_text(previous)
+    pw.expect(history.get_by_text("Artist NFO restored — Álice", exact=True).first).to_be_visible()
+    page.once("dialog", lambda confirmation: confirmation.accept())
+    with page.expect_navigation():
+        history.get_by_role("button", name="Undo this artist NFO change").first.click()
+    pw.expect(page.locator("#artist-biography p")).to_have_text(edited)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.context.close()
