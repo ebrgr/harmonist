@@ -1,4 +1,4 @@
-{# One album tile in the Library grid — an ordinary link to the album's page.
+{# One album tile in the Library grid — separate native album and artist links.
 
    It used to open a dialog holding a smaller version of that page (#129). A
    plain <a> gives every click a real URL: shareable, bookmarkable, and
@@ -23,9 +23,10 @@
 {% if filter %}{% set _ = from_params.append('from_filter=' ~ filter) %}{% endif %}
 {% if q %}{% set _ = from_params.append('from_q=' ~ (q | urlencode)) %}{% endif %}
 {% endif %}
+<div class="lib-tile select-none">
 <a id="lib-{{ album.id }}"
    href="/album/{{ album.id }}{% if from_params %}?{{ from_params | join('&') }}{% endif %}"
-   class="lib-tile group cursor-pointer select-none block">
+   class="group block">
     <div class="relative">
         <img loading="lazy" src="/cover/{{ album.id }}"
              onerror="this.style.visibility='hidden'" alt=""
@@ -86,5 +87,10 @@
         {% endif %}
     </div>
     <div class="mt-1.5 text-sm font-bold text-ink leading-tight line-clamp-2">{{ album.title }}</div>
-    <div class="text-xs text-muted truncate">{{ album.artist }}</div>
 </a>
+    <div class="text-xs text-muted truncate">
+        {% for name, url in album_artist_links[album.id] %}
+        {% if not loop.first %}<span aria-hidden="true"> · </span>{% endif %}<a href="{{ url }}{% if library_artist_query %}&{{ library_artist_query }}{% endif %}" class="library-artist-link text-muted hover:text-accent focus-visible:text-accent focus-visible:underline">{{ name }}</a>
+        {% endfor %}
+    </div>
+</div>

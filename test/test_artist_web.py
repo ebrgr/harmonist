@@ -3,6 +3,7 @@
 import shutil
 from pathlib import Path
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from bs4 import BeautifulSoup
@@ -96,6 +97,117 @@ def test_list_and_artist_page_are_offline_and_share_the_album_tiles(artist_clien
     assert client.get("/artist/unknown").status_code == 404
     assert client.get(f"/artist/{BOB}/image").status_code == 404
     network.assert_not_called()
+
+
+@pytest.mark.parametrize("path", ["/?tab=library", "/library"])
+def test_library_cards_link_each_credit_separately_from_the_album(artist_client, path):
+    client, _cfg, network = artist_client
+    body = BeautifulSoup(client.get(path).text, "html.parser")
+    album_link = body.select_one(f"a#lib-{RELEASE}")
+    card = album_link.find_parent(class_="lib-tile")
+    assert card is not None
+    assert album_link.select_one("img") is not None
+    assert "Together" in album_link.get_text()
+    names = card.select(".library-artist-link")
+    assert [a.get_text() for a in names] == ["Alice", "Bob"]
+    assert [urlsplit(str(a["href"])).path for a in names] == [f"/artist/{ALICE}", f"/artist/{BOB}"]
+    assert all(a.find_parent("a") is None for a in names)
+    for link, expected in zip(names, [{RELEASE, SOLO}, {RELEASE}], strict=True):
+        assert {a.id for a in client.get(link["href"]).context["rows"]} == expected
+    network.assert_not_called()
+
+
+def test_library_artist_links_keep_homonyms_and_unidentified_credits_scoped(artist_client):
+    client, cfg, network = artist_client
+    make_album(cfg.paths.music_dir, "Homonym", ALICE, ["Alice"], [SOLO])
+    make_album(cfg.paths.music_dir, "Unidentified", BOB, ["Alice"], [])
+    make_album(
+        cfg.paths.music_dir,
+        "Another unidentified",
+        "77777777-7777-4777-8777-777777777777",
+        ["Alice"],
+        [],
+    )
+    page = client.get("/library")
+    body = BeautifulSoup(page.text, "html.parser")
+    by_title = {a.title: a for a in page.context["rows"]}
+    rows = client.get("/artists").context["artists_view"]["rows"]
+    local = {a.albums[0].title: a.key for a in rows if a.mbid is None}
+    assert len(set(local.values())) == 2
+    for title, key in [("Homonym", SOLO), *local.items()]:
+        card = body.select_one(f"#lib-{by_title[title].id}").find_parent(class_="lib-tile")
+        link = card.select_one(".library-artist-link")
+        assert link is not None
+        assert link.get_text() == "Alice"
+        assert urlsplit(str(link["href"])).path == f"/artist/{key}"
+        detail = client.get(str(link["href"]))
+        assert detail.context["artist"].key == key
+        assert [a.title for a in detail.context["rows"]] == [title]
+    network.assert_not_called()
+
+
+def test_library_artist_album_round_trip_preserves_navigation_and_nfo_selection(artist_client):
+    client, _cfg, network = artist_client
+    origin = "/?tab=library&page=2&limit=1&filter=codec-alac&q=Alice"
+    library = BeautifulSoup(client.get(origin).text, "html.parser")
+    artist_link = library.select_one(".library-artist-link")
+    assert artist_link is not None
+    detail = client.get(str(artist_link["href"]))
+    assert detail.context["artist_back_url"] == origin
+    assert "← Back to library" in detail.text
+    next_page = client.get(detail.context["artist_next"])
+    assert next_page.context["page"] == 2
+    assert next_page.context["artist_back_url"] == origin
+    # Source selection, local refresh and editor actions retain the same origin.
+    selected = next_page.context["nfo_choices"][0][1]
+    selected_page = client.get(selected)
+    for key in ("artist_reload_url", "artist_edit_url", "artist_import_url"):
+        params = parse_qs(urlsplit(selected_page.context[key]).query)
+        assert params["library_page"] == ["2"]
+        assert params["library_limit"] == ["1"]
+        assert params["library_filter"] == ["codec-alac"]
+        assert params["library_q"] == ["Alice"]
+        assert "nfo" in params
+    editor = client.get(selected_page.context["artist_edit_url"])
+    assert "library_page=2" in editor.context["nfo_post_url"]
+    body = BeautifulSoup(selected_page.text, "html.parser")
+    album_link = body.select_one(".lib-tile a[id^='lib-']")
+    assert album_link is not None
+    album = client.get(str(album_link["href"]))
+    back = album.context["artist_back_url"]
+    assert "from_nfo" in parse_qs(urlsplit(str(album_link["href"])).query)
+    returned = client.get(back)
+    assert returned.context["page"] == 2
+    assert returned.context["nfo"].profile.path == selected_page.context["nfo"].profile.path
+    assert returned.context["artist_back_url"] == origin
+    final = client.get(returned.context["artist_back_url"])
+    assert final.context["page"] == 2
+    network.assert_not_called()
+
+
+def test_artist_library_return_is_local_and_escapes_search_text(artist_client):
+    client, _cfg, _network = artist_client
+    query = 'Alice & Bob # " <x>'
+    response = client.get(
+        f"/artist/{ALICE}",
+        params={
+            "library_page": "3",
+            "library_limit": "60",
+            "library_filter": "codec-aac,evil",
+            "library_q": query,
+        },
+    )
+    url = urlsplit(response.context["artist_back_url"])
+    assert url.scheme == url.netloc == "" and url.path == "/"
+    assert parse_qs(url.query) == {
+        "tab": ["library"],
+        "page": ["3"],
+        "limit": ["60"],
+        "filter": ["codec-aac"],
+        "q": [query],
+    }
+    invalid = client.get(f"/artist/{ALICE}?library_page=https://example.com")
+    assert invalid.context["artist_back_url"].startswith("/?tab=artists")
 
 
 def test_search_refresh_and_nfo_errors_recover_without_hiding_albums(artist_client):
