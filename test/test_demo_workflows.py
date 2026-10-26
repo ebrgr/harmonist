@@ -95,6 +95,8 @@ def test_library_has_focused_changes_and_quiet_controls(library):
     expected = {
         "We Are Here To Make You Sad": Significance.COSMETIC,
         "Rawhide": Significance.ENRICHMENT,
+        # Tagged before credits were written, so they all arrive (#863).
+        "Little Bit o' Hoot, Whole Lotta Nanny": Significance.ENRICHMENT,
         "Fever Dog": Significance.STRUCTURE,
         "Man of Constant Sorrow": Significance.IDENTITY,
         "The Rural Juror (OST)": Significance.IDENTITY,

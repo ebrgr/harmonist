@@ -15,6 +15,13 @@ versions follow [semantic versioning](https://semver.org).
   After upgrading, every cached release is fetched again, so Update available
   starts nearly empty and refills (#680).
 
+### Changed
+
+- **A track's tag change that has no column in the album page's tracklist is
+  shown under that track**, instead of in a box in the Tags section. Composer
+  and work credits take one column each, with every name linking to
+  MusicBrainz (#863).
+
 ## [1.30.0] - 2026-10-22
 
 ### Added

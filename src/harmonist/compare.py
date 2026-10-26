@@ -749,10 +749,24 @@ _ENTITY: dict[str, str] = {
 #: MusicBrainz gets — and what every disk value gets on a field where the two
 #: disagree, since the file carries no structure to recover.
 #:
-#: Scoped to these two rather than applied to any value that happens to match a
+#: Scoped to these rather than applied to any value that happens to match a
 #: credit phrase: an album named after its artist would otherwise turn its Album
 #: row into an artist link.
-_CREDITED: frozenset[str] = frozenset({Owned.ALBUM_ARTIST, Owned.ARTIST})
+#:
+#: The four relationship credits are here since #863, which is what lets their
+#: columns stand in for the ids beside them: a work or a composer drawn as a
+#: link to its MusicBrainz page shows the id a re-tag writes. Lyricists and
+#: writers have no id tag, and are linked for the same reading.
+_CREDITED: frozenset[str] = frozenset(
+    {
+        Owned.ALBUM_ARTIST,
+        Owned.ARTIST,
+        Owned.WORKS,
+        Owned.COMPOSERS,
+        Owned.LYRICISTS,
+        Owned.WRITERS,
+    }
+)
 
 
 #: The fields whose ABSENCE is a value rather than a gap (#383).
@@ -1067,6 +1081,11 @@ class ComparedTrack:
     #: Derived from the reviewed release; no tags or sidecar values are changed.
     pregap_note: str | None = None
     pregap_length: str | None = None
+    #: This track's changes to the tags that earned a column and lost to
+    #: `MAX_EARNED_COLUMNS` (#863), in column order: only the ones that change
+    #: here, each labelled. A line under the row rather than cells in it, since
+    #: there are no columns for them to sit in.
+    overflow: tuple[FieldComparison, ...] = ()
 
     @property
     def differs(self) -> bool:
@@ -1077,7 +1096,9 @@ class ComparedTrack:
         how the Bandcamp comment stays quiet), but a whole track MusicBrainz has
         never heard of is one.
         """
-        return self.state is not TrackState.PRESENT or any(f.differs for f in self.fields)
+        return self.state is not TrackState.PRESENT or any(
+            f.differs for f in (*self.fields, *self.overflow)
+        )
 
     @property
     def shows_mb(self) -> bool:
@@ -1312,6 +1333,10 @@ class TracklistComparison:
     #: `_per_disc_constant` — in which case every heading renders from `media`
     #: alone, as it did before.
     headings: tuple[DiscHeading, ...] = field(default_factory=tuple)
+    #: The per-track tags that earned a column and lost to `MAX_EARNED_COLUMNS`,
+    #: stated under each track they change on instead (#863) — see
+    #: `ComparedTrack.overflow`.
+    overflowed: frozenset[str] = frozenset()
 
     @property
     def heading_fields(self) -> frozenset[str]:
@@ -1333,10 +1358,11 @@ class TracklistComparison:
     def shown_fields(self) -> frozenset[str]:
         """The per-track owned tags this section states, in a column or under it.
 
-        The tracklist's half of what scopes the re-tag box (#291, #297); the
-        panel's half is `PANEL_FIELDS`. Read off what is rendered rather than
-        recomputed, so "no field appears in both places" holds by construction
-        rather than by two tables agreeing.
+        The tracklist's half of the page's account of every tag Harmonist
+        writes; the panel's half is `PANEL_FIELDS`. It scoped the re-tag box
+        (#291, #297) until #863 removed the box. Read off what is rendered rather
+        than recomputed, so "no field appears in both places" holds by
+        construction rather than by two tables agreeing.
 
         The disc headings are included, because they show what they account for
         (#320) — a tag rolled up into them has been stated, per disc, and the box
@@ -1354,11 +1380,19 @@ class TracklistComparison:
 
         What replaces the net is the band rendering the difference. A field in
         `collapsed` is stated either way — this is the assertion that it is.
+
+        **And the overflow, since #863**, which took the last case the box had:
+        a tag over the column cap is stated under each track it changes on. The
+        box went with it, so this no longer filters anything on the page. With
+        `PANEL_FIELDS` it is the claim that no change a re-tag makes is left
+        without a place to appear, which the box used to catch at run time and
+        the tests now hold.
         """
         return (
             frozenset(f for c in self.columns for f in c.fields)
             | self.heading_fields
             | frozenset(f.field for f in self.collapsed if f.field)
+            | self.overflowed
         )
 
     @property
@@ -1659,18 +1693,18 @@ def advisory(album: AlbumComparison, tracks: TracklistComparison) -> bool:
 #: The owned fields the album PANEL accounts for — every compared row of it, plus
 #: the release id, which it states as a note instead of a row (#361).
 #:
-#: Half of what the re-tag plan's box (#291) is scoped against (#297): the box
-#: states what a re-tag would change in the fields nothing else on this page
-#: shows, and a field the panel already accounts for would otherwise be restated
-#: directly underneath itself. The other half is per-album and lives on the
-#: tracklist — see `TracklistComparison.shown_fields`.
+#: Half of the page's account of every tag Harmonist writes. The other half is
+#: per-album and lives on the tracklist — see `TracklistComparison.shown_fields`.
+#: It scoped the re-tag plan's box (#291, #297), which stated what a re-tag
+#: would change in the fields nothing else on the page showed, until #863 left
+#: the box nothing to state.
 #:
 #: **Derived from the rendering table, not listed beside it**, for the reason
 #: `_ALBUM_FIELDS` is: a hand-kept copy drifts, and here the drift shows up as a
 #: row printed twice — the exact complaint #297 was filed about. Taken from
 #: `_ALBUM_FIELDS` rather than `ALBUM_FIELDS` so it tracks what the panel
 #: RENDERS rather than what the album scope contains; a row the panel drops
-#: falls back to the box by itself. The `mb_attr` guard keeps out a row the panel
+#: drops out of the account by itself. The `mb_attr` guard keeps out a row the panel
 #: displays without comparing — there are none since Genre went (#224) — because
 #: a tag Harmonist doesn't write is not one a plan can ever carry.
 #:
@@ -1709,8 +1743,8 @@ PANEL_FIELDS: frozenset[str] = frozenset(
 #
 #      The second half is what keeps that from meaning "every field a re-tag
 #      would touch". Where the change is the SAME on every track — every file
-#      missing `media`, every one gaining "Digital Media" — the box's one line
-#      already says the whole of it, and a column repeating "— → Digital Media"
+#      missing `media`, every one gaining "Digital Media" — one line under the
+#      table already says the whole of it, and a column repeating "— → Digital Media"
 #      eleven times adds a position nobody needed and spends one of three slots
 #      doing it. A column earns its place by answering *which track*, so it is
 #      drawn exactly when that question has an answer: some tracks differ and
@@ -1736,9 +1770,10 @@ PANEL_FIELDS: frozenset[str] = frozenset(
 #: arriving all at once, on the album tagged unevenly over decades where a dozen
 #: of them genuinely part company track by track.
 #:
-#: Above the cap the overflow stays in the box, which leaves each surface a job
-#: it can do well: a column shows a difference against the track it belongs to,
-#: and the box is where the ones that would not fit go.
+#: Above the cap a tag goes on a line under each track it changes on (#863).
+#: That keeps a change beside its track, which is what a column is for, without
+#: widening the table. It used to go to a box in the Tags section, which listed
+#: it by track number away from the tracks.
 MAX_EARNED_COLUMNS = 3
 
 
@@ -1761,8 +1796,8 @@ _PINNED_COLUMNS: frozenset[Owned] = frozenset({Owned.TITLE})
 #:
 #: Readable fields first and the MusicBrainz ids last. An id is the widest thing
 #: this table can carry and the least use at a glance even as a named link, and
-#: the box renders one perfectly well — so when something must overflow, it is
-#: an id rather than an ISRC or a sort name.
+#: the line under a track states one perfectly well — so when something must
+#: overflow, it is an id rather than an ISRC or a sort name.
 _COLUMN_ORDER: tuple[Owned, ...] = (
     Owned.TITLE,
     Owned.ARTIST,
@@ -1839,9 +1874,21 @@ _IDENTIFIERS: frozenset[Owned] = frozenset(
 #: no box row either, because it is not missing from the page — it is there,
 #: spelled better. The relationship `disc_num` already has with the `#` column.
 #:
-#: Absorbed only where it has no difference of its own to report — see
-#: `_choose_columns`. A column cannot stand in for a change it isn't showing.
-_SUBSUMED_BY: dict[Owned, Owned] = {Owned.ARTISTS: Owned.ARTIST}
+#: The relationship credits are the same shape (#863): `composer_sort` and
+#: `mb_composer_ids` are the composers again, spelled for sorting and for
+#: MusicBrainz, and `mb_work_ids` is the works. `Composer` and `Work` draw each
+#: name as a link to its MusicBrainz page, with the sort name on the link, so a
+#: column of either states its companions. Without this an album whose tracks
+#: each have their own composer earned seven credit columns for three facts.
+#:
+#: Absorbed only where it changes in step with the column — see `_in_step`. A
+#: column cannot stand in for a change it isn't showing.
+_SUBSUMED_BY: dict[Owned, Owned] = {
+    Owned.ARTISTS: Owned.ARTIST,
+    Owned.MB_WORK_IDS: Owned.WORKS,
+    Owned.COMPOSER_SORT: Owned.COMPOSERS,
+    Owned.MB_COMPOSER_IDS: Owned.COMPOSERS,
+}
 
 
 #: The album-level tag each per-track tag is measured against for rule 3.
@@ -1861,8 +1908,8 @@ class TrackColumn:
     """One column of the tracklist table.
 
     `fields` is which owned tags this column accounts for, and it is what
-    `TracklistComparison.shown_fields` is built from — so a tag with a column can
-    never also be listed by the re-tag box below it. Usually one; empty for
+    `TracklistComparison.shown_fields` is built from — so a tag with a column is
+    accounted for once, by the column. Usually one; empty for
     Length, which is not a tag at all; two for the number column on a multi-disc
     release, where "2-4" states the disc as well as the track.
     """
@@ -1995,7 +2042,7 @@ def _earns_column(candidate: _Candidate, present: Sequence[_Present], multi_disc
     #    ONLY_DISK gets from `FieldComparison.differs`, for the same reason.
     #
     #    One pair means every comparable track reads the same way, so "which
-    #    track" has no answer to give and the box's single line is the whole
+    #    track" has no answer to give and the band's single line is the whole
     #    fact. Two or more means the tracks part company somewhere — some differ
     #    and others don't, or they differ differently — which is precisely what a
     #    column shows and a count cannot.
@@ -2100,24 +2147,35 @@ def _one_reading_in_mb(candidate: _Candidate, present: Sequence[_Present]) -> bo
     return len({_as_display(getattr(m.tags, key)) for _, m in present if m is not None}) <= 1
 
 
-def _matches_everywhere(candidate: _Candidate, present: Sequence[_Present]) -> bool:
-    """Whether every track that HAS a MusicBrainz counterpart agrees with it.
+def _in_step(companion: Owned, column: Owned, present: Sequence[_Present]) -> bool:
+    """Whether `companion` changes only on tracks where `column` changes too.
 
-    What separates a column worth collapsing from one the box has to state. A tag
-    the files carry and MusicBrainz does not is deliberately not a *difference* —
-    ONLY_DISK must never read as a finding, or the recovered Bandcamp URL becomes
-    one — but it IS a change: a re-tag removes it. Naming it under the table as
-    "the same on every track and matches MusicBrainz" would be false twice over,
-    so it goes where removals are stated as removals.
+    What lets a column stand in for its companion (#319, #863). On a row where
+    both change, the column's MusicBrainz line is already drawn, and what it
+    draws is the companion's new value: the names linked to the ids a re-tag
+    writes, the sort name on each link. On a row where only the companion
+    changes, the column draws nothing — a composer merged into another artist
+    of the same name keeps its name and changes its id — so the companion needs
+    a place of its own.
+
+    A change includes a removal. A tag the files carry and MusicBrainz does not
+    is deliberately not a *difference* — ONLY_DISK must never read as a finding,
+    or the recovered Bandcamp URL becomes one — but a re-tag removes it.
+
+    This was "the companion matches MusicBrainz everywhere" until #863, which
+    held `artists` to never changing at all. Every companion that did that
+    passes this too.
 
     Vacuously true where MusicBrainz has no counterpart at all — a video track
     (#226), and every row of the disk-only view (#228). Nothing was compared
-    there, so nothing can disagree, and the summary drops its MusicBrainz clause
-    to say exactly that.
+    there, so nothing changes.
     """
-    key = candidate.owned.value
-    return all(
-        _disk_value(t, key) == _as_display(getattr(m.tags, key))
+
+    def changes(t: TrackTags, m: MBTrack, key: str) -> bool:
+        return _disk_value(t, key) != _as_display(getattr(m.tags, key))
+
+    return not any(
+        changes(t, m, companion.value) and not changes(t, m, column.value)
         for t, m in present
         if m is not None
     )
@@ -2125,7 +2183,12 @@ def _matches_everywhere(candidate: _Candidate, present: Sequence[_Present]) -> b
 
 def _choose_columns(
     present: Sequence[_Present], multi_disc: bool, rolled_up: bool = False
-) -> tuple[list[_Candidate], tuple[CollapsedField, ...], dict[str, tuple[str, ...]]]:
+) -> tuple[
+    list[_Candidate],
+    tuple[CollapsedField, ...],
+    dict[str, tuple[str, ...]],
+    list[_Candidate],
+]:
     """Split the candidates into the ones with a column and the ones named below.
 
     Judged over PRESENT, readable tracks only. A missing track's fields are all
@@ -2140,12 +2203,14 @@ def _choose_columns(
     `rolled_up` says the disc headings have taken the medium-derived three (#320)
     — the same disposition again, one surface further out.
 
-    A candidate in none of the three is in the re-tag box, which shows whatever
-    the surfaces above did not take.
+    Last, what OVERFLOWED: a candidate that earned a column and lost to
+    `MAX_EARNED_COLUMNS`, which each row then states on a line of its own
+    (#863).
     """
     kept: list[_Candidate] = []
     collapsed: list[CollapsedField] = []
     absorbed: dict[str, tuple[str, ...]] = {}
+    overflowed: list[_Candidate] = []
     earned = 0
     for candidate in _CANDIDATES:
         if multi_disc and candidate.owned is Owned.DISC_NUM:
@@ -2176,16 +2241,16 @@ def _choose_columns(
             # of nothing but video this band is the only surface left.
             collapsed.append(_collapsed(candidate, present))
             continue
-        # Absorbed by a column already keeping it — but only when it has no
-        # MusicBrainz difference of its own, since a column cannot stand in for a
-        # change it is not showing. Checked against `kept` rather than against
-        # the rules again, so a subsumer that lost to the cap doesn't silently
-        # swallow the tag that would have taken its place.
+        # Absorbed by a column already keeping it — but only when it changes in
+        # step with that column, since a column cannot stand in for a change it
+        # is not showing. Checked against `kept` rather than against the rules
+        # again, so a subsumer that lost to the cap doesn't silently swallow the
+        # tag that would have taken its place.
         subsumer = _SUBSUMED_BY.get(candidate.owned)
         if (
             subsumer is not None
             and any(c.owned is subsumer for c in kept)
-            and _matches_everywhere(candidate, present)
+            and _in_step(candidate.owned, subsumer, present)
         ):
             key = subsumer.value
             absorbed[key] = (*absorbed.get(key, ()), candidate.owned.value)
@@ -2197,11 +2262,12 @@ def _choose_columns(
         if earned < MAX_EARNED_COLUMNS:
             kept.append(candidate)
             earned += 1
-        # Over the cap: it falls to the re-tag box, the one surface left that can
-        # state it. Deliberately NOT collapsed — the collapsed set claims the
-        # field matches MusicBrainz, which of one that overflowed BECAUSE it
-        # differs would simply be false.
-    return kept, tuple(collapsed), absorbed
+            continue
+        # Over the cap: stated under each track it changes on (#863). Deliberately
+        # NOT collapsed — the collapsed set claims every track reads the same,
+        # which of a tag that earned a column would simply be false.
+        overflowed.append(candidate)
+    return kept, tuple(collapsed), absorbed, overflowed
 
 
 def _collapsed(candidate: _Candidate, present: Sequence[_Present]) -> CollapsedField:
@@ -2478,7 +2544,7 @@ def tracklist(
         if not tags.unreadable
     ]
     # The medium-derived tags go to the disc headings where they can (#320),
-    # which is what keeps them out of the columns, the collapsed set and the box.
+    # which is what keeps them out of the columns and the collapsed set.
     #
     # The columns are told to skip them BY the headings existing, not by the same
     # condition evaluated twice: an album of nothing but video discs satisfies
@@ -2489,7 +2555,7 @@ def tracklist(
     headings = (
         _disc_headings(on_disc, media, mb) if multi_disc and _per_disc_constant(on_disc) else ()
     )
-    kept, collapsed, absorbed = _choose_columns(present, multi_disc, bool(headings))
+    kept, collapsed, absorbed, overflowed = _choose_columns(present, multi_disc, bool(headings))
 
     rows: list[ComparedTrack] = []
     for i, mb_track in enumerate(mb):
@@ -2554,6 +2620,7 @@ def tracklist(
                 disc=disc,
                 pregap_note=pregap_note,
                 pregap_length=_mmss(pregap.length_ms) if pregap is not None else None,
+                overflow=_overflow(tags, mb_track, overflowed),
             )
         )
 
@@ -2611,6 +2678,7 @@ def tracklist(
         columns=columns,
         collapsed=collapsed,
         headings=headings,
+        overflowed=frozenset(c.owned.value for c in overflowed),
     )
     return _with_formats(view, tracks)
 
@@ -2636,7 +2704,9 @@ def disk_tracklist(
     # earned only by the tracks disagreeing with each other or with the album's
     # own values. That is the right reading of this view: it shows what the files
     # say, and what they say that is inconsistent is the only finding available.
-    kept, collapsed, absorbed = _choose_columns(
+    # What overflows here earned by the tracks disagreeing alone, and with no
+    # MusicBrainz side it changes on no track, so no row has a line to draw.
+    kept, collapsed, absorbed, _ = _choose_columns(
         [(tags, None) for _, tags in tracks if not tags.unreadable], multi_disc
     )
     rows = [
@@ -2907,8 +2977,8 @@ def _columns(
     """The table's headings, matching what `_track_fields` emits, in that order.
 
     `absorbed` widens a column's `fields` to the tags it also accounts for, which
-    is what keeps them out of the box and out of the collapsed set — they are on
-    the page, inside the column that absorbed them (#319).
+    is what keeps them out of the collapsed set — they are on the page, inside
+    the column that absorbed them (#319, #863).
     """
     return (
         _number_column(multi_disc),
@@ -2921,7 +2991,7 @@ def _columns(
             for c in kept
         ),
         # Not a tag: nothing writes a length to a file, so it accounts for no
-        # owned field and can never take one out of the re-tag box.
+        # owned field.
         TrackColumn("Length", numeric=True),
     )
 
@@ -2934,6 +3004,30 @@ def _columns(
 #: however wide MusicBrainz's is, so a table of them has its lengths stepping in
 #: and out and nothing lines up. Two columns is what a table is for.
 MB_LENGTH_COLUMN = TrackColumn("MusicBrainz", numeric=True, advisory=True)
+
+
+def _overflow(
+    tags: TrackTags, mb: MBTrack, overflowed: Sequence[_Candidate]
+) -> tuple[FieldComparison, ...]:
+    """One track's changes to the tags over the column cap (#863).
+
+    Only the ones that change on this track: the line under the row says what a
+    re-tag does to it, and a tag it leaves alone has nothing to say there.
+    """
+    compared = (
+        replace(
+            compare_value(
+                c.label,
+                kind=c.kind,
+                disk=_disk_value(tags, c.owned.value),
+                mb=_as_display(getattr(mb.tags, c.owned.value)),
+            ),
+            entity=c.entity,
+            credit=c.credit,
+        )
+        for c in overflowed
+    )
+    return tuple(f for f in compared if f.differs)
 
 
 def _track_fields(

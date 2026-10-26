@@ -2297,6 +2297,65 @@ def test_one_phrase_two_different_credits_is_dropped_rather_than_guessed():
     assert tagger.artist_credits(release) == {}
 
 
+def _composing_release(composer_id: str) -> dict:
+    """A release by Nova whose one track performs a work Nova is credited with
+    composing, under `composer_id` (#863)."""
+    nova = {"id": "art-1", "name": "Nova", "sort-name": "Nova, The"}
+    return {
+        "id": "rel-1",
+        "artist-credit": [{"artist": nova}],
+        "medium-list": [
+            {
+                "position": "1",
+                "track-list": [
+                    {
+                        "id": "rt-1",
+                        "position": "1",
+                        "title": "One",
+                        "recording": {
+                            "id": "rec-1",
+                            "work-relation-list": [
+                                {
+                                    "type": "performance",
+                                    "work": {
+                                        "id": "work-1",
+                                        "title": "One",
+                                        "artist-relation-list": [
+                                            {
+                                                "type": "composer",
+                                                "artist": {**nova, "id": composer_id},
+                                            }
+                                        ],
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_a_composer_and_a_work_are_keyed_as_links():
+    """#863. The Work and Composer columns stand in for the id tags beside them by
+    drawing each name as a link to its MusicBrainz page. The release's artist is
+    also its composer here, so the phrase "Nova" comes from both an artist credit
+    and a composer credit: one person, so one link, and the sort name the composer
+    credit knows is kept for the link's tooltip."""
+    credits = tagger.artist_credits(_composing_release("art-1"))
+
+    assert credits["Nova"] == (tagger.CreditPart("Nova", "art-1", "", sort="Nova, The"),)
+    assert credits["One"] == (tagger.CreditPart("One", "work-1", "", entity="work"),)
+
+
+def test_a_composer_spelled_like_another_artist_is_not_linked():
+    """The exact-scoped-unique rule holds across the two kinds of credit: a
+    composer who shares the release artist's name but not their id is ambiguity,
+    so neither gets the phrase."""
+    assert "Nova" not in tagger.artist_credits(_composing_release("art-2"))
+
+
 def _set_country_tag(album_dir, value: str) -> None:
     """Put `value` in every file's release-country atom — what Picard writes
     when `preferred_release_countries` names one of the release's own."""

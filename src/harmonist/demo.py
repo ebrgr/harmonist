@@ -147,6 +147,7 @@ def _release(
     track_artists: list[str] | None = None,
     countries: tuple[str, ...] = ("US",),
     credited_as: str | None = None,
+    works: list[dict[str, Any]] | None = None,
 ) -> Release:
     """One MusicBrainz release, as the demo's stubbed client returns it.
 
@@ -165,6 +166,11 @@ def _release(
     tag holds, so the album page annotates its Country row only for a release
     with several (#329). Most demo albums have one, because most releases do;
     two have three, or the annotation is unreachable in the mode people meet it.
+
+    `works` gives each track a work it performs, with the people credited on it
+    (#680): `{"title": …, "composer": [names], "lyricist": […], "writer": […]}`
+    per track. Without it no demo album has a credit, and the album page's
+    credit columns (#863) are unreachable in demo mode.
     """
     if lengths_ms is None:
         lengths_ms = [1000] * len(tracks)
@@ -229,6 +235,7 @@ def _release(
                             "id": _demo_mbid("rec", mbid, i),
                             "title": title,
                             "length": str(length),
+                            "work-relation-list": _work_relations(mbid, i, works),
                         },
                     }
                     for i, (title, length, credit) in enumerate(
@@ -238,6 +245,39 @@ def _release(
             }
         ],
     }
+
+
+def _work_relations(mbid: str, i: int, works: list[dict[str, Any]] | None) -> list[Any]:
+    """The work track `i` performs, as a recording's relationships carry it.
+
+    Each credited person gets the same id wherever they are credited, as an
+    artist credit's artist does (`_demo_mbid` keyed by name), so a composer who
+    writes two of the tracks is one person on the page.
+    """
+    if not works:
+        return []
+    work = works[i - 1]
+    return [
+        {
+            "type": "performance",
+            "work": {
+                "id": _demo_mbid("work", mbid, i),
+                "title": work["title"],
+                "artist-relation-list": [
+                    {
+                        "type": kind,
+                        "artist": {
+                            "id": _demo_mbid("art", name),
+                            "name": name,
+                            "sort-name": ", ".join(reversed(name.split(" ", 1))),
+                        },
+                    }
+                    for kind in ("composer", "lyricist", "writer")
+                    for name in work.get(kind, [])
+                ],
+            },
+        }
+    ]
 
 
 # A small collection accumulated across downloads and CD rips. Each difference
@@ -309,6 +349,33 @@ LIBRARY: list[dict[str, Any]] = [
         "cover": "dingoes.png",
         "fmt": "alac",
         "art": "gaps",
+        # Each song written by different members, and the files tagged before
+        # Harmonist wrote credits (#680): every credit arrives on a re-tag, so
+        # the album page draws one linked column per credit, and the writer that
+        # doesn't fit on a line under its track (#863).
+        "works": [
+            {"title": "Pavlov's Bell", "composer": ["Devon MacLeish"], "lyricist": ["Oz Osbourne"]},
+            {
+                "title": "Hellmouth Lullaby",
+                "composer": ["Oz Osbourne", "Devon MacLeish"],
+                "lyricist": ["Willow Rosenberg"],
+            },
+            {
+                "title": "Cordelia's Theme",
+                "composer": ["Giles Rupert"],
+                "lyricist": ["Xander Harris"],
+                "writer": ["Cordelia Chase"],
+            },
+        ],
+        "tags": {
+            "works": None,
+            "mb_work_ids": None,
+            "composers": None,
+            "composer_sort": None,
+            "mb_composer_ids": None,
+            "lyricists": None,
+            "writers": None,
+        },
         "store": "https://dingoes.bandcamp.com/album/little-bit-o-hoot",
         "item_id": 1004,
     },
@@ -462,6 +529,7 @@ def _catalogue() -> dict[str, Release]:
             disambiguation=spec.get("disambiguation", ""),
             track_artists=spec.get("credits"),
             credited_as=spec.get("credited_as"),
+            works=spec.get("works"),
         )
         if spec.get("discs"):
             tracks = release["medium-list"][0]["track-list"]

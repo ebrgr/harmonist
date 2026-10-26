@@ -9,13 +9,16 @@
    on every track, the tracks disagree with each other, or it differs from the
    album-level value. That is what puts a per-track change — an artist sort on
    track 6, an ISRC MusicBrainz filled in differently per recording — beside the
-   track it belongs to, where the re-tag box below could only ever state it as
-   "1 of 7 tracks" and leave the reader to work out which.
+   track it belongs to, where a box in the Tags section could only ever state it
+   as "1 of 7 tracks" and leave the reader to work out which.
 
-   Otherwise the column is N rows saying one thing, and it is not drawn. Where
-   that one thing is agreement, the tag is named under the table with its value a
-   disclosure away; where it is a change every track shares, the box states it
-   once, which is the whole of it.
+   Otherwise the column is N rows saying one thing, and it is not drawn. The tag
+   is named under the table instead, with its one value, and the change if it is
+   one every track shares (#360).
+
+   At most three columns are earned (`MAX_EARNED_COLUMNS`). A tag that earns one
+   past that is stated on a line under each track it changes on (#863), and a
+   credit's sort name and ids go in its name's column, drawn as links.
 
    The medium-derived three — disc subtitle, media, track total — are a fourth
    case, and they go to the DISC HEADING (#320). They vary per track only in the
@@ -392,6 +395,45 @@
                     {%- endif -%}
                 </td>
                 {% endfor %}
+            </tr>
+            {% endif %}
+
+            {% if t.overflow %}
+            {# This track's changes to the tags that earned a column and did not
+               fit (#863), labelled, on a line of their own: there is no column
+               for them to sit under. They used to go to a box up in the Tags
+               section, listed by track number away from the tracks they belong
+               to.
+
+               Drawn the way the band under the table draws a change — a value
+               MusicBrainz adds through `_mb_value`, anything else as the pair —
+               always inline, because a line of several stacked pairs would no
+               longer read as one line. #}
+            <tr class="track-diff__overflow">
+                <td class="track-diff__num"></td>
+                <td colspan="{{ tracklist.columns|length - 1 }}">
+                    <dl>
+                        {% for f in t.overflow %}
+                        <div>
+                            <dt>{{ f.label }}</dt>
+                            <dd>
+                                {% if f.disk is none %}
+                                {% with runs = none, value = f.mb, entity = f.entity, credit = f.credit,
+                                        why = "Not in your files — this is MusicBrainz's value" %}
+                                {% include 'partials/_mb_value.html' %}
+                                {% endwith %}
+                                {% else %}
+                                {% with value = f.disk, mb = f.mb, runs = f.disk_runs, mb_runs = f.mb_runs,
+                                        kind = 'scalar', entity = f.entity, credit = f.credit,
+                                        why = "MusicBrainz's value" %}
+                                {% include 'partials/_value_pair.html' %}
+                                {% endwith %}
+                                {% endif %}
+                            </dd>
+                        </div>
+                        {% endfor %}
+                    </dl>
+                </td>
             </tr>
             {% endif %}
         </tbody>

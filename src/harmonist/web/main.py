@@ -5862,38 +5862,11 @@ def _register_routes(app: FastAPI) -> None:
             # badge already links it, and a second copy in the context is a
             # second thing to keep true.
             merged_to=release["id"] if release["id"] != mbid else None,
-            # What a re-tag would change in the fields nothing else on this page
-            # shows (#291, narrowed by #297, narrowed again by #309). Free:
-            # `refresh_flag` just built this plan to set the flag, so rendering
-            # it costs no further reads.
-            #
-            # Scoped rather than complete, and that is the whole point. The box
-            # was written when the panel compared nine album fields out of the
-            # thirty the plan covers; #295 widened the panel to all of them, and
-            # #309 gave the tracklist columns for the per-track ones that
-            # actually differ. What is left is the overflow — the fields that
-            # earned a column but did not fit the cap — which has nowhere else
-            # on this page to appear.
-            #
-            # The two halves of the scope come from the two surfaces themselves:
-            # the panel's rows are a module constant because they are the same
-            # for every album, and the tracklist's are a property of THIS
-            # comparison because its columns are earned. Union, not either — a
-            # field the box may show is one neither surface did.
-            update_changes=(
-                tag_history.named(
-                    [
-                        c
-                        for c in tag_history.from_plan(
-                            plan, album.path, album_files.for_paths(album.folders)
-                        )
-                        if c.field not in compare.PANEL_FIELDS | tracks.shown_fields
-                    ],
-                    tagger_mod.change_names(release),
-                )
-                if plan is not None and plan.changes
-                else ()
-            ),
+            # The re-tag box went in #863. It listed what a re-tag would change
+            # in fields nothing else on this page showed (#291), and #295, #309,
+            # #360 and #361 each gave one of those a place of its own. The last
+            # was a per-track tag over the column cap, which is now stated under
+            # each track it changes on.
         )
         return _templates(request).TemplateResponse(request, "partials/library_compare.html", ctx)
 

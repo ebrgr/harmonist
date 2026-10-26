@@ -54,65 +54,6 @@
    re-tag, like theirs. #}
 {% with oob = true %}{% include 'partials/_mb_merged.html' %}{% endwith %}
 
-{# The part of a waiting re-tag that has nowhere else on this page to appear
-   (#291, scoped by #297, narrowed again by #309).
-
-   It began as the whole plan, because the panel above compared nine album
-   fields and the flag was derived from thirty — so an album could sit in the
-   Library's "Update available" filter and read as matching on every row shown.
-   #295 closed that gap from the other end: the panel now compares every
-   album-scoped tag Harmonist writes, and an unscoped box repeats each of those
-   differences immediately below itself.
-
-   #309 then took the other half. The tracklist was four fixed columns, so a
-   per-track difference could only be stated here, in the aggregate — "artist
-   sort · 1 of 7 tracks", which is correct and does not say WHICH track. Now a
-   per-track tag that differs on SOME tracks earns a column and the change
-   appears against its own track.
-
-   #360 took the rest of it. A per-track tag differing identically on every track
-   earns no column — "which track" has no answer — and used to fall through to
-   here, which put a per-track fact in the album's Tags section, labelled "all
-   tracks", directly above a band captioned "The same on every track" that did
-   not carry it. The band carries it now, so this box no longer sees the
-   commonest thing it was showing.
-
-   #361 took the release id, which was the other of the two cases left and the
-   only one that made this box load-bearing. Its comparison row went in #298
-   because the fetch is made BY that id and the panel already links it, so a
-   merge that moved the id fell through to here — an identity change filed among
-   leftover tags. It is a finding of its own now (`_mb_merged.html`).
-
-   What is left is ONE case, and the heading names it rather than calling it
-   "other": a per-track field that earned a column and lost to
-   MAX_EARNED_COLUMNS. Rare by construction — it takes an album differing from
-   MusicBrainz, on some tracks but not others, in more per-track fields than the
-   table has room for — and this box is the whole of what stops the change being
-   invisible when it happens.
-
-   The filtering is `compare.PANEL_FIELDS | tracklist.shown_fields`, applied in
-   the view, so this partial renders whatever survives rather than knowing the
-   rule itself.
-
-   Rendered through the SAME partial as a History entry's change list, from the
-   same `tag_history.FieldChange` rows: what is waiting reads exactly like the
-   record it will become once taken. `revertable` / `restorable` are deliberately
-   not passed — there is nothing to undo about a change that has not happened,
-   and the partial's Undo blocks are guarded on those being truthy. #}
-{% if update_changes %}
-<div class="mt-4 pt-3 border-t border-line">
-    <h3 class="text-2xs font-bold text-ink uppercase tracking-widest">Not shown anywhere else on this page</h3>
-    <p class="text-2xs text-muted mt-1 mb-2">
-        One thing reaches here: a per-track tag that differs on some tracks but
-        not others, where the tracklist below was already showing as many such
-        tags as it has columns for. Nothing is changed until you re-tag.
-    </p>
-    {% with changes = update_changes %}
-    {% include 'partials/_tag_changes.html' %}
-    {% endwith %}
-</div>
-{% endif %}
-
 {# Go and get a newer release, now that everything above has been drawn from the
    stored one (#387).
 

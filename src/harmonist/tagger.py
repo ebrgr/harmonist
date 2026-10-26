@@ -2639,11 +2639,18 @@ class CreditPart(NamedTuple):
     `join` is the text that runs from this artist to the next — " feat. ", " & ",
     ", " — and is empty on the last. `mbid` is None for an artist MusicBrainz
     names without identifying, which renders as plain text rather than a link.
+
+    A relationship credit is a part too (#863): a composer, lyricist or writer,
+    or the work itself, whose `entity` is then "work". `sort` is the person's
+    sort name, shown on the link: for a composer it is what the `composersort`
+    tag carries, which the Composer column states. An artist credit has none.
     """
 
     name: str
     mbid: str | None
     join: str
+    entity: str = "artist"
+    sort: str | None = None
 
 
 def _credit_entries(artist_credit: list[Any] | None) -> Iterator[dict[str, Any]]:
@@ -2728,20 +2735,55 @@ def artist_credits(release: Release) -> dict[str, tuple[CreditPart, ...]]:
     **Every setting's phrase is keyed** (#678). A file carries whichever spelling
     the setting it was tagged under wrote — as credited, or standardized — and
     each names the same artists, so each gets the same links.
+
+    **The relationship credits are keyed too** (#863): each track's composers,
+    lyricists, writers and works, as the "; "-joined list the page reads their
+    tags as. Under the same rule, so a composer list spelled exactly like an
+    artist credit naming other people is drawn flat rather than linked to either.
     """
     found: dict[str, tuple[CreditPart, ...] | None] = {}
-    for credit in _credits_of(release):
-        for names in transforms_mod.ArtistNames:
-            spelled = TaggingChoices(standardize_artist_names=names)
-            parts = _credit_parts(credit, spelled)
-            if not parts:
-                continue
-            phrase = _artist_phrase(credit, spelled)
-            if phrase in found and found[phrase] != parts:
-                found[phrase] = None
-            else:
-                found.setdefault(phrase, parts)
+
+    def unsorted(parts: tuple[CreditPart, ...]) -> tuple[CreditPart, ...]:
+        return tuple(p._replace(sort=None) for p in parts)
+
+    def key(phrase: str, parts: tuple[CreditPart, ...]) -> None:
+        # The same people whether or not a sort name came with them: an artist
+        # credit carries none, and a composer credited as a track's artist too
+        # is still one person. The parts that know the sort name are kept.
+        if phrase not in found:
+            found[phrase] = parts
+        elif (known := found[phrase]) is not None and unsorted(known) != unsorted(parts):
+            found[phrase] = None
+        elif known is not None and any(p.sort for p in parts):
+            found[phrase] = parts
+
+    answered = credits_mod.relationships_answered(release)
+    for names in transforms_mod.ArtistNames:
+        spelled = TaggingChoices(standardize_artist_names=names)
+        for credit in _credits_of(release):
+            if parts := _credit_parts(credit, spelled):
+                key(_artist_phrase(credit, spelled), parts)
+        if not answered:
+            continue
+        for _, _, track in _flatten_tracks(release):
+            for parts in _relationship_parts(credits_mod.track_credits(release, track, spelled)):
+                key("; ".join(p.name for p in parts), parts)
     return {phrase: parts for phrase, parts in found.items() if parts}
+
+
+def _relationship_parts(credits: credits_mod.TrackCredits) -> Iterator[tuple[CreditPart, ...]]:
+    """One track's relationship credits as parts, a tuple per tag (#863)."""
+
+    def joined(parts: list[CreditPart]) -> tuple[CreditPart, ...]:
+        return tuple(
+            p._replace(join="; " if i < len(parts) - 1 else "") for i, p in enumerate(parts)
+        )
+
+    for people in (credits.composers, credits.lyricists, credits.writers):
+        if people:
+            yield joined([CreditPart(p.name, p.mbid, "", sort=p.sort_name) for p in people])
+    if credits.works:
+        yield joined([CreditPart(w.title, w.mbid, "", entity="work") for w in credits.works])
 
 
 #: MusicBrainz's special **Various Artists** artist. A real MBID like any other,

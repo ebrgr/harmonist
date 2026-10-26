@@ -975,9 +975,7 @@ def test_the_album_page_explains_an_update_the_comparison_cannot_show(engaged, m
     decision, and the two are only worth reading together.
 
     Asserted through the band's own markup, because "the page explains it" is the
-    claim and the band is now where the explanation is. The box heading is
-    asserted ABSENT for the same reason it used to be asserted present: stating
-    this twice, in two sections, is the thing #360 removed.
+    claim and the band is now where the explanation is.
     """
     cfg, engage = engaged
     _tagged(cfg.paths.music_dir, _release(tracks=3), tracks=3)
@@ -994,7 +992,6 @@ def test_the_album_page_explains_an_update_the_comparison_cannot_show(engaged, m
     assert "<dt>ISRC</dt>" in body
     assert "GBAYE0000123" in body, "and the value a re-tag would write"
     assert not re.search(r"<th [^>]*>\s*ISRC\s*</th>", body), "no column: it says the same thing"
-    assert "Not shown anywhere else on this page" not in body, "and not a second time in the box"
     # Nothing here is a REPLACEMENT — the files carry no ISRC and everything else
     # matches — so no row may draw a struck-through "before". The band's value
     # falls back to MusicBrainz's reading when no file carries the tag, which is
@@ -1030,7 +1027,115 @@ def test_a_uniform_per_track_change_shows_both_sides_under_the_tracklist(engaged
     said = re.sub(r"<[^>]+>", "", band)
     assert "Artist, Test" in said, "what the files carry, on its way out"
     assert "Test Artist" in said, "and what a re-tag would write"
-    assert "Not shown anywhere else on this page" not in body, "not the box's job any more"
+
+
+def _credited(release: dict, credits: list[dict[str, list[str]]]) -> dict:
+    """`release` with each track performing a work of its own title, whose
+    people are credited on it as `{"composer": [...], "lyricist": [...], …}`."""
+    credited = copy.deepcopy(release)
+    tracks = credited["medium-list"][0]["track-list"]
+    for n, (track, people) in enumerate(zip(tracks, credits, strict=True), 1):
+        track["recording"]["work-relation-list"] = [
+            {
+                "type": "performance",
+                "work": {
+                    "id": f"work-{n}",
+                    "title": track["title"],
+                    "artist-relation-list": [
+                        {
+                            "type": kind,
+                            "artist": {
+                                "id": f"art-{name.split()[0].lower()}",
+                                "name": name,
+                                "sort-name": ", ".join(reversed(name.split())),
+                            },
+                        }
+                        for kind, names in people.items()
+                        for name in names
+                    ],
+                },
+            }
+        ]
+    return credited
+
+
+def _visible_headings(soup) -> list[str]:
+    """The tracklist's column headings, less the identifier columns that start
+    hidden behind Show identifiers (#319)."""
+    return [
+        th.get_text(" ", strip=True)
+        for th in soup.select("table.track-diff thead th")
+        if "track-diff__id" not in th.get("class", [])
+    ]
+
+
+def test_a_credit_arriving_is_one_linked_column_per_credit(engaged, monkeypatch):
+    """#863. Files tagged before #680 carry no credits, so on an album whose
+    tracks each have their own composer, all seven credit tags differ track by
+    track. Composer sort and the two id tags are the same people and works as
+    Composer and Work, so those columns state them: each name links to the id a
+    re-tag would write, and the sort name is on the link."""
+    cfg, engage = engaged
+    _tagged(cfg.paths.music_dir, _release(tracks=2), tracks=2)
+    credited = _credited(
+        _release(tracks=2),
+        [
+            {"composer": ["Ann Lee"], "lyricist": ["Bo Day"]},
+            {"composer": ["Cy Fox"], "lyricist": ["Di Ray"]},
+        ],
+    )
+    monkeypatch.setattr(mb_lookup, "fetch_release", lambda *a, **k: credited)
+    client, runner = engage()
+
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(
+        client.get(f"/library/{runner.albums()[0].id}/compare").text, "html.parser"
+    )
+
+    headings = _visible_headings(soup)
+    assert headings[2:] == ["Work", "Composer", "Lyricist", "Length"]
+    second = soup.select("tbody.track-diff__track")[1].select_one("tr.track-diff__mb")
+    composer = second.select_one('a[href="https://musicbrainz.org/artist/art-cy"]')
+    assert composer.get_text() == "Cy Fox"
+    assert "Fox, Cy" in str(composer.get("title")), "the sort name a re-tag would write"
+    work = second.select_one('a[href="https://musicbrainz.org/work/work-2"]')
+    assert work.get_text() == "Track 2"
+    lyricist = second.select_one('a[href="https://musicbrainz.org/artist/art-di"]')
+    assert lyricist.get_text() == "Di Ray"
+
+
+def test_a_change_over_the_column_cap_is_stated_under_its_own_track(engaged, monkeypatch):
+    """#863. Work, Composer, Lyricist and Writer each earn a column here, and the
+    table takes three. The fourth is stated on a line under each track it
+    changes, labelled, where it used to be listed by track number in a box up in
+    the Tags section."""
+    cfg, engage = engaged
+    _tagged(cfg.paths.music_dir, _release(tracks=2), tracks=2)
+    credited = _credited(
+        _release(tracks=2),
+        [
+            {"composer": ["Ann Lee"], "lyricist": ["Bo Day"], "writer": ["Gil Orr"]},
+            {"composer": ["Cy Fox"], "lyricist": ["Di Ray"], "writer": ["Hal Ito"]},
+        ],
+    )
+    monkeypatch.setattr(mb_lookup, "fetch_release", lambda *a, **k: credited)
+    client, runner = engage()
+
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(
+        client.get(f"/library/{runner.albums()[0].id}/compare").text, "html.parser"
+    )
+
+    assert _visible_headings(soup)[2:] == ["Work", "Composer", "Lyricist", "Length"]
+    rows = soup.select("tbody.track-diff__track")
+    lines = [r.select_one("tr.track-diff__overflow") for r in rows]
+    assert [line.get_text(" ", strip=True) for line in lines] == [
+        "Writer Gil Orr",
+        "Writer Hal Ito",
+    ]
+    assert lines[1].select_one('a[href="https://musicbrainz.org/artist/art-hal"]')
 
 
 def test_a_change_the_band_states_is_marked_as_musicbrainzs(engaged, monkeypatch):

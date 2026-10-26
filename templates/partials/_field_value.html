@@ -41,10 +41,13 @@
         {#- `mbid`, but never `mbid--raw`: a credit part is always a NAME, so it
             wants the surrounding prose face rather than the mono one an
             unresolved hex id falls back to. -#}
+        {#- The sort name rides on the link (#863): a composer's is a tag of its
+            own, and the Composer column states it rather than a column of its
+            sort names repeating the people beside it. -#}
         <a class="mbid"
-           href="https://musicbrainz.org/artist/{{ part.mbid }}"
+           href="https://musicbrainz.org/{{ part.entity }}/{{ part.mbid }}"
            target="_blank" rel="noopener"
-           title="{{ part.name }} · {{ part.mbid }}">{{ part.name }}</a>
+           title="{{ part.name }}{% if part.sort %} · {{ part.sort }}{% endif %} · {{ part.mbid }}">{{ part.name }}</a>
         {%- else -%}
         {#- MusicBrainz names this artist without identifying them. Plain text,
             not a dead link: there is nowhere for it to go. -#}

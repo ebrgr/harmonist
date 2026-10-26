@@ -1225,10 +1225,10 @@ def test_a_field_outside_the_old_nine_is_compared(tmp_path):
 
 
 def test_panel_fields_names_exactly_the_album_tags_the_panel_accounts_for():
-    """The album half of what scopes the re-tag box (#297).
+    """The album half of the page's account of every tag (#297, #863).
 
     As a whole set, not a sample: `PANEL_FIELDS` is derived, so a field added to
-    `Owned` lands OUTSIDE it by default and starts appearing in the box. That is
+    `Owned` lands OUTSIDE it by default and is the tracklist's to place. That is
     the right default, and it should still be a decision someone made rather than
     one that happened to them.
 
@@ -1368,7 +1368,7 @@ def test_a_change_that_reads_the_same_on_every_track_goes_to_the_band():
     isrc = next(c for c in uniform.collapsed if c.label == "ISRC")
     assert isrc.differs, "the band states it as the change it is, not as agreement"
     assert isrc.mb == "FRZ109800001"
-    assert "isrcs" in uniform.shown_fields, "so the box does not state it a second time"
+    assert "isrcs" in uniform.shown_fields, "accounted for, by the band"
 
     assert "ISRC" in _headings(album("FRZ109800001", "FRZ109800002"))
 
@@ -1523,7 +1523,7 @@ def test_a_row_whose_only_difference_is_hidden_hides_its_musicbrainz_line_too():
     assert [t.mb_only_identifiers for t in mixed.tracks] == [True, False]
 
 
-def test_the_table_stops_at_the_cap_and_the_rest_falls_to_the_box():
+def test_the_table_stops_at_the_cap_and_the_rest_goes_under_its_own_track():
     """The second limit on rule 1, for the album where its first limit does not
     bite: an inconsistently tagged one, where the readable per-track tags part
     company track by track and would all arrive at once.
@@ -1536,10 +1536,10 @@ def test_the_table_stops_at_the_cap_and_the_rest_falls_to_the_box():
     rule 2 and enough to earn.
 
     What overflows is deliberately NOT collapsed: the collapsed set claims the
-    field is the same on every track and matches MusicBrainz, which of a field
-    that overflowed *because* it differs would be false. It goes to the re-tag
-    box, which is the one surface left that can state it — so `shown_fields`
-    must not claim it.
+    field is the same on every track, which of a field that earned a column
+    would be false. Since #863 it is stated on the row of each track it changes
+    on, where it used to go to a box in another section that listed it by track
+    number. A track it does not change on carries nothing for it.
     """
     tl = tracklist(
         [
@@ -1555,10 +1555,13 @@ def test_the_table_stops_at_the_cap_and_the_rest_falls_to_the_box():
             for n, t, a, m in ((1, "Nightcall", "A", "CD"), (2, "Rampage", "B", "DVD"))
         ],
         [
-            # `artists` differs from MusicBrainz as well as between the tracks,
-            # so the `Artist` column cannot absorb it (#319) and it stays in the
+            # `artists` differs from MusicBrainz where `artist` does not, so the
+            # `Artist` column cannot absorb it (#319) and it stays in the
             # competition — it is the third earner, and the cap bites after it.
-            _mb_track(n, t, artist=a, artist_sort=f"{a},", artists=["Kavinsky"])
+            #
+            # MusicBrainz's medium is a CD throughout, so the first track's media
+            # agrees and only the second one's changes.
+            _mb_track(n, t, artist=a, artist_sort=f"{a},", artists=["Kavinsky"], media="CD")
             for n, t, a in ((1, "Nightcall", "A"), (2, "Rampage", "B"))
         ],
     )
@@ -1566,10 +1569,16 @@ def test_the_table_stops_at_the_cap_and_the_rest_falls_to_the_box():
     earned = [h for h in _headings(tl) if h not in ("#", "Title", "Length")]
     assert earned == ["Artist", "Artist sort", "Artists"]  # priority order
     assert len(earned) == MAX_EARNED_COLUMNS
-    # `disc_subtitle` and `media` earned and overflowed. Nothing collapsed them,
-    # and the table does not claim them — so the box picks them up.
+    # `disc_subtitle` and `media` earned and overflowed, and each change is on
+    # the row it belongs to, in column order.
     assert not {c.label for c in tl.collapsed} & {"Disc subtitle", "Media"}
-    assert not tl.shown_fields & {"disc_subtitle", "media"}
+    assert [[(f.label, f.disk, f.mb) for f in t.overflow] for t in tl.tracks] == [
+        [("Disc subtitle", "Side A", None)],
+        [("Disc subtitle", "Side B", None), ("Media", "DVD", "CD")],
+    ]
+    # With them, every tag Harmonist writes has a place on the page: the box that
+    # caught whatever had none went in #863, so this is what stands in for it.
+    assert {o.value for o in Owned} <= PANEL_FIELDS | tl.shown_fields
 
 
 def test_the_artist_column_accounts_for_artists_rather_than_repeating_it():
@@ -1597,7 +1606,7 @@ def test_the_artist_column_accounts_for_artists_rather_than_repeating_it():
     assert "Artist" in _headings(tl), "the tracks disagree, so it earns"
     assert "Artists" not in _headings(tl)
     assert "Artists" not in {c.label for c in tl.collapsed}
-    assert {"artist", "artists"} <= tl.shown_fields, "accounted for, so never in the box"
+    assert {"artist", "artists"} <= tl.shown_fields, "accounted for, by the one column"
 
 
 def test_artists_keeps_its_own_column_when_it_has_its_own_difference():
@@ -1614,6 +1623,68 @@ def test_artists_keeps_its_own_column_when_it_has_its_own_difference():
     )
 
     assert "Artists" in _headings(tl)
+
+
+def _credited(num: int, title: str, composers: list[str], lyricists: list[str]) -> MBTrack:
+    """A MusicBrainz track performing one work, with its composers and lyricists
+    credited on the work the way #680 reads them."""
+    return _mb_track(
+        num,
+        title,
+        works=[title],
+        mb_work_ids=[f"work-{num}"],
+        composers=composers,
+        composer_sort=[", ".join(reversed(c.split(" "))) for c in composers],
+        mb_composer_ids=[f"art-{c}" for c in composers],
+        lyricists=lyricists,
+    )
+
+
+def test_a_credits_sort_names_and_ids_ride_in_its_names_column():
+    """#863. Files tagged before #680 carry no credits, so every credit tag
+    arrives at once — and on an album whose tracks each have their own composer,
+    each of the seven differs track by track and earns a column.
+
+    Composer sort and Composer IDs are the same people as Composer, spelled for
+    sorting and for MusicBrainz, and Work IDs is the same work as Work. Each
+    changes exactly where its name changes, so the name's column states it: the
+    names are links to the ids, and three columns say what seven did.
+    """
+    tl = tracklist(
+        [_file(1, "Overture"), _file(2, "Aria"), _file(3, "Finale")],
+        [
+            _credited(1, "Overture", ["Ann Lee"], ["Bo Day"]),
+            _credited(2, "Aria", ["Cy Fox", "Ann Lee"], ["Di Ray"]),
+            _credited(3, "Finale", ["Ed Kay"], ["Fi Moe"]),
+        ],
+    )
+
+    assert _headings(tl) == ["#", "Title", "Work", "Composer", "Lyricist", "Length"]
+    columns = {c.label: c.fields for c in tl.columns}
+    assert columns["Work"] == ("works", "mb_work_ids")
+    assert columns["Composer"] == ("composers", "composer_sort", "mb_composer_ids")
+    assert not any(t.overflow for t in tl.tracks), "nothing left over the cap"
+
+
+def test_a_credit_id_that_changes_on_its_own_keeps_its_own_column():
+    """The guard on that, as `artists` has one (#319). A composer MusicBrainz
+    merged into another artist of the same name keeps its name and changes its
+    id: the Composer column has no change on that row, so it cannot stand in for
+    one, and Composer IDs earns a column of its own."""
+    composers = (["Ann Lee"], ["Cy Fox"])
+    tl = tracklist(
+        [
+            _file(n, t, composers=c, mb_composer_ids=[f"old-{n}"])
+            for n, t, c in ((1, "Overture", composers[0]), (2, "Aria", composers[1]))
+        ],
+        [
+            _mb_track(1, "Overture", composers=composers[0], mb_composer_ids=["new-1"]),
+            _mb_track(2, "Aria", composers=composers[1], mb_composer_ids=["old-2"]),
+        ],
+    )
+
+    assert "Composer IDs" in _headings(tl)
+    assert {c.label: c.fields for c in tl.columns}["Composer"] == ("composers",)
 
 
 def test_a_tag_musicbrainz_does_not_have_is_stated_as_a_removal():
@@ -1642,7 +1713,7 @@ def test_a_tag_musicbrainz_does_not_have_is_stated_as_a_removal():
     assert sort.value == "Kavinsky"
     assert sort.mb is None, "nothing to replace it with — the re-tag takes it away"
     assert sort.differs, "which is a change, and the band must not read it as agreement"
-    assert "artist_sort" in tl.shown_fields, "so the box does not repeat the removal"
+    assert "artist_sort" in tl.shown_fields, "accounted for, by the band"
 
 
 def test_the_disk_only_view_collapses_on_agreement_between_the_tracks_alone():
@@ -1682,7 +1753,7 @@ def test_no_per_track_tag_is_in_two_places_or_in_none():
     """#309's invariant, over an album built to make each rule fire.
 
     Every per-track tag ends up in exactly one place: a column, the named
-    collapsed set, or — by being in neither — the re-tag box. The failure this
+    collapsed set, or a line under each track it changes on (#863). The failure this
     catches is a field claimed by `shown_fields` AND listed as collapsed, which
     reads on the page as a row printed twice: the exact complaint #297 was filed
     about, one level down.
@@ -1696,8 +1767,8 @@ def test_no_per_track_tag_is_in_two_places_or_in_none():
     collapsed = {c.label for c in tl.collapsed}
     columns = {c.label for c in tl.columns}
     assert not collapsed & columns
-    # Nothing is missing either: what neither surface holds is what the box gets,
-    # and every per-track tag is accounted for by one of the three.
+    # Nothing is missing either: every per-track tag is accounted for by one of
+    # the three.
     overflow = per_track - tl.shown_fields - {f.value for f in Owned if LABELS[f] in collapsed}
     assert overflow == set()
 
@@ -1927,7 +1998,7 @@ def test_a_single_disc_album_has_no_heading_to_roll_anything_up_into():
     subtitle = next(c for c in tl.collapsed if c.label == "Disc subtitle")
     assert subtitle.differs
     assert subtitle.mb == "Bonus"
-    assert "disc_subtitle" in tl.shown_fields, "so the box does not state it a second time"
+    assert "disc_subtitle" in tl.shown_fields, "accounted for, by the band"
 
 
 def test_a_disc_nobody_ripped_gets_no_comparison():
