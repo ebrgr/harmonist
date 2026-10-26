@@ -1670,7 +1670,11 @@ def test_a_credit_id_that_changes_on_its_own_keeps_its_own_column():
     """The guard on that, as `artists` has one (#319). A composer MusicBrainz
     merged into another artist of the same name keeps its name and changes its
     id: the Composer column has no change on that row, so it cannot stand in for
-    one, and Composer IDs earns a column of its own."""
+    one, and Composer IDs earns a column of its own.
+
+    An identifier column, starting behind Show identifiers as Artist IDs does
+    (#319): the files' old id has no name to show, so the column is hex over a
+    name. It starts revealed when it is a row's only change (#339), as here."""
     composers = (["Ann Lee"], ["Cy Fox"])
     tl = tracklist(
         [
@@ -1683,8 +1687,9 @@ def test_a_credit_id_that_changes_on_its_own_keeps_its_own_column():
         ],
     )
 
-    assert "Composer IDs" in _headings(tl)
+    assert [c.label for c in tl.identifier_columns] == ["Composer IDs"]
     assert {c.label: c.fields for c in tl.columns}["Composer"] == ("composers",)
+    assert tl.reveal_identifiers, "track 1's only change is in it"
 
 
 def test_a_tag_musicbrainz_does_not_have_is_stated_as_a_removal():

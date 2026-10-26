@@ -1857,8 +1857,22 @@ _MEDIUM_DERIVED: tuple[Owned, ...] = (Owned.DISC_SUBTITLE, Owned.MEDIA, Owned.TR
 #: `isrcs` is here despite not being an MBID: an ISRC is a recording's
 #: registration code, it is no more readable than a UUID, and it is not why
 #: anyone opened this page.
+#:
+#: The work and composer ids are here too (#863), though they are usually not a
+#: column at all: `Work` and `Composer` state them as links (`_SUBSUMED_BY`).
+#: They get a column only when an id changes under an unchanged name — a
+#: composer merged into another artist of the same name — and that column is
+#: the files' old id in hex over the new one's name, an identifier like the
+#: rest. A row whose only change it is reveals it anyway (#339).
 _IDENTIFIERS: frozenset[Owned] = frozenset(
-    {Owned.ISRCS, Owned.MB_TRACK_ID, Owned.MB_RELEASE_TRACK_ID, Owned.MB_ARTIST_IDS}
+    {
+        Owned.ISRCS,
+        Owned.MB_TRACK_ID,
+        Owned.MB_RELEASE_TRACK_ID,
+        Owned.MB_ARTIST_IDS,
+        Owned.MB_WORK_IDS,
+        Owned.MB_COMPOSER_IDS,
+    }
 )
 
 
