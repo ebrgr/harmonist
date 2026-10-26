@@ -18,7 +18,6 @@
         </div>
     </header>
 
-    {% if nfo.profile or nfo.errors or artist.mbid %}
     <section class="border border-line rounded-lg p-4 space-y-3" aria-label="Artist metadata">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
@@ -28,7 +27,9 @@
                 <p class="text-xs text-muted" title="{{ nfo_modified.isoformat() }}">Modified {{ ago(nfo_modified) }}</p>
                 {% endif %}
             </div>
-            <div class="flex gap-2 shrink-0">
+            <div class="flex flex-wrap gap-2">
+                <button type="button" hx-get="{{ artist_import_url }}" hx-target="#modal" hx-swap="innerHTML"
+                        class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-xs font-bold text-ink transition">Import metadata</button>
                 <button type="button" hx-get="{{ artist_edit_url }}" hx-target="#modal" hx-swap="innerHTML"
                         {% if not artist_can_edit %}disabled title="Choose an NFO source or configure an Artist Information Folder."{% endif %}
                         class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-xs font-bold text-ink transition disabled:opacity-40">Edit</button>
@@ -66,12 +67,20 @@
         {% endif %}
         {% endif %}
     </section>
-    {% endif %}
 
     {% if nfo.profile and nfo.profile.biography %}
     <details id="artist-biography" class="border border-line rounded-lg p-4">
         <summary class="cursor-pointer text-sm font-bold text-ink"><h2 class="inline">Biography</h2></summary>
         <p class="mt-3 text-sm text-ink whitespace-pre-line break-words">{{ nfo.profile.biography }}</p>
+        {% if nfo.profile.biography_source %}
+        {% set source = nfo.profile.biography_source %}
+        <p class="mt-3 text-xs text-muted break-words">
+            <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">{{ source.title }} · {{ source.provider }} ↗</a>
+            · {{ source.language }}{% if source.revision %} · revision {{ source.revision }}{% endif %}
+            {% if source.get('modified') == 'true' %} · edited locally{% endif %}
+            · <a href="{{ source.license_url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">{{ source.license }} ↗</a>
+        </p>
+        {% endif %}
     </details>
     {% endif %}
 
