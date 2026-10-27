@@ -8264,7 +8264,6 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading="MusicBrainz search results",
             on_album_page=on_album_page,
-            review_only=True,
             mb_query=mb_search.release_query(artist, title),
         )
 
@@ -8354,7 +8353,6 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading=None,
             on_album_page=on_album_page,
-            review_only=True,
             retarget=True,
             barcode=evidence.barcode,
         )
@@ -8396,7 +8394,6 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading=None,
             on_album_page=on_album_page,
-            review_only=True,
             retarget=True,
             store_url=sc.store_url,
         )
@@ -8452,7 +8449,6 @@ def _register_routes(app: FastAPI) -> None:
                 local_track_count=album.track_count,
                 local_artist=album.artist,
                 on_album_page=on_album_page,
-                review_only=True,
                 found_by=FoundBy.RELEASE_GROUP,
             ),
         )
@@ -8467,11 +8463,13 @@ def _register_routes(app: FastAPI) -> None:
         request: Request,
         album_id: str,
         mbid: str = Form(...),
-        review_only: bool = Form(False),
         on_album_page: bool = Form(False),
         # Which picker the release came from (#639); the paste box sends none.
         found_by: FoundBy = Form(FoundBy.MBID),
     ) -> Response:
+        """Suggest the release the user chose — a picker's Use or a pasted
+        MBID — for review. A choice is never tagged unreviewed, however well
+        it fits (#848, #880): only a first, exact, unique match is."""
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         extracted = _extract_mbid(mbid)
         if not extracted:
@@ -8516,13 +8514,13 @@ def _register_routes(app: FastAPI) -> None:
                 if on_album_page:
                     response.headers["HX-Redirect"] = _album_location(request, album.id)
                 return response
-            status_str, msg = _apply_best_match(
+            _, msg = _apply_best_match(
                 album.path,
                 [extracted],
                 request.app.state.cfg,
                 request.app.state.tagger,
                 found_by=found_by,
-                review_only=review_only,
+                review_only=True,
             )
         except mb_lookup.MBError as e:
             return _flash_response(
@@ -8541,14 +8539,9 @@ def _register_routes(app: FastAPI) -> None:
                 tasks_changed=False,
                 album=album,
             )
-        if status_str == "tagged":
-            # An exact fit tags at once, so this IS the decision (#639).
-            response = _flash_response(
-                "Matched", _matched_detail(extracted, _FOUND_BY[found_by]), album=album
-            )
-        else:
-            # A suggestion to review, or nothing to act on: flashed, not recorded.
-            response = _flash_response("Needs review", msg, album=album, record_activity=False)
+        # A suggestion to review, or nothing to act on: flashed, not recorded.
+        # The decision is the confirm, which records how the release was found.
+        response = _flash_response("Needs review", msg, album=album, record_activity=False)
         if on_album_page:
             # Publish the new identity before the redirected GET can arrive
             # (#798). Use the scanned id so duplicate copies remain distinct.
@@ -8756,7 +8749,6 @@ def _render_release_picker(
     heading: str | None,
     retarget: bool = False,
     on_album_page: bool = False,
-    review_only: bool = False,
     barcode: str | None = None,
     store_url: str | None = None,
     mb_query: str | None = None,
@@ -8769,16 +8761,16 @@ def _render_release_picker(
     `on_album_page` is what the *rows* need (#150). Every other action block is
     an include, so it inherits that flag from the template around it; this one
     is a response, rendered with no such surroundings, and its **Use** button
-    assigns a release exactly as the paste box does. Without the flag travelling
+    suggests a release exactly as the paste box does. Without the flag travelling
     with the request, picking a release from a search made on the album page
-    would tag the album and leave the page describing the album it used to be.
+    would leave the page describing the album as it was before the choice.
     """
     headers: dict[str, str] = {}
     if retarget:
         headers["HX-Retarget"] = f"#mbid-results-{album.id}"
         # Barcode choices must be initialized before their visible Use buttons
         # can submit; the default settle delay leaves a native-GET race.
-        headers["HX-Reswap"] = "innerHTML settle:0ms" if review_only else "innerHTML"
+        headers["HX-Reswap"] = "innerHTML settle:0ms"
     return _templates(request).TemplateResponse(
         request,
         "partials/manual_search_results.html",
@@ -8792,7 +8784,6 @@ def _render_release_picker(
             "local_track_count": album.track_count,
             "local_artist": album.artist,
             "on_album_page": on_album_page,
-            "review_only": review_only,
             "barcode": barcode,
             "store_url": store_url,
             # The search a truncated list hands over to musicbrainz.org (#878).

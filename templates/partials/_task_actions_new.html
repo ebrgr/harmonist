@@ -27,11 +27,9 @@
 </div>
 {% endif %}
 
-{# Search or paste an MBID. hx-preserve'd so a background re-render
-   (New albums kick auto-reconcile, which polls) can't wipe in-progress
-   search results — they live only in the DOM. #}
+{# Search, or paste an MBID as the last of its modes. hx-preserve'd so a
+   background re-render (New albums kick auto-reconcile, which polls) can't
+   wipe in-progress search results — they live only in the DOM. #}
 <div id="newtools-{{ album.id }}" hx-preserve="true" class="space-y-2">
     {% include 'partials/_release_search.html' %}
-    <p class="text-muted font-bold uppercase tracking-widest text-2xs mt-2">Or paste a MusicBrainz ID</p>
-    {% include 'partials/_mbid_paste.html' %}
 </div>

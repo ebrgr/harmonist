@@ -25,14 +25,13 @@
             {# Rendered by a route, not included from a card, so the flag has to
                be carried into this response rather than inherited from a
                surrounding template (#150) — see `_render_release_picker`.
-               The route redirects to the current album after successful
-               selection or tagging. #}
+               The route redirects to the current album after a successful
+               selection. #}
             <form hx-post="/manual/{{ album_id }}/assign" hx-swap="none" hx-disabled-elt="this"
                   hx-indicator="#tagging-{{ album_id }}">
                 <input type="hidden" name="mbid" value="{{ r.id }}">
                 <input type="hidden" name="on_album_page" value="{{ 'true' if on_album_page|default(false) else 'false' }}">
                 <input type="hidden" name="found_by" value="{{ found_by }}">
-                {% if review_only %}<input type="hidden" name="review_only" value="true">{% endif %}
                 <button type="submit"
                         class="px-2 py-1 bg-mb-purple/15 hover:bg-mb-purple/25 text-mb-purple border border-mb-purple/30 rounded text-xs font-bold uppercase tracking-widest transition whitespace-nowrap">
                     Use

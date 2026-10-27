@@ -468,7 +468,7 @@ def test_new_card_untagged_offers_search_no_reconcile(client, cfg):
     # tools — no per-card blurb, and no (useless here) "Reconcile from tags".
     assert "need a MusicBrainz release" in r.text
     assert "Reconcile from tags" not in r.text
-    assert "Assign &amp; Tag" in r.text or "Assign & Tag" in r.text
+    assert "MB release URL or 36-char MBID" in r.text  # the paste box
 
 
 def test_new_card_tagged_orphan_offers_reconcile(client, cfg):
@@ -1936,7 +1936,7 @@ def test_manual_assign_with_full_url(client, cfg, monkeypatch):
     assert captured["mbid"] == "abc12345-1234-1234-1234-1234567890ab"
     loaded = sc.read(d)
     assert loaded.store_url is None
-    assert loaded.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
+    assert loaded.mb_match_candidate.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
 
 
 def test_manual_assign_with_bare_mbid(client, cfg, monkeypatch):
@@ -1955,10 +1955,27 @@ def test_manual_assign_with_bare_mbid(client, cfg, monkeypatch):
     )
     assert r.status_code == 200
     loaded = sc.read(d)
-    assert loaded.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
+    assert loaded.mb_match_candidate.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
 
 
 _ASSIGN_MBID = "abc12345-1234-1234-1234-1234567890ab"
+
+
+def _paste_and_confirm(client, aid: str, mbid: str = _ASSIGN_MBID):
+    """Paste `mbid`, then confirm the suggestion it opens (#880) — the way a
+    pasted release now gets tagged. Returns the confirm response."""
+    from bs4 import BeautifulSoup
+
+    pasted = client.post(f"/manual/{aid}/assign", data={"mbid": mbid})
+    assert pasted.status_code == 200
+    review = client.get(f"/assignments/{aid}", params={"cancel": "true"})
+    confirm = BeautifulSoup(review.text, "html.parser").select_one(
+        f'button[hx-post="/confirm/{aid}/accept"]'
+    )
+    assert confirm is not None, review.text
+    form = confirm.find_parent("form")
+    payload = {field["name"]: field.get("value", "") for field in form.select("input[name]")}
+    return client.post(confirm["hx-post"], data=payload)
 
 
 def _state_of(cfg, album_dir):
@@ -1987,36 +2004,16 @@ def test_manual_assign_derives_store_url_from_embedded_comment(client, cfg, monk
 
     monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", no_urls)
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     assert sc.read(d).store_url == "https://artist.bandcamp.com/album/x"
     assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
 
 
-def test_manual_assign_falls_back_to_mb_url_when_comment_is_root(client, cfg, monkeypatch):
-    """Artist-root ©cmt + MB has a Bandcamp url-rel → MB's canonical URL recorded."""
-    from harmonist.models import AlbumState
-
-    d = _make_album(cfg, "RootURL", comment="Visit https://artist.bandcamp.com")
-    aid = _id_for(cfg, d)
-    monkeypatch.setattr(
-        "harmonist.mb_lookup.fetch_release", lambda m: _release_for_match(m, n_tracks=1)
-    )
-    monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
-    monkeypatch.setattr(
-        "harmonist.mb_lookup.fetch_release_urls",
-        lambda _m: ["https://artist.bandcamp.com/album/canonical"],
-    )
-
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
-    assert r.status_code == 200
-    assert sc.read(d).store_url == "https://artist.bandcamp.com/album/canonical"
-    assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
-
-
-def test_manual_assign_uses_artist_root_placeholder_when_no_mb_url(client, cfg, monkeypatch):
-    """Artist-root ©cmt + MB has no Bandcamp url-rel → keep the artist-root as a
-    placeholder store_url so it's still recognised as a Bandcamp purchase."""
+def test_manual_assign_uses_artist_root_placeholder_without_asking_mb(client, cfg, monkeypatch):
+    """Artist-root ©cmt → keep the artist-root as a placeholder store_url so it's
+    still recognised as a Bandcamp purchase. Confirming a review never fetches
+    (#532), so MB's url-rels aren't asked for; linking finds the album URL."""
     from harmonist.models import AlbumState
 
     d = _make_album(cfg, "Placeholder", comment="Visit https://artist.bandcamp.com")
@@ -2025,9 +2022,13 @@ def test_manual_assign_uses_artist_root_placeholder_when_no_mb_url(client, cfg, 
         "harmonist.mb_lookup.fetch_release", lambda m: _release_for_match(m, n_tracks=1)
     )
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
-    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", lambda _m: [])
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    def no_urls(_m):
+        raise AssertionError("a reviewed release must not fetch its url-rels")
+
+    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", no_urls)
+
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     assert sc.read(d).store_url == "https://artist.bandcamp.com"
     assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
@@ -2047,7 +2048,7 @@ def test_manual_assign_store_url_derivation_error_is_swallowed(client, cfg, monk
 
     monkeypatch.setattr("harmonist.reconcile.store_url_for_tagging", boom)
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     loaded = sc.read(d)
     assert loaded.mb_release_id == _ASSIGN_MBID  # tagged despite the derivation error
@@ -2065,26 +2066,42 @@ def test_manual_assign_invalid_input(client, cfg):
     assert not sc.has_sidecar(d)
 
 
-def test_manual_assign_with_approximate_match_stores_candidate(client, cfg, monkeypatch):
-    d = _make_album(cfg, "Approximate")
-    aid = _id_for(cfg, d)
+@pytest.mark.parametrize("confidence", ["exact", "approximate"])
+def test_pasted_mbid_is_suggested_for_review_however_well_it_fits(
+    client, cfg, monkeypatch, confidence
+):
+    """A pasted MBID is a choice like a search result's Use, so even an exact
+    fit opens review rather than tagging (#880)."""
+    from bs4 import BeautifulSoup
 
-    # Release with one track, but a length way off → "approximate"
+    from harmonist.models import FoundBy
+
+    d = _make_album(cfg, "Pasted")
+    audio = d / "01 Track.m4a"
+    before = audio.read_bytes()
+    aid = _id_for(cfg, d)
+    length_ms = 1000 if confidence == "exact" else 99999
     monkeypatch.setattr(
         "harmonist.mb_lookup.fetch_release",
-        lambda mbid: _release_for_match(mbid, n_tracks=1, length_ms=99999),
+        lambda mbid: _release_for_match(mbid, n_tracks=1, length_ms=length_ms),
     )
 
-    r = client.post(
-        f"/manual/{aid}/assign",
-        data={"mbid": "abc12345-1234-1234-1234-1234567890ab"},
-    )
+    # Submit the paste box as rendered, not a hand-built request.
+    card = BeautifulSoup(client.get("/tasks").text, "html.parser")
+    paste = card.select_one(f'form[hx-post="/manual/{aid}/assign"]')
+    assert paste is not None
+    assert paste.select_one('button[type="submit"]').get_text(strip=True) == "Use"
+    fields = {field["name"]: field.get("value", "") for field in paste.select("input[name]")}
+    r = client.post(paste["hx-post"], data=fields | {"mbid": _ASSIGN_MBID})
+
     assert r.status_code == 200
     assert "review and confirm" in r.text
+    assert audio.read_bytes() == before
     loaded = sc.read(d)
     assert loaded.mb_release_id is None
-    assert loaded.mb_match_candidate is not None
-    assert loaded.mb_match_candidate.confidence == "approximate"
+    assert loaded.mb_match_candidate.mb_release_id == _ASSIGN_MBID
+    assert loaded.mb_match_candidate.confidence == confidence
+    assert loaded.mb_match_candidate.found_by == FoundBy.MBID
 
 
 # ---------- URL recovery ----------
@@ -5811,6 +5828,7 @@ def test_canonical_id_change_mid_transaction(client, cfg, monkeypatch):
         ),
     )
     temp_uid = sc.read(d).temp_uid
+    assert temp_uid is not None
     mbid = "abc12345-1234-1234-1234-1234567890ab"
 
     monkeypatch.setattr(
@@ -5819,8 +5837,8 @@ def test_canonical_id_change_mid_transaction(client, cfg, monkeypatch):
     )
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
 
-    # POST at the temp_uid URL — runs the handler, returns 200
-    r = client.post(f"/manual/{temp_uid}/assign", data={"mbid": mbid})
+    # Confirm at the temp_uid URL — runs the handler, returns 200
+    r = _paste_and_confirm(client, temp_uid, mbid)
     assert r.status_code == 200
     assert "tasks-changed" in r.headers.get("hx-trigger", "")
 

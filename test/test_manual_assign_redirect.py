@@ -43,7 +43,9 @@ def test_use_release_redirect_resolves_before_background_scan(
         data={"mbid": mbid, "on_album_page": "true", "found_by": FoundBy.NAME_SEARCH},
     )
     assert response.status_code == 200
-    assert sidecar.read(root).mb_release_id == mbid
+    # Selected for review (#880): writing the suggestion can be the album's
+    # first sidecar, so its id may still change under the redirect.
+    assert sidecar.read(root).mb_match_candidate.mb_release_id == mbid
     destination = response.headers["HX-Redirect"]
     opened = client.get(destination)
     assert opened.status_code == 200, opened.text

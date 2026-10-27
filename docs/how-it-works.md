@@ -73,14 +73,15 @@ what they need, and each group says what will clear it.
 
 ![The Inbox, "5 need attention", in three groups. "New · 1": "These albums need
 a MusicBrainz release — search by name to locate it, or paste an MBID", above an
-album card with search fields. "Needs MBID · 1": "No confirmed MusicBrainz
+album card with search fields. "Needs MBID · 3": "No confirmed MusicBrainz
 release yet. Where a suggestion was found, review the side-by-side and confirm;
 otherwise search by name, barcode or store URL, paste an MBID, or seed a missing
-release via Harmony and search again", above a card offering search by Name,
-Barcode or Store URL. "Needs Linking · 3": "Sync Bandcamp to link these albums.
-While any remain, that sync links your existing albums and downloads nothing
-new; new purchases download on the next run", above a card with MusicBrainz and
-Bandcamp badges and a × button.](images/inbox.png)
+release via Harmony and search again", above three cards that each offer "Find
+release:" By name, By barcode and By MBID, one also by Store URL with the
+release it found listed below. "Needs Linking · 1": "Sync Bandcamp to link
+these albums. While any remain, that sync links your existing albums and
+downloads nothing new; new purchases download on the next run", above a card
+with MusicBrainz and Bandcamp badges and a × button.](images/inbox.png)
 
 | Inbox group | What it means | What clears it |
 |---|---|---|

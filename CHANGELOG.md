@@ -22,6 +22,10 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **Pasting an MBID is the last of the Find release options, By MBID**, and
+  its button is **Use**, like a search result's. The release it names opens
+  for review even when the files fit it exactly, instead of being tagged at
+  once (#880).
 - **A release search by name lists up to 15 releases in a scrolling list**,
   instead of five. When MusicBrainz found more, the list says how many and
   ends with a link to the same search on MusicBrainz (#878).

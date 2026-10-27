@@ -38,12 +38,11 @@
             <span>Store URL</span>
         </label>
         {% endif %}
-        {% if show_siblings|default(false) %}
+        {# Last: a release the user already knows, chosen as a result's Use is (#880). #}
         <label class="inline-flex items-center gap-1.5 cursor-pointer">
             <input type="radio" name="find-{{ album.id }}" value="mbid" class="accent-mb-purple">
             <span>By MBID</span>
         </label>
-        {% endif %}
     </div>
     {% if show_siblings|default(false) %}
     <div class="find-mode__panel find-mode__panel--siblings">
@@ -58,11 +57,9 @@
     <div class="find-mode__panel find-mode__panel--name">
         {% include 'partials/_name_search.html' %}
     </div>
-    {% if show_siblings|default(false) %}
     <div class="find-mode__panel find-mode__panel--mbid">
         {% include 'partials/_mbid_paste.html' %}
     </div>
-    {% endif %}
     {% if album.barcode %}
     <div class="find-mode__panel find-mode__panel--barcode">
         <form hx-post="/manual/{{ album.id }}/barcode"

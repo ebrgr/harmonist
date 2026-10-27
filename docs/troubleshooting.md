@@ -111,16 +111,16 @@ Harmonist couldn't find the release on its own. On the album's card:
 
 1. **Search** by **Name**, **Barcode** or **Store URL**. Barcode and Store URL
    can only be used when your files carry one.
-2. If you know the release, find it on [MusicBrainz](https://musicbrainz.org)
-   and paste its URL or MBID into **Or paste a MusicBrainz ID**.
+2. If you know the release, find it on [MusicBrainz](https://musicbrainz.org),
+   choose **By MBID** and paste its URL or MBID.
 3. If a search finds nothing, **Open in Harmony** appears. It helps you add the
    release to MusicBrainz from its store page. Once it's saved there, press
    **Search** again.
 
-![An album card with "Search MusicBrainz by" options Name, Barcode (greyed
-out) and Store URL (selected), showing the album's Bandcamp URL and a Search
-button. Below, "Or paste a MusicBrainz ID" with an Assign & Tag
-button.](images/release-search.png)
+![An album card with "Find release:" options By name, By barcode (greyed out),
+Store URL (selected) and By MBID, showing the album's Bandcamp URL and a Search
+button. Below, the release the store URL is linked from, marked "Store URL
+matches", with a Use button.](images/release-search.png)
 
 ### Harmonist suggested a release but didn't tag it
 

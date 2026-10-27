@@ -96,7 +96,11 @@ it isn't used.
 Only a first, exact, unique match is tagged unasked. Store-URL searches list
 every linked release, even a single result: the URL is evidence for the owner's
 choice, not a reason to recreate a suggestion they just dismissed. Choosing a
-result opens review before tagging.
+result opens review before tagging (#848), and so does pasting an MBID (#880):
+it is a choice made the same way, so it gets the same review. A pasted release
+that tagged at once when it fit exactly, and opened review when it didn't, made
+the same button do one of two things depending on an assessment the user
+couldn't see before pressing it.
 
 **A lookup never replaces a suggestion awaiting the user** (#638). The search
 tools are hidden while one waits, so a barcode or store-URL lookup arriving then
