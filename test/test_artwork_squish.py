@@ -4,6 +4,7 @@ copy as its original afterwards (#888)."""
 import io
 import logging
 import random
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -42,6 +43,13 @@ def _jpeg(size: int, *, seed: int, quality: int = 100) -> bytes:
     return buf.getvalue()
 
 
+def _art(track) -> bytes:
+    """The image a track carries; it has one."""
+    found = formats.read_cover(track)
+    assert found is not None
+    return found[0]
+
+
 def _detail():
     conn = activity_store._ensure()
     ids = [r[0] for r in conn.execute("SELECT event_id FROM tag_changes ORDER BY event_id")]
@@ -76,7 +84,7 @@ def test_an_image_over_the_limit_is_written_squished_everywhere(album_with_track
     files, outcome = _apply_archive(album_dir, small, big)
 
     assert outcome.changed == 3 and not (outcome.stale or outcome.failed)
-    written = {formats.read_cover(f)[0] for f in files} | {(album_dir / "cover.jpg").read_bytes()}
+    written = {_art(f) for f in files} | {(album_dir / "cover.jpg").read_bytes()}
     assert len(written) == 1
     squished = written.pop()
     assert len(squished) <= LIMIT
@@ -103,7 +111,7 @@ def test_undo_puts_back_what_a_squished_write_replaced(album_with_tracks):
     restored = tagger.restore_artwork(album_dir, tag_history.artwork_revert_plan(_detail()))
 
     assert restored.stale == ()
-    assert {formats.read_cover(f)[0] for f in files} == {small}
+    assert {_art(f) for f in files} == {small}
     assert not (album_dir / "cover.jpg").exists()
 
 
@@ -172,7 +180,7 @@ def test_an_image_it_cannot_decode_is_written_as_it_is(album_with_tracks, caplog
         _, outcome = _apply_archive(album_dir, small, undecodable)
 
     assert outcome.changed >= 1
-    assert formats.read_cover(track)[0] == undecodable
+    assert _art(track) == undecodable
     assert "could not squish" in caplog.text
     assert derived.originals() == {}
 
@@ -227,6 +235,7 @@ def test_choosing_the_image_a_copy_was_made_from_writes_nothing(tmp_path, origin
 def test_the_original_never_beats_its_own_shrunk_copy(tmp_path, originals, carrier):
     """Else a copy shrunk to fit is offered its original again on every pass,
     and squished back to itself on every apply."""
+    tracks: list[tuple[Path, formats.EmbeddedArt | None]]
     if carrier == "tracks":
         tracks = [(tmp_path / "01.m4a", SHRUNK)]
         cover = None

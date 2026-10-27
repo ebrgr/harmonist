@@ -10495,6 +10495,28 @@ def test_artwork_section_marks_an_image_over_the_size_limit(client, cfg):
     assert rows["All 2 tracks"].select_one(".art-row__meta .art-row__oversize") is None
 
 
+def test_after_apply_says_an_image_over_the_limit_is_reduced_to_fit(client, cfg):
+    """#888: an image over the limit is squished as it's written, so what
+    applying writes isn't over it. The folder cover's own row still is."""
+    from bs4 import BeautifulSoup
+
+    from test.test_artwork import png_bytes
+
+    small = png_bytes(128, 128)
+    huge = small + bytes(20_000_001 - len(small))
+    d = _album_with_art(cfg, "Filling", covers=[None, None], folder=huge)
+
+    soup = BeautifulSoup(client.get(f"/album/{_id_for(cfg, d)}/artwork").text, "html.parser")
+
+    rows = {r.select_one(".art-row__who").get_text(strip=True): r for r in soup.select(".art-row")}
+    after = rows["All 2 tracks"].select_one(".art-row__side--after .art-row__oversize")
+    assert after is not None
+    assert after.get_text(strip=True) == "reduced to fit"
+    assert after["title"] == "Re-encoded to 20,000,000 bytes or less as it's written"
+    now = rows["cover.jpg"].select_one(".art-row__side .art-row__oversize")
+    assert now is not None and now.get_text(strip=True) == "over image size limit"
+
+
 def test_artwork_section_promises_no_overwrite_where_art_is_preserved(client, cfg):
     """A compilation's covers are kept, so no row may offer a replacement."""
     d = _album_with_art(cfg, "Compilation", covers=[_png(1), _png(2)], folder=_png(3))

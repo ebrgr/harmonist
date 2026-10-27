@@ -288,9 +288,12 @@ Harmonist's rules:
 
 An image larger than 20,000,000 bytes is **over the image size limit**, the
 largest a player is known to read. Navidrome won't read an image over its
-`MaxImageSize` setting, which is 20 MB by default. The Library's **Artwork →
-Oversize artwork** filter lists albums carrying one, and the album's Artwork
-section marks the image beside its size.
+`MaxImageSize` setting, which is 20 MB by default. When Harmonist writes an
+image over the limit, it reduces it to fit, re-encoding it as a JPEG at a
+slightly lower quality and keeping its dimensions where it can; After Apply says
+"reduced to fit". The Library's **Artwork → Oversize artwork** filter lists
+albums already carrying one, and the album's Artwork section marks the image
+beside its size.
 
 ![The Artwork section, with columns Now, After Apply and Available. "cover.png,
 320×320" becomes "the Cover Art Archive, 960×960", with an × beside it. The "All

@@ -128,6 +128,47 @@ with a preview, no After Apply column and no button, which read as broken. Until
 the original is fetched, only the thumbnail is known, and a thumbnail's bytes
 say nothing about the original's.
 
+## An image over the size limit is written squished
+
+**The largest image still wins, but what's written may not be the picked image
+byte for byte.** An image over the **image size limit**, 20,000,000 bytes, is
+re-encoded to fit as it's written, into the tracks or the folder (#888). The
+limit is Navidrome's default `MaxImageSize`, the largest image a player is known
+to read. Past it, Navidrome refuses the image and keeps whatever art it held
+before.
+
+Refusing such an image was the alternative, and it would cost the best source
+there is. The archive's originals are sometimes scans saved at JPEG quality 100,
+far over any limit for no visible gain: the 34 MB cover that prompted this came
+out at 16 MB at quality 95, with an SSIM of 0.990 against the original.
+
+**Squishing does the least that fits.** Quality comes first, at the same pixel
+dimensions; the dimensions shrink only once quality has run out. Keeping them
+keeps the size rule settled too, since a tie goes to the image already there.
+The result is always a JPEG. A PNG over the limit can only shrink by losing what
+made it a PNG, and the file keeps its name, as any replacement of a folder
+cover already does.
+
+**A copy counts as its original.** The copy is a different file from the image
+that was picked, and everything that asks whether an album carries an image
+would otherwise answer no: the size rule and a choice (a copy shrunk to fit is
+smaller than its original, so it would be offered that original on every pass),
+a replaced front ([below](#a-replaced-front-gives-way-too)), a stand-in, and a
+watch. Which image a copy was made from is knowable only at the write, so it's
+recorded then, in `activity.db` rather than the sidecar: it's Harmonist's record
+of its own act, as the old front is (see [storage](storage.md)). The records of
+each file still name the copy, since it's what the file holds and what Undo
+checks for; a stand-in names it too, as the album carries it.
+
+If that record is lost, a copy reads as an image of its own. It has the same
+dimensions as its original, or smaller only where quality ran out, so the size
+rule mostly keeps it; what's lost is recognising it as a replaced front or an
+honoured choice. An image that can't be decoded is written as it is, which
+loses nothing the album had.
+
+The After Apply column says the image will be **reduced to fit** rather than
+showing the copy's size, which would mean encoding the image to draw the page.
+
 ## A stand-in gives way
 
 When a release has no front of its own, the artwork Harmonist writes can come

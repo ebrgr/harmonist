@@ -102,6 +102,10 @@ belongs in a music folder.
   Kept here rather than in the sidecar because muting fifty albums would
   otherwise be fifty audited writes into the music folders, each waking the file
   watcher.
+- **Squished images**: which image each copy squished to fit was made from (see
+  [artwork](artwork.md#an-image-over-the-size-limit-is-written-squished)). Keyed
+  by image rather than album, since one front squished into every disc of a set
+  is one fact.
 
 Schema changes go through the `schema-migration` skill: migrations only ever
 append, since a user's database can't be reached to repair.

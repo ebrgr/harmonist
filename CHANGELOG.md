@@ -58,6 +58,10 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **An image over the 20 MB image size limit is reduced to fit as Harmonist
+  writes it**, so a Cover Art Archive original saved at full quality no longer
+  lands in the folder or the tracks as a file Navidrome won't read. After Apply
+  says "reduced to fit" (#888).
 - **Startup and sync no longer scan the library a second time** when there was
   nothing new to sort into it (#891).
 - **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with

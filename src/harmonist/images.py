@@ -6,9 +6,9 @@ most of what a user wants to know about an embedded image, and the difference
 between a 600px cover and a 1400px one is the difference between a re-tag being
 an improvement and a downgrade.
 
-No image library. Pillow would be a new dependency in a project that has five,
-and all this needs is the width and height a JPEG and a PNG both state in their
-first few hundred bytes. Anything else — a WebP or an AVIF cover, which exist but
+No image library. Pillow is a dependency now, for `squish` alone, but all this
+needs is the width and height a JPEG and a PNG both state in their first few
+hundred bytes, and every scan asks it of every image. Anything else — a WebP or an AVIF cover, which exist but
 are vanishingly rare in embedded art — comes back None, and the section then
 shows the format and size without the dimensions rather than guessing.
 

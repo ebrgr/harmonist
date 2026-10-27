@@ -29,7 +29,12 @@ def test_what_the_store_holds_is_read_once(monkeypatch):
     activity_store.record_derived_image("squished", original="original")
     reads = []
     real = activity_store.derived_images
-    monkeypatch.setattr(activity_store, "derived_images", lambda: reads.append(1) or real())
+
+    def counted() -> dict[str, str]:
+        reads.append(1)
+        return real()
+
+    monkeypatch.setattr(activity_store, "derived_images", counted)
 
     derived.originals()
     derived.originals()
