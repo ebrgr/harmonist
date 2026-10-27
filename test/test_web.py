@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from mutagen.mp4 import MP4
 
-from harmonist import activity, activity_store, artwork, mb_lookup
+from harmonist import activity, activity_store, artwork, mb_lookup, mb_search
 from harmonist import sidecar as sc
 from harmonist.activity_store import Level, Source
 from harmonist.config import (
@@ -1504,12 +1504,17 @@ def test_404_for_missing_album(client):
 # ---------- manual ingest flow ----------
 
 
+def _searched(*rows: dict[str, object]) -> tuple[list[dict[str, object]], int]:
+    """A complete `mb_search.search_releases` answer: every match returned."""
+    return list(rows), len(rows)
+
+
 def test_manual_search_returns_results(client, cfg, monkeypatch):
     d = _make_album(cfg, "Search Album")
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {
                 "id": "rel-1",
                 "title": "Result A",
@@ -1532,7 +1537,7 @@ def test_manual_search_returns_results(client, cfg, monkeypatch):
                 "label": None,
                 "catalog_number": None,
             },
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert r.status_code == 200
@@ -1555,28 +1560,72 @@ def test_manual_search_no_strikethrough_on_track_count_match(client, cfg, monkey
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {"id": "rel-9", "title": "Exactly One", "artist": "X", "track_count": 1}
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert "rel-9" in r.text
     assert "line-through" not in r.text
 
 
-def test_manual_search_caps_results_at_five(client, cfg, monkeypatch):
-    """The route requests at most 5 from MB — beyond that, MB's own search."""
+def test_manual_search_caps_results_at_fifteen(client, cfg, monkeypatch):
+    """The route requests at most 15 from MB — beyond that, MB's own search."""
     seen = {}
 
     def fake_search(artist, title, limit=10):
         seen["limit"] = limit
-        return []
+        return [], 0
 
     monkeypatch.setattr("harmonist.mb_search.search_releases", fake_search)
     d = _make_album(cfg, "CapSearch")
     aid = _id_for(cfg, d)
     client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
-    assert seen["limit"] == 5
+    assert seen["limit"] == 15
+
+
+def _search_rows(n: int) -> list[dict[str, object]]:
+    return [{"id": f"rel-{i}", "title": f"T{i}", "artist": "X", "track_count": 1} for i in range(n)]
+
+
+def test_truncated_manual_search_ends_with_the_search_on_musicbrainz(client, cfg, monkeypatch):
+    """When MB found more than it returned, the list says so and its last entry
+    opens the same query on musicbrainz.org (#878)."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from bs4 import BeautifulSoup
+
+    monkeypatch.setattr(
+        "harmonist.mb_search.search_releases",
+        lambda artist, title, limit=10: (_search_rows(15), 42),
+    )
+    d = _make_album(cfg, "Truncated")
+    aid = _id_for(cfg, d)
+    r = client.post(
+        f"/manual/{aid}/search", data={"artist": "Various Artists", "title": 'WARP 10+3 "Remixes"'}
+    )
+    soup = BeautifulSoup(r.text, "html.parser")
+    region = soup.select_one('[role="region"]')
+    assert region is not None
+    link = region.select_one('a[href^="https://musicbrainz.org/search"]')
+    assert link is not None
+    assert "15 of 42" in region.get_text(" ", strip=True)
+    query = parse_qs(urlsplit(str(link["href"])).query)
+    assert query["type"] == ["release"]
+    assert query["method"] == ["advanced"]
+    assert query["query"] == [mb_search.release_query("Various Artists", 'WARP 10+3 "Remixes"')]
+
+
+def test_complete_manual_search_has_no_musicbrainz_search_link(client, cfg, monkeypatch):
+    monkeypatch.setattr(
+        "harmonist.mb_search.search_releases",
+        lambda artist, title, limit=10: _searched(*_search_rows(3)),
+    )
+    d = _make_album(cfg, "Complete")
+    aid = _id_for(cfg, d)
+    r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
+    assert "rel-2" in r.text
+    assert "musicbrainz.org/search" not in r.text
 
 
 def test_manual_search_empty_results(client, cfg, monkeypatch):
@@ -1584,7 +1633,7 @@ def test_manual_search_empty_results(client, cfg, monkeypatch):
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [],
+        lambda artist, title, limit=10: _searched(),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert r.status_code == 200
@@ -1637,9 +1686,9 @@ def test_manual_search_results_carry_heading(client, cfg, monkeypatch):
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {"id": "rel-h", "title": "H", "artist": "X", "track_count": 1}
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert "MusicBrainz search results" in r.text
@@ -1675,7 +1724,7 @@ def test_name_search_use_reviews_before_writing_and_confirms_without_refetching(
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda *args, **kwargs: [mb_lookup.release_summary(release)],
+        lambda *args, **kwargs: _searched(mb_lookup.release_summary(release)),
     )
     search = client.post(
         f"/manual/{aid}/search",

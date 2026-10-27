@@ -280,15 +280,21 @@ def test_fetch_release_urls_returns_bandcamp_url():
 
 
 def test_search_releases_substring_match():
-    results = demo.search_releases("Thamesmen", "")
+    results, _ = demo.search_releases("Thamesmen", "")
     assert any(r["artist"] == "The Thamesmen" for r in results)
 
 
 def test_search_releases_empty_inputs_returns_all():
     # Empty inputs match everything (a-match and t-match both true); raise the
     # limit above the dataset size so nothing is capped.
-    results = demo.search_releases("", "", limit=100)
-    assert len(results) == len(demo.MB_RELEASES)
+    results, total = demo.search_releases("", "", limit=100)
+    assert len(results) == total == len(demo.MB_RELEASES)
+
+
+def test_search_releases_counts_beyond_the_limit():
+    results, total = demo.search_releases("", "", limit=1)
+    assert len(results) == 1
+    assert total == len(demo.MB_RELEASES)
 
 
 def test_front_image_answers_with_a_placeholder_and_keeps_it(tmp_path, monkeypatch):

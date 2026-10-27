@@ -85,9 +85,10 @@ def test_a_release_picked_from_a_name_search_remembers_how(client, cfg, monkeypa
     barcode_album.services(monkeypatch, [barcode_album.release()])
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
-            {"id": barcode_album.MBID, "title": "Frequencies", "artist": "LFO"}
-        ],
+        lambda artist, title, limit=10: (
+            [{"id": barcode_album.MBID, "title": "Frequencies", "artist": "LFO"}],
+            1,
+        ),
     )
 
     results = client.post(f"/manual/{aid}/search", data={"artist": "LFO", "title": "Frequencies"})

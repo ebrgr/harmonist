@@ -1,8 +1,9 @@
 {# Unified candidate-release list. Shared by the artist/title search AND the
    store-URL picker — both pass `results` (mb_lookup.release_summary-shaped
    dicts), `album_id`, and the local facts for mismatch cues. Optional:
-   `heading` (a label above the list) and `more_count` (total found when the
-   list was truncated). #}
+   `heading` (a label above the list), `more_count` (total found when the
+   list was truncated), `mb_query` (the search a truncated list hands over to
+   musicbrainz.org) and `region_label` (names the scroll box). #}
 {% from 'partials/_release_candidate.html' import release_candidate %}
 {% if heading %}
 <p class="text-2xs uppercase tracking-widest text-muted font-bold mb-1 px-1">{{ heading }}</p>
@@ -17,6 +18,7 @@
 </a>
 {% endif %}
 {% else %}
+<div class="max-h-64 overflow-auto" tabindex="0" role="region" aria-label="{{ region_label|default('Matching releases') }}">
 <div class="space-y-1" role="list" aria-label="Release candidates">
     {% for r in results %}
     {% call release_candidate(r, local_track_count, local_artist, store_match=store_url, barcode_match=barcode) %}
@@ -41,7 +43,15 @@
 </div>
 {% if more_count and more_count > results | length %}
 <p class="text-2xs text-muted italic px-2 mt-1">
-    Showing {{ results | length }} of {{ more_count }} — if the right one isn't here, refine on MusicBrainz.
+    Showing {{ results | length }} of {{ more_count }} —
+    {% if mb_query|default(none) %}
+    <a href="https://musicbrainz.org/search?type=release&amp;method=advanced&amp;query={{ mb_query|urlencode }}"
+       target="_blank" rel="noopener"
+       class="not-italic font-bold text-mb-purple hover:underline">see them all on MusicBrainz ↗</a>
+    {% else %}
+    if the right one isn't here, refine on MusicBrainz.
+    {% endif %}
 </p>
 {% endif %}
+</div>
 {% endif %}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import musicbrainzngs
 import pytest
 
-from harmonist.mb_search import MBSearchError, search_releases
+from harmonist.mb_search import MBSearchError, release_query, search_releases
 
 
 def test_returns_results_with_expected_fields(monkeypatch):
@@ -26,7 +26,7 @@ def test_returns_results_with_expected_fields(monkeypatch):
         ]
     }
     monkeypatch.setattr(musicbrainzngs, "search_releases", lambda **kw: response)
-    results = search_releases("The Beatles", "Abbey Road")
+    results, _ = search_releases("The Beatles", "Abbey Road")
     assert len(results) == 1
     r = results[0]
     assert r["id"] == "rel-aaa"
@@ -40,8 +40,8 @@ def test_returns_results_with_expected_fields(monkeypatch):
 
 
 def test_returns_empty_when_both_inputs_empty():
-    assert search_releases("", "") == []
-    assert search_releases("   ", "  ") == []
+    assert search_releases("", "") == ([], 0)
+    assert search_releases("   ", "  ") == ([], 0)
 
 
 def test_query_uses_lucene_field_syntax(monkeypatch):
@@ -113,14 +113,14 @@ def test_falls_back_to_artist_credit_when_phrase_absent(monkeypatch):
         ]
     }
     monkeypatch.setattr(musicbrainzngs, "search_releases", lambda **kw: response)
-    results = search_releases("A", "X")
+    results, _ = search_releases("A", "X")
     assert results[0]["artist"] == "A feat. B"
 
 
 def test_handles_missing_optional_fields(monkeypatch):
     response = {"release-list": [{"id": "r1", "title": "T"}]}
     monkeypatch.setattr(musicbrainzngs, "search_releases", lambda **kw: response)
-    r = search_releases("a", "t")[0]
+    r = search_releases("a", "t")[0][0]
     assert r["date"] is None
     assert r["country"] is None
     assert r["track_count"] is None
@@ -139,6 +139,26 @@ def test_passes_limit(monkeypatch):
     assert seen["limit"] == 5
 
 
+def test_returns_musicbrainz_total_beside_the_page(monkeypatch):
+    """The total is MB's, so a caller can tell a truncated answer (#878)."""
+    response = {"release-list": [{"id": "r1", "title": "T"}], "release-count": 42}
+    monkeypatch.setattr(musicbrainzngs, "search_releases", lambda **kw: response)
+    results, total = search_releases("a", "t", limit=1)
+    assert [r["id"] for r in results] == ["r1"]
+    assert total == 42
+
+
+def test_release_query_is_the_query_sent(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        musicbrainzngs,
+        "search_releases",
+        lambda **kw: (seen.update(kw), {"release-list": [], "release-count": 0})[1],
+    )
+    search_releases('art"ist', "title")
+    assert seen["query"] == release_query('art"ist', "title")
+
+
 def test_raises_on_network_error(monkeypatch):
     def explode(**kw):
         raise musicbrainzngs.NetworkError(cause=Exception("boom"))
@@ -150,4 +170,4 @@ def test_raises_on_network_error(monkeypatch):
 
 def test_returns_empty_when_no_release_list(monkeypatch):
     monkeypatch.setattr(musicbrainzngs, "search_releases", lambda **kw: {})
-    assert search_releases("a", "t") == []
+    assert search_releases("a", "t") == ([], 0)

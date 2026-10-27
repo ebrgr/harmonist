@@ -113,23 +113,27 @@ def _qobuz_compatible(release: Release, track_count: int) -> bool:
     )
 
 
-def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, Any]]:
+def release_query(artist: str, title: str) -> str:
+    """The Lucene query for `artist` + `title`; empty when both are blank."""
+    parts = []
+    if artist := (artist or "").strip():
+        parts.append(f'artist:"{_escape(artist)}"')
+    if title := (title or "").strip():
+        parts.append(f'release:"{_escape(title)}"')
+    return " AND ".join(parts)
+
+
+def search_releases(artist: str, title: str, limit: int = 10) -> tuple[list[dict[str, Any]], int]:
     """Search MB for releases matching `artist` + `title`.
 
-    Returns a list of dicts with the fields the manual-ingest UI needs:
-    id, title, artist, date, country, status, track_count, label, catalog_number.
+    Returns up to `limit` dicts with the fields the manual-ingest UI needs —
+    id, title, artist, date, country, status, track_count, label,
+    catalog_number — and MB's count of every match, so a caller can tell
+    when the page was truncated.
     """
-    artist = (artist or "").strip()
-    title = (title or "").strip()
-    if not artist and not title:
-        return []
-
-    parts = []
-    if artist:
-        parts.append(f'artist:"{_escape(artist)}"')
-    if title:
-        parts.append(f'release:"{_escape(title)}"')
-    query = " AND ".join(parts)
+    query = release_query(artist, title)
+    if not query:
+        return [], 0
 
     try:
         result = musicbrainzngs.search_releases(query=query, limit=limit)
@@ -157,7 +161,8 @@ def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, 
                 "catalog_number": _first_catalog(rel),
             }
         )
-    return out
+    # Without a count, claim no more than was returned.
+    return out, max(int(result.get("release-count", 0)), len(out))
 
 
 _LUCENE_RESERVED = re.compile(r'([\\"])')

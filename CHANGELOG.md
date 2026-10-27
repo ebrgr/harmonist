@@ -22,6 +22,9 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Changed
 
+- **A release search by name lists up to 15 releases in a scrolling list**,
+  instead of five. When MusicBrainz found more, the list says how many and
+  ends with a link to the same search on MusicBrainz (#878).
 - **A track's tag change that has no column in the album page's tracklist is
   shown under that track**, instead of in a box in the Tags section. Composer
   and work credits take one column each, with every name linking to

@@ -1064,7 +1064,7 @@ def browse_release_group_editions(release_group_mbid: str) -> tuple[list[Release
     return releases[:100], len(releases)
 
 
-def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, Any]]:
+def search_releases(artist: str, title: str, limit: int = 10) -> tuple[list[dict[str, Any]], int]:
     a = (artist or "").strip().lower()
     t = (title or "").strip().lower()
     results: list[dict[str, Any]] = []
@@ -1091,9 +1091,7 @@ def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, 
                     "catalog_number": "DEMO-001",
                 }
             )
-        if len(results) >= limit:
-            break
-    return results
+    return results[:limit], len(results)
 
 
 def _archive_asset(release_mbid: str) -> Path | None:

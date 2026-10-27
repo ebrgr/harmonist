@@ -8244,9 +8244,11 @@ def _register_routes(app: FastAPI) -> None:
         # Validate album exists; a 404 is the right signal for a stale UI.
         album = _find_album(request, album_id)
         try:
-            # Cap to a handful — beyond this, MB's own search is the better
-            # tool. Each row links out to the release for closer inspection.
-            results = mb_search.search_releases(artist, title, limit=5)
+            # Cap to what a scrolled list can sensibly offer (#878) — beyond
+            # this, MB's own search is the better tool, and the list ends with
+            # a link to it. Each row links out to the release for closer
+            # inspection.
+            results, total = mb_search.search_releases(artist, title, limit=15)
         except mb_search.MBSearchError as e:
             return _flash_response(
                 "MB search failed",
@@ -8259,10 +8261,11 @@ def _register_routes(app: FastAPI) -> None:
             request,
             album,
             results,
-            len(results),
+            total,
             heading="MusicBrainz search results",
             on_album_page=on_album_page,
             review_only=True,
+            mb_query=mb_search.release_query(artist, title),
         )
 
     @app.post("/manual/{album_id}/barcode", response_class=HTMLResponse)
@@ -8756,6 +8759,7 @@ def _render_release_picker(
     review_only: bool = False,
     barcode: str | None = None,
     store_url: str | None = None,
+    mb_query: str | None = None,
 ) -> Response:
     """Render the shared candidate-release list (store-URL picker or name
     search). `retarget` rewrites the swap to the card's preserved results box, and
@@ -8791,6 +8795,8 @@ def _render_release_picker(
             "review_only": review_only,
             "barcode": barcode,
             "store_url": store_url,
+            # The search a truncated list hands over to musicbrainz.org (#878).
+            "mb_query": mb_query,
             # How a row's release was found, carried by its Use (#639).
             "found_by": (
                 FoundBy.BARCODE
