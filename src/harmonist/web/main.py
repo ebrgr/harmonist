@@ -16,6 +16,7 @@ import sys
 import threading
 import unicodedata
 import zoneinfo
+from collections import Counter
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
@@ -4005,9 +4006,12 @@ def _link_pending_to_album(album: Album, p: pending_downloads.PendingPurchase) -
         live_counts.move(album.state, AlbumState.COMPLETE)
 
 
-def _inbox_albums(albums: list[Album]) -> list[Album]:
-    """Albums that warrant attention in the inbox (terminal states excluded)."""
-    return [a for a in albums if a.state not in _TERMINAL_STATES]
+def _inbox_albums(albums: list[Album], *, joined: set[str]) -> list[Album]:
+    """Albums that warrant attention in the inbox (terminal states excluded).
+
+    `joined` are those shown as a disc of another album's suggestion (#876).
+    """
+    return [a for a in albums if a.state not in _TERMINAL_STATES and a.id not in joined]
 
 
 def _levels(values: Sequence[str]) -> list[owned.Significance]:
@@ -4477,7 +4481,7 @@ def _register_routes(app: FastAPI) -> None:
                 deep_link_missing = True
         ctx = _ctx(
             request,
-            albums=_inbox_albums(albums),
+            albums=_inbox_albums(albums, joined=_auto_filled(request, albums)),
             updates=_review_updates(request, albums),
             artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
@@ -4542,7 +4546,7 @@ def _register_routes(app: FastAPI) -> None:
         )
         ctx = _ctx(
             request,
-            albums=_inbox_albums(albums),
+            albums=_inbox_albums(albums, joined=_auto_filled(request, albums)),
             updates=_review_updates(request, albums),
             artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
@@ -4983,6 +4987,13 @@ def _register_routes(app: FastAPI) -> None:
         # And the artwork updates routed to it (#852), each its own card: an
         # album with both a tag and an artwork update has two things to look at.
         counts["inbox"] += len(_review_artwork(request, albums))
+        # Less the folders shown only as a disc of another album's suggestion
+        # (#876), which the Inbox doesn't list either.
+        joined = _auto_filled(request, albums)
+        for album in albums:
+            if album.id in joined:
+                counts["inbox"] -= 1
+                counts[album.state.value] -= 1
         return JSONResponse(
             {
                 "sync": state.sync_runner.status(),
@@ -7414,6 +7425,58 @@ def _register_routes(app: FastAPI) -> None:
             gap.disc: disc_fill.candidates(gap, pool, lambda a: _folder_lengths(request, a))
             for gap in disc_fill.gaps(panel, release)
         }
+
+    def _auto_filled(request: Request, albums: list[Album]) -> set[str]:
+        """The albums a suggestion's review fills a missing disc with on its own.
+
+        The Inbox leaves them out (#876): each is shown as a disc of the album
+        it fills, and listing it again as an album to identify asks for the same
+        decision twice. Derived on each render, from the same rule the review
+        uses, so the two can't disagree; nothing about the join is stored.
+        The status poll asks too, so it has to be cheap: only a suggestion with
+        fewer files than its release loads the release (cached, never fetched),
+        and only when some unmatched album is the size of one of its discs does
+        anything get read from disk.
+        """
+        sizes = {
+            a.track_count
+            for a in albums
+            if a.state in {AlbumState.NEW, AlbumState.NEEDS_MBID} and not a.has_tag_mbid
+        }
+        out: set[str] = set()
+        for album in albums:
+            candidate = album.sidecar.mb_match_candidate if album.sidecar else None
+            if (
+                album.state != AlbumState.NEEDS_MBID
+                or candidate is None
+                or album.track_count >= candidate.track_count
+            ):
+                continue  # nothing missing, so no disc to fill
+            release = mb_cache.stored_release(candidate.mb_release_id)
+            if release is None:
+                continue  # the review can't fill anything without it either
+            discs = Counter(t.disc_num for t in tagsets_for(release, NO_CHOICES))
+            if album.track_count >= sum(discs.values()) or not sizes.intersection(discs.values()):
+                continue
+            try:
+                panel = track_assignment.panel(
+                    album_files.for_paths(album.folders),
+                    release,
+                    confirmed=bool(
+                        album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
+                    ),
+                    included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
+                )
+            except (OSError, ValueError) as e:
+                # The review reports this when opened; here it only means the
+                # disc's folder stays listed as an album of its own.
+                log.warning(
+                    "could not check %s for a missing disc: %s", album.path, e, extra=_LOG_ONLY
+                )
+                continue
+            filled = disc_fill.automatic(_fill_choices(request, album, panel, release, {}))
+            out.update(a.id for a in filled.values())
+        return out
 
     def _assignment_editor(
         request: Request,

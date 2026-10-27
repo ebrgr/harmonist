@@ -16,8 +16,9 @@ versions follow [semantic versioning](https://semver.org).
   starts nearly empty and refills (#680).
 - **A suggestion's missing disc can be filled from another unmatched folder**,
   for a release ripped a disc at a time into folders of its own. When exactly
-  one folder fits the disc's track count and lengths it is filled in already.
-  Confirming tags both folders, and they become one album (#876).
+  one folder fits the disc's track count and lengths it is filled in already,
+  and isn't listed in the Inbox as an album of its own. Confirming tags both
+  folders, and they become one album (#876).
 
 ### Changed
 

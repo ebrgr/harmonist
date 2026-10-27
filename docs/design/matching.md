@@ -203,3 +203,13 @@ before Confirm. Lengths choose the folder and nothing else; which file is which
 track is still decided by the user's choice of disc and file order, not by
 duration. The lengths come from what the scan already read, so looking costs no
 MusicBrainz request and no file reads.
+
+**The Inbox lists that folder only as the disc it fills**, not also as an album
+waiting to be identified, which would ask for the same decision twice. This is
+worked out each time from the same rule the review uses, so the two always
+agree, and it is the one place the Inbox shows something other than each
+folder's own state. That's tolerable because it lasts only until the suggestion
+is confirmed or dismissed. Storing the join instead would have made it true on
+disk, at the cost of a sidecar field and a write before the user confirmed
+anything. A folder chosen by hand stays listed until Confirm, since that choice
+lives only in the review's page.

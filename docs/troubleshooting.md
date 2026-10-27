@@ -139,8 +139,8 @@ same disc, so each is adopted on its own until a release joins them.
 Find the release for one disc. In its review, the other disc's rows read
 **Missing on disk**: choose the other folder from **Fill disc N from another
 folder**, check the tracklist, then **Confirm suggestion**. If exactly one
-unmatched folder fits the missing disc, it's filled in already. Once both
-folders are tagged they're one album.
+unmatched folder fits the missing disc, it's filled in already, and the Inbox
+shows it only there. Once both folders are tagged they're one album.
 
 ### An album is marked Inconsistent
 

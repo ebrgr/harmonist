@@ -209,3 +209,38 @@ def test_a_folder_matched_since_the_review_is_not_taken(client, cfg, split):
     assert "has changed" in applied.text
     assert sc.read(second).mb_release_id == "rel-elsewhere"
     assert sc.read(first).mb_release_id is None
+
+
+# ---------- the Inbox ----------
+
+
+def _inbox_cards(client) -> set[str]:
+    soup = BeautifulSoup(client.get("/tasks").text, "html.parser")
+    return {str(card["id"]).removeprefix("task-") for card in soup.select('div[id^="task-"]')}
+
+
+def test_the_folder_a_review_fills_is_not_also_an_album_in_the_inbox(client, cfg, split):
+    first, second = split
+    _review(client, _id_for(cfg, first))  # the release, cached as a suggestion's is
+    cards = _inbox_cards(client)
+    assert _id_for(cfg, first) in cards
+    assert _id_for(cfg, second) not in cards
+
+
+def test_the_inbox_badge_counts_what_the_inbox_lists(client, cfg, split):
+    from harmonist import live_counts
+
+    first, _ = split
+    _review(client, _id_for(cfg, first))
+    live_counts.reset_from(scanner.scan(cfg.paths.music_dir))  # as a scan publishes them
+    counts = client.get("/status").json()["counts"]
+    # Disc 1, waiting on its suggestion; Disc 2 is a disc of it, not a New album.
+    assert (counts["inbox"], counts["needs_mbid"], counts["new"]) == (1, 1, 0)
+
+
+def test_a_folder_the_review_only_offers_stays_in_the_inbox(client, cfg, split):
+    first, second = split
+    other = _folder(cfg.paths.music_dir / "Other" / "Two")
+    _review(client, _id_for(cfg, first))
+    cards = _inbox_cards(client)
+    assert {_id_for(cfg, first), _id_for(cfg, second), _id_for(cfg, other)} <= cards
