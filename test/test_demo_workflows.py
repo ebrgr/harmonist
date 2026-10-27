@@ -113,16 +113,16 @@ def test_library_has_focused_changes_and_quiet_controls(library):
     assert len(current["Can You Picture That?"].paths) == 2
     assert current["Can You Picture That?"].state == AlbumState.COMPLETE
     assert {p.suffix for p in audio_files(library)} == {".mp3", ".m4a", ".flac"}
-    # From the scan rather than `current`: Night Bus Remixes is two albums of
+    # From the scan rather than `current`: Aquafina After Dark is two albums of
     # one title until its second disc is added to the first's review (#876).
     assert sorted(
         str(a.path.relative_to(library))
         for a in scanner.scan(library)
         if a.state == AlbumState.NEEDS_MBID
     ) == [
+        "Sextina Aquafina/Aquafina After Dark (The Remixes)/Disc 1",
         "Sonic Death Monkey/Top 5 Records For A Wednesday",
         "The Thamesmen/Gimme Some Money",
-        "Various Artists/Night Bus Remixes/Disc 1",
     ]
 
 

@@ -162,7 +162,7 @@
                             <td rowspan="{{ 2 if included else 1 }}" class="track-diff__num assignment-entry">
                                 {% if disk %}
                                     <span title="Current on-disk track number">{{ disk.number|replace('.', '-') if counts.multidisc else disk.number.split('.')[1] }}</span>
-                                    {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
+                                    {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number|replace('.', '-') if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number|replace('.', '-') if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
                                 {% else %}—{% endif %}
                             </td>
                             <td rowspan="{{ 2 if included else 1 }}" class="assignment-entry">

@@ -477,19 +477,19 @@ LIBRARY: list[dict[str, Any]] = [
         "provenance": {"QBZ:TID": "7917370{n}"},
     },
     {
-        "artist": "Various Artists",
-        "album": "Night Bus Remixes",
+        "artist": "Sextina Aquafina",
+        "album": "Aquafina After Dark (The Remixes)",
         "tracks": [
-            "Last Stop (Owl Service remix)",
-            "Sodium Lights (Kerbside dub)",
-            "Ring the Bell (Upper Deck mix)",
-            "Request Stop (Conductor edit)",
-            "Fare Dodger (Night Rider remix)",
-            "Terminus (Depot version)",
-            "Out of Service (Garage dub)",
-            "First Light (Morning Shift remix)",
+            "Hollywoo Nights (Club Mix)",
+            "Sea Breeze (Riptide Dub)",
+            "Deep End (Undertow Remix)",
+            "Pool Party (Lifeguard Edit)",
+            "High Tide (Moonlight Mix)",
+            "Saltwater (Reef Dub)",
+            "Splash Zone (Lagoon Remix)",
+            "Last Call (Sunrise Version)",
         ],
-        "mbid": "demo-rel-night-bus",
+        "mbid": "demo-rel-sextina",
         "fmt": "flac",
         # Ripped a disc at a time into folders of their own, with no disc
         # numbers in the tags, so the scan adopts two albums. The first has the
@@ -1350,6 +1350,14 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
             )
             tags = replace(tags, **spec.get("track_tags", {}).get(i, {}))
         formats.write_tags(target, tags, None)
+        if spec.get("split"):
+            # A TagSet always has a disc; a rip a disc at a time often doesn't.
+            flac = FLAC(target)
+            assert flac.tags is not None, "the split album is FLAC, just tagged"
+            for key in ("discnumber", "totaldiscs"):
+                if key in flac.tags:
+                    del flac.tags[key]
+            flac.save()
         if spec.get("personal") or spec.get("store"):
             _personal_tags(target, spec.get("store", "Collected over the years; keep my notes."))
         if provenance := spec.get("provenance"):
