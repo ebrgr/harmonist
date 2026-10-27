@@ -11643,6 +11643,51 @@ def test_the_releases_own_front_is_described_by_the_archive_check(client, cfg, m
     assert f"/artwork/candidate/{aid}/5/facts" not in page
 
 
+@pytest.mark.parametrize(("length", "marked"), [(20_000_001, True), (20_000_000, False)])
+def test_a_measured_image_over_the_size_limit_is_marked_in_the_picker(
+    client, cfg, monkeypatch, length, marked
+):
+    """The picker says an image is over the image size limit before anyone
+    picks it (#888), off the measurement alone: its facts line as measured,
+    and every render after. The limit itself is not over it."""
+    from harmonist import cover_art
+    from test.test_artwork import png_bytes
+
+    d, _ = _album_in_a_group(cfg, monkeypatch)
+    head = png_bytes(4000, 4000)[:1024]
+    monkeypatch.setattr(cover_art, "fetch_head", lambda url, **kw: (head, length, "image/png"))
+    aid = _id_for(cfg, d)
+
+    measured = client.get(f"/artwork/candidate/{aid}/5/facts").text
+    slide = _slides(client.get(f"/album/{aid}/artwork").text)[0]
+
+    assert "4000×4000 · PNG · 19.1 MB" in measured and "4000×4000 · PNG · 19.1 MB" in slide
+    assert ("over image size limit" in measured) is marked
+    assert ("over image size limit" in slide) is marked
+
+
+def test_the_releases_own_front_over_the_size_limit_is_marked(client, cfg, monkeypatch):
+    """…and off the archive check's measurement of the release's front, which
+    the picker describes without measuring again (#888)."""
+    d, _ = _album_in_a_group(cfg, monkeypatch)
+    activity_store.store_cover_art(
+        "rel-this",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://coverartarchive.org/release/rel-this/5.png",
+            width=6000,
+            height=6000,
+            length=34_000_000,
+            mime="image/jpeg",
+        ),
+    )
+    aid = _id_for(cfg, d)
+
+    slide = _slides(client.get(f"/album/{aid}/artwork").text)[0]
+
+    assert "6000×6000 · JPEG · 32.4 MB" in slide and "over image size limit" in slide
+
+
 def test_an_image_that_cannot_be_measured_leaves_the_line_empty(client, cfg, monkeypatch):
     """Nobody pressed anything: an archive that can't be reached leaves the
     facts line empty and stores nothing, so the next showing asks again."""

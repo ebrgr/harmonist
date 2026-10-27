@@ -7220,16 +7220,24 @@ def _register_routes(app: FastAPI) -> None:
         listed = _listed_candidate(mbid, image_id)
         if listed is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
-        facts = album_artwork_mod.measured(mbid, listed)
-        if facts is None:
+        known = album_artwork_mod.measurement(mbid, listed)
+        if known is None:
             try:
-                caa_cache.measure(listed)
+                known = caa_cache.measure(listed)
             except cover_art.CoverArtError:
                 log.warning(
                     "could not measure archive image %s", image_id, exc_info=True, extra=_LOG_ONLY
                 )
-            facts = album_artwork_mod.measured(mbid, listed)
-        return HTMLResponse(f'<span class="art-row__meta">{html.escape(facts or "")}</span>')
+        # Not `_ctx`: the line needs none of the page's state, and this is
+        # asked once per image shown.
+        return _templates(request).TemplateResponse(
+            request,
+            "partials/_candidate_facts.html",
+            {
+                "facts": album_artwork_mod.facts(known) if known is not None else None,
+                "oversize": known is not None and artwork.over_limit(known.length),
+            },
+        )
 
     @app.get("/artwork/image/{album_id}/{digest}")
     def artwork_image(request: Request, album_id: str, digest: str) -> Response:

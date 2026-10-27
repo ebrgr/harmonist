@@ -56,17 +56,20 @@ def archive_image(mbid: str | None, *, release_only: bool = False) -> formats.Em
     return formats.EmbeddedArt.of(front.data, front.mime) if front else None
 
 
-def measured(mbid: str | None, listing: cover_art.Candidate) -> str | None:
-    """A listed image's facts line from a measurement, if one is here (#659) —
-    never the network. The picker's own, made the first time it showed the
-    image; or for the release's front, the archive check's."""
+def measurement(mbid: str | None, listing: cover_art.Candidate) -> cover_art.Measure | None:
+    """A listed image's measurement, if one is here (#659) — never the network.
+    The picker's own, made the first time it showed the image; or for the
+    release's front, the archive check's."""
     known = caa_cache.stored_measure(listing.image_id)
     if known is None and mbid is not None:
         caa = caa_cache.stored(mbid)
         if caa is not None and caa.image_url == listing.image_url:
             known = cover_art.Measure(caa.width, caa.height, caa.length, caa.mime)
-    if known is None:
-        return None
+    return known
+
+
+def facts(known: cover_art.Measure) -> str:
+    """A measurement's facts line, as the picker shows it."""
     size = (
         images.Size(known.width, known.height)
         if known.width is not None and known.height is not None
@@ -98,6 +101,7 @@ def offered(
         image = formats.EmbeddedArt.of(original.data, original.mime) if original else None
         if image is not None:
             picks[listing.image_id] = image
+        known = None if image is not None else measurement(mbid, listing)
         candidates.append(
             artwork.Candidate(
                 image_id=listing.image_id,
@@ -106,7 +110,8 @@ def offered(
                 types=listing.types,
                 image=image,
                 release=listed.release,
-                measured=None if image is not None else measured(mbid, listing),
+                measured=facts(known) if known is not None else None,
+                measured_length=known.length if known is not None else None,
             )
         )
     for image_id, front in caa_listings.picked_originals(mbid, choices or {}).items():

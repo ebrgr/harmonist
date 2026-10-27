@@ -163,7 +163,14 @@ PLAYER_MAX_BYTES = 20_000_000
 
 def too_large(image: EmbeddedArt) -> bool:
     """Whether a player won't read this image (#889)."""
-    return image.length > PLAYER_MAX_BYTES
+    return over_limit(image.length)
+
+
+def over_limit(length: int | None) -> bool:
+    """Whether an image this many bytes long is over the image size limit:
+    `too_large` for an image known only by a measurement (#888). False when
+    the measurement has no length."""
+    return length is not None and length > PLAYER_MAX_BYTES
 
 
 def beats(mine: Size | None, theirs: Size | None) -> bool:
@@ -962,6 +969,9 @@ class Candidate:
     #: The facts line from a measurement of the original, for one not in hand:
     #: measured the first time the picker showed it.
     measured: str | None = None
+    #: The original's length in bytes from that measurement, when the archive
+    #: said: what tells the picker it's over the image size limit (#888).
+    measured_length: int | None = None
 
     #: The listings a candidate can come from.
     RELEASE: ClassVar[str] = "release"
@@ -974,6 +984,14 @@ class Candidate:
         type, off the original or a measurement of it. A thumbnail says
         nothing about the original."""
         return describe(self.image) if self.image is not None else self.measured
+
+    @property
+    def oversize(self) -> bool:
+        """Whether the original is over the image size limit (#888), off the
+        original or a measurement of it. False while neither says."""
+        if self.image is not None:
+            return too_large(self.image)
+        return over_limit(self.measured_length)
 
 
 # No `ArchiveRow`: the archive's one front cover was drawn as a row of its own,

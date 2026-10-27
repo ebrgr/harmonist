@@ -17,6 +17,7 @@ import shutil
 import struct
 import zlib
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -1343,6 +1344,21 @@ class TestCandidates:
             types=("front",) if front else ("back",),
             image=image,
         )
+
+    def test_an_original_in_hand_says_whether_it_is_over_the_size_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Once the original is in hand its own length decides (#888), not a
+        measurement made before it was: the bytes are what would be written."""
+        monkeypatch.setattr(artwork, "PLAYER_MAX_BYTES", 1_000)
+        big = EmbeddedArt.of(png_bytes(10, 10) + bytes(1_000), "image/png")
+        small = EmbeddedArt.of(png_bytes(10, 10), "image/png")
+
+        assert replace(self.candidate("1", big), measured_length=10).oversize
+        assert not replace(self.candidate("1", small), measured_length=2_000).oversize
+        assert replace(self.candidate("1"), measured_length=1_001).oversize
+        assert not replace(self.candidate("1"), measured_length=1_000).oversize
+        assert not self.candidate("1").oversize  # nothing says how long it is
 
     def test_a_row_is_unchanged_by_the_image_it_already_has(self) -> None:
         """The *Far & Off* case, per candidate: the shown image is the row's

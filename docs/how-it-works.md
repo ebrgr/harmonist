@@ -293,7 +293,8 @@ image over the limit, it reduces it to fit, re-encoding it as a JPEG at a
 slightly lower quality and keeping its dimensions where it can; After Apply says
 "reduced to fit". The Library's **Artwork → Oversize artwork** filter lists
 albums already carrying one, and the album's Artwork section marks the image
-beside its size.
+beside its size, as it does an image the Cover Art Archive offers that is over
+the limit.
 
 ![The Artwork section, with columns Now, After Apply and Available. "cover.png,
 320×320" becomes "the Cover Art Archive, 960×960", with an × beside it. The "All
