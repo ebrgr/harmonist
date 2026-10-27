@@ -879,6 +879,8 @@ def create_app(
     # an image in three places — the row, the incoming side, the full-size view —
     # and they must not be three spellings of it.
     templates.env.globals["describe_image"] = artwork.describe
+    templates.env.globals["too_large_image"] = artwork.too_large
+    templates.env.globals["image_size_limit"] = artwork.PLAYER_MAX_BYTES
     # No `track_columns` global any more (#309). The tracklist's headings used
     # to be a module constant, which only worked while the answer was the same
     # for every album; they are now a property of the comparison, which is what

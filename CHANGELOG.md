@@ -25,7 +25,9 @@ versions follow [semantic versioning](https://semver.org).
   "no longer the archive's front". This applies only once the archive check
   has seen the front change after upgrading (#886).
 - **The Library's Artwork filter lists albums with oversize artwork**: an
-  embedded image or folder cover over 20 MB, which Navidrome won't read (#889).
+  embedded image or folder cover over the 20 MB image size limit, which
+  Navidrome won't read. The album's Artwork section marks the image beside its
+  size (#889).
 
 ### Changed
 

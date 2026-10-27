@@ -10473,6 +10473,28 @@ def test_artwork_section_does_not_announce_a_cover_the_album_already_has(client,
     assert "not in the folder" not in rendered
 
 
+def test_artwork_section_marks_an_image_over_the_size_limit(client, cfg):
+    """#889: beside the size of an image over 20,000,000 bytes, and only that
+    image. The tracks' row beside it is the control: the mark can only be told
+    apart by where it appears."""
+    from bs4 import BeautifulSoup
+
+    art = _png(1)
+    huge = _png(2) + bytes(20_000_001 - len(_png(2)))
+    d = _album_with_art(cfg, "Heavy", covers=[art, art], folder=huge)
+
+    soup = BeautifulSoup(client.get(f"/album/{_id_for(cfg, d)}/artwork").text, "html.parser")
+
+    rows = {r.select_one(".art-row__who").get_text(strip=True): r for r in soup.select(".art-row")}
+    cover_meta = rows["cover.jpg"].select_one(".art-row__meta")
+    assert "19.1 MB" in cover_meta.get_text()
+    mark = cover_meta.select_one(".art-row__oversize")
+    assert mark is not None
+    assert mark.get_text(strip=True) == "over image size limit"
+    assert mark["title"] == "Over 20,000,000 bytes"
+    assert rows["All 2 tracks"].select_one(".art-row__meta .art-row__oversize") is None
+
+
 def test_artwork_section_promises_no_overwrite_where_art_is_preserved(client, cfg):
     """A compilation's covers are kept, so no row may offer a replacement."""
     d = _album_with_art(cfg, "Compilation", covers=[_png(1), _png(2)], folder=_png(3))

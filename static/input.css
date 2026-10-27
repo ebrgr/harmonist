@@ -1827,6 +1827,8 @@ dialog::backdrop {
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }
+/* One phrase: on a narrow row it moves under the size whole. */
+.art-row__oversize { white-space: nowrap; }
 .art-row__files {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);

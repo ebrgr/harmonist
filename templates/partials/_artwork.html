@@ -97,6 +97,16 @@
     {% endif %}
 {% endmacro %}
 
+{% macro image_meta(image) %}
+    {# Beside the size, an image over the limit players read (#889). Named for
+       the limit rather than a player, since the limit is the claim the docs
+       stand behind. Given in bytes because the size beside it counts
+       1,024-byte megabytes, so an image just over the limit shows as 19.1 MB. #}
+    <span class="art-row__meta">{{ describe_image(image) }}{% if too_large_image(image) %}
+        <span class="art-row__oversize text-amber-700"
+              title="Over {{ '{:,}'.format(image_size_limit) }} bytes">over image size limit</span>{% endif %}</span>
+{% endmacro %}
+
 {# The three things a reader is weighing are what the album HAS, what applying
    would WRITE, and what the archive HOLDS (#447): Now, After Apply, and the
    picker beside them (#659).
@@ -215,7 +225,7 @@
                the title is how you know which one this is. #}
             {% if r.title %}<span class="art-row__title">{{ r.title }}</span>{% endif %}
             {% if r.image %}
-            <span class="art-row__meta">{{ describe_image(r.image) }}</span>
+            {{ image_meta(r.image) }}
             {# A stand-in for the release's own front, which it had none of when
                this was written (#663): it gives way once the release has one. #}
             {% if r.borrowed_from %}
@@ -263,7 +273,7 @@
                         viewBox="0 0 24 24" width="9" height="9" fill="currentColor"
                         aria-hidden="true"
                         ><path d="M12 2L21 7L21 17L12 22L3 17L3 7Z"/></svg></span>{% endif %}</span>
-                <span class="art-row__meta">{{ describe_image(r.written_image) }}</span>
+                {{ image_meta(r.written_image) }}
                 {# Whose cover it is, when it is not this release's (#434, #496).
                    The candidate row below says this while the image is only a
                    candidate — and stops existing the moment it wins or is

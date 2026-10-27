@@ -119,7 +119,7 @@ class LocalArtwork:
         gated on `unreadable` as the others are: a file that can't be read
         hides nothing about an image that was."""
         images = [a for _, a in self.tracks] + [self.cover.image if self.cover else None]
-        return any(a is not None and a.length > artwork.PLAYER_MAX_BYTES for a in images)
+        return any(a is not None and artwork.too_large(a) for a in images)
 
 
 @dataclass(frozen=True)

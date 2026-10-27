@@ -286,6 +286,12 @@ Harmonist's rules:
 - Albums where tracks have different images, such as compilations, keep them
   unless you choose an image for one of them.
 
+An image larger than 20,000,000 bytes is **over the image size limit**, the
+largest a player is known to read. Navidrome won't read an image over its
+`MaxImageSize` setting, which is 20 MB by default. The Library's **Artwork →
+Oversize artwork** filter lists albums carrying one, and the album's Artwork
+section marks the image beside its size.
+
 ![The Artwork section, with columns Now, After Apply and Available. "cover.png,
 320×320" becomes "the Cover Art Archive, 960×960", with an × beside it. The "All
 3 tracks, 320×320" row is selected and has an empty box after it: the embedded

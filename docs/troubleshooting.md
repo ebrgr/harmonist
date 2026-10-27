@@ -392,10 +392,11 @@ The usual causes:
   **Apply artwork**.
 - **Some tracks have no image.** Applying updates fills them from the album's
   artwork.
-- **An image is too large for the player.** Navidrome won't read an image over
-  20 MB (its `MaxImageSize` setting). It keeps showing whatever it had before,
-  so the cover can come and go. The Library's **Artwork → Oversize artwork**
-  filter lists albums carrying one. Choose a smaller image for that row, then
+- **An image is over the [image size limit](how-it-works.md#artwork).**
+  Navidrome won't read it, and keeps showing whatever it had before, so the
+  cover can come and go. The Library's **Artwork → Oversize artwork** filter
+  lists albums carrying one, and the album's Artwork section marks it "over
+  image size limit". Choose a smaller image for that row, then
   **Apply artwork**.
 
 Your player may cache artwork; refresh the album's metadata there afterwards.

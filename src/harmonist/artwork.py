@@ -143,6 +143,11 @@ LOSSY_GROWTH = Fraction(1, 10)
 PLAYER_MAX_BYTES = 20_000_000
 
 
+def too_large(image: EmbeddedArt) -> bool:
+    """Whether a player won't read this image (#889)."""
+    return image.length > PLAYER_MAX_BYTES
+
+
 def beats(mine: Size | None, theirs: Size | None) -> bool:
     """Whether `mine` is the better image: strictly larger on both axes (#410).
 
