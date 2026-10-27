@@ -7395,6 +7395,17 @@ def _register_routes(app: FastAPI) -> None:
             raise track_assignment.AssignmentChanged("A folder can fill only one disc.")
         return added
 
+    def _with_fill(album: Album, added: Mapping[int, Album]) -> Album:
+        """`album` with the folders its review added (#876): what confirming it tags.
+
+        Everything the review shows is drawn over these, its artwork above all
+        (#881): a plan drawn over the suggested folder alone is a different
+        plan from the one the tagging rebuilds, and never matches it.
+        """
+        return replace(
+            album, paths=(*album.folders, *(f for a in added.values() for f in a.folders))
+        )
+
     def _fill_changed(fill: Sequence[str], add: str, remove: str) -> list[str]:
         """The review's added folders after one add (`disc:album_id`) or remove (`disc`)."""
         changed = [v for v in fill if v.partition(":")[0] not in {remove, add.partition(":")[0]}]
@@ -7532,9 +7543,7 @@ def _register_routes(app: FastAPI) -> None:
                 def build(added: Mapping[int, Album]) -> track_assignment.Panel:
                     assert release is not None
                     return track_assignment.panel(
-                        album_files.for_paths(
-                            [*album.folders, *(f for a in added.values() for f in a.folders)]
-                        ),
+                        album_files.for_paths(_with_fill(album, added).folders),
                         release,
                         draft,
                         # A merged release still reviews the confirmed album; its
@@ -7609,7 +7618,9 @@ def _register_routes(app: FastAPI) -> None:
                 added=added,
                 fill_choices=fill_choices,
                 artwork=(
-                    _artwork_view(album, folder_cover=_folder_cover_policy(request))
+                    _artwork_view(
+                        _with_fill(album, added), folder_cover=_folder_cover_policy(request)
+                    )
                     if panel is not None and not album_tracks
                     else None
                 ),
@@ -7707,8 +7718,12 @@ def _register_routes(app: FastAPI) -> None:
         album_id: str,
         release_fingerprint: str,
         reread: bool = False,
+        fill: Annotated[list[str], Query()] = [],  # noqa: B006 — FastAPI copies it
     ) -> Response:
-        """Load candidate artwork independently of the assignment/accept path."""
+        """Load candidate artwork independently of the assignment/accept path.
+
+        `fill` is the review's added folders, as its form posts them: the plan
+        shown here is the one confirming checks, so it covers what is tagged."""
         album = _find_album(request, album_id)
         candidate = _assignment_candidate(request, album)
         if candidate is None:
@@ -7717,8 +7732,10 @@ def _register_routes(app: FastAPI) -> None:
         error = None
         answer = None
         archive_image = None
+        added: dict[int, Album] = {}
         release_only = bool(request.query_params.get("replacement"))
         try:
+            added = _review_fill(request, album, fill)
             release = retag_mod.reviewed_release(
                 candidate.mb_release_id, release_fingerprint, _tagging(request, album)
             )
@@ -7734,13 +7751,13 @@ def _register_routes(app: FastAPI) -> None:
                 release["id"], release_only=release_only
             )
             view = _artwork_view(
-                album,
+                _with_fill(album, added),
                 answer,
                 archive_image,
                 chosen=artwork.Source.ARCHIVE,
                 folder_cover=_folder_cover_policy(request),
             )
-        except retag_mod.ConfirmationChanged as e:
+        except (retag_mod.ConfirmationChanged, track_assignment.AssignmentChanged) as e:
             error = str(e)
         except cover_art.CoverArtError:
             log.exception("could not load assignment artwork", extra=_LOG_ONLY)
@@ -7748,7 +7765,9 @@ def _register_routes(app: FastAPI) -> None:
         if view is None:
             # A failed remote check does not erase the local images already
             # shown in the review. The error remains visible beside them.
-            view = _artwork_view(album, folder_cover=_folder_cover_policy(request))
+            view = _artwork_view(
+                _with_fill(album, added), folder_cover=_folder_cover_policy(request)
+            )
         return _templates(request).TemplateResponse(
             request,
             "partials/_assignment_artwork.html",
@@ -7757,6 +7776,7 @@ def _register_routes(app: FastAPI) -> None:
                 album=album,
                 candidate=candidate,
                 release_fingerprint=release_fingerprint,
+                added=added,
                 artwork=view,
                 archive_image=archive_image,
                 caa=answer,
@@ -7841,7 +7861,7 @@ def _register_routes(app: FastAPI) -> None:
             # The folders the review added are tagged with the album's own, and
             # the draft's fingerprint holds them to the files that were shown.
             added = _review_fill(request, album, fill)
-            folders = [*album.folders, *(f for a in added.values() for f in a.folders)]
+            folders = list(_with_fill(album, added).folders)
             if candidate_mbid and candidate_mbid != candidate.mb_release_id:
                 raise retag_mod.ConfirmationChanged(
                     "The selected release changed. Review the new suggestion."
@@ -7852,7 +7872,7 @@ def _register_routes(app: FastAPI) -> None:
                 )
                 release_only = bool(request.query_params.get("replacement"))
                 view = _artwork_view(
-                    album,
+                    _with_fill(album, added),
                     caa_cache.stored(reviewed["id"], release_only=release_only),
                     album_artwork_mod.archive_image(reviewed["id"], release_only=release_only),
                     chosen=artwork.Source.ARCHIVE,

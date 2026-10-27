@@ -3,13 +3,14 @@
 {% from 'partials/_caa_checked.html' import caa_checked with context %}
 {% set image_prefix = 'assignment-art-' ~ album.id ~ '-' %}
 {% set artwork_pending = artwork_pending|default(false) %}
+{% set fill_query %}{% for disc, part in added.items() %}&fill={{ disc }}%3A{{ part.id|urlencode }}{% endfor %}{% endset %}
 <div class="space-y-3">
     <div class="flex items-center justify-between gap-3">
         <h3 class="text-sm font-bold">Artwork</h3>
         {% if not artwork_pending %}
         <dl class="caa-status grid grid-cols-[auto_auto_auto] items-center gap-x-2 text-xs">
             {{ caa_checked(caa.fetched_at if caa else none,
-                review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint ~ '&reread=true', replacement),
+                review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint ~ '&reread=true' ~ fill_query, replacement),
                 'closest .assignment-artwork') }}
         </dl>
         {% endif %}
