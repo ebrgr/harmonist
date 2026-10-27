@@ -1721,6 +1721,25 @@ def test_a_tag_musicbrainz_does_not_have_is_stated_as_a_removal():
     assert "artist_sort" in tl.shown_fields, "accounted for, by the band"
 
 
+def test_a_tag_holding_only_an_empty_string_is_not_stated_as_a_removal():
+    """#896. The removal above, with nothing to remove. A file can carry a tag
+    whose one value is empty — 36's *The Box* arrived with a blank composer and
+    lyricist on every track — and that reads back as `[""]`. The band drew it as
+    "→ removed" with nothing to the left of the arrow, and counted it as a
+    change, over a tag that says nothing. It is unset, as MusicBrainz is.
+    """
+    blank = {"composers": [""], "lyricists": [""]}
+    tl = tracklist(
+        [_file(1, "Nightcall", **blank), _file(2, "Odd Look", **blank)],
+        [_mb_track(1, "Nightcall"), _mb_track(2, "Odd Look")],
+    )
+
+    rows = {c.label: c for c in tl.collapsed}
+    for label in ("Composer", "Lyricist"):
+        assert rows[label].value is None, f"{label}: unset, not an empty value"
+        assert not rows[label].differs, f"{label}: nothing is pending"
+
+
 def test_the_disk_only_view_collapses_on_agreement_between_the_tracks_alone():
     """MusicBrainz has deleted the release (#228), so every field is ONLY_DISK
     and `_matches_everywhere` has nothing to check. The tracks still agree with

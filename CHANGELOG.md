@@ -67,6 +67,9 @@ versions follow [semantic versioning](https://semver.org).
   nothing new to sort into it (#891).
 - **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with
   a link to the purchase, even when its files have lost Bandcamp's comment (#867).
+- **A tag whose files hold an empty value counts as unset**, so it no longer
+  shows as "removed", flags an update, or appears in History when a re-tag
+  clears it (#896).
 
 ## [1.30.0] - 2026-10-22
 

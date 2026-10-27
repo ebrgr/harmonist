@@ -507,7 +507,7 @@ def write_owned(path: Path, values: Mapping[str, Any]) -> dict[str, Any]:
     cannot express absence: `title`, `album` and `artist` are required there and
     are written unconditionally, so reverting a first tagging through it would
     write empty frames instead of removing them. Absence is a value here (see
-    `owned._absent`), and the undo has to be able to restore it.
+    `owned.is_absent`), and the undo has to be able to restore it.
 
     Returns the owned fields as they were BEFORE the write, like `write_tags`,
     so an undo can record its own before/after without a second read.

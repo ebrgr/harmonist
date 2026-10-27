@@ -479,7 +479,7 @@ def is_opportunistic(field: str, before: object, after: object) -> bool:
     has to live at the flag rather than in `diff`.
     """
     twin = next((f for f in DUPLICATES_WHEN_SINGLE if f.value == field), None)
-    if twin is None or not _absent(before):
+    if twin is None or not is_absent(before):
         return False
     return isinstance(after, list) and len(after) <= 1
 
@@ -504,7 +504,7 @@ def fills_in_an_absent_list(before: object, after: object) -> bool:
     is about redundancy. This answers "how far does this reach", and a fill of
     two names reaches exactly as far as a fill of one.
     """
-    return _absent(before) and isinstance(after, list) and not _absent(after)
+    return is_absent(before) and isinstance(after, list) and not is_absent(after)
 
 
 #: How Picard joins a multi-value tag into the single value ID3v2.3 can hold —
@@ -542,7 +542,7 @@ def splits_a_joined_list(before: object, after: object) -> bool:
     return before[0].split(JOINED_LIST_SEPARATOR) == after
 
 
-def _absent(value: object) -> bool:
+def is_absent(value: object) -> bool:
     """Whether a value counts as "this tag isn't there".
 
     `None`, `""` and `[]` all mean the same thing, because Harmonist never
@@ -550,8 +550,19 @@ def _absent(value: object) -> bool:
     blanked, and reverting one restores its absence. Collapsing them here is
     what stops a first tag of an untagged album recording `None -> ""` on every
     field it didn't actually set.
+
+    A list of nothing but empty strings is absent too (#896). Other software
+    writes a tag holding one empty value, which a multi-value reader returns as
+    `[""]`; counting that as a value made a re-tag "remove" it, flagged for an
+    update and recorded in History, over a tag that said nothing.
+
+    Public because the two readers that draw a value — `compare._as_display`
+    and `tag_history.display` — ask it rather than restating it, so neither
+    can draw a difference the tagger doesn't make.
     """
-    return value is None or value == "" or value == []
+    if isinstance(value, (list, tuple)):
+        return all(v == "" for v in value)
+    return value is None or value == ""
 
 
 #: How a set boolean tag is spelled in the text formats — ID3's `TCMP` and the
@@ -571,7 +582,7 @@ def as_flag(raw: object) -> bool | None:
     reading, shared, is what keeps them from each inventing their own.
 
     **Never `False`.** Harmonist writes the flag only when true, so "not a
-    compilation" is the tag's ABSENCE — and `_absent` below already collapses
+    compilation" is the tag's ABSENCE — and `is_absent` already collapses
     `None`, `""` and `[]` into one answer. Returning `False` would add a fourth
     spelling of nothing that `values_differ` treats as a value, so an ordinary
     album would differ from MusicBrainz on this field forever. A file carrying
@@ -593,7 +604,7 @@ def values_differ(a: object, b: object) -> bool:
     had changed on a distinction `diff` didn't record, it would refuse to put
     back a field that the history says it changed.
     """
-    if _absent(a) and _absent(b):
+    if is_absent(a) and is_absent(b):
         return False
     return a != b
 

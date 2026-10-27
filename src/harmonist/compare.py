@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 # needs the real values, not just their types. `owned` is pure stdlib itself,
 # and `tag_history` — the sibling that describes itself as "pure functions over
 # values, like `compare`" — already imports it the same way.
-from .formats.owned import ALBUM_FIELDS, LABELS, TRACK_FIELDS, Owned
+from .formats.owned import ALBUM_FIELDS, LABELS, TRACK_FIELDS, Owned, is_absent
 
 # This only averages already-read stream values; comparison never opens files.
 from .formats.quality import average
@@ -552,8 +552,8 @@ def _disk_value(tags: TrackTags, key: str) -> str | None:
 
     Lists join with "; " and numbers stringify, matching how the same values are
     rendered in a History entry — the panel and the record must not describe one
-    tag two ways. Absent, empty and empty-list all collapse to None, the way
-    `owned.values_differ` treats them, so a field the tagger considers unset
+    tag two ways. Whatever `owned.is_absent` calls absent collapses to None, the
+    way `owned.values_differ` treats it, so a field the tagger considers unset
     never renders as a difference against MusicBrainz having nothing either.
     """
     return _as_display(tags.owned[key] if key in tags.owned else getattr(tags, key, None))
@@ -567,7 +567,7 @@ def _as_display(raw: object) -> str | None:
     disagree, and a list joined one way here and another way there would render
     as a difference in a field that matched.
     """
-    if raw is None or raw == "" or raw == []:
+    if is_absent(raw):
         return None
     if isinstance(raw, (list, tuple)):
         return "; ".join(str(v) for v in raw)

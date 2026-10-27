@@ -291,6 +291,7 @@ def test_absent_values_collapse_the_way_the_tagger_collapses_them():
     assert display(None) is None
     assert display("") is None
     assert display([]) is None
+    assert display([""]) is None  # #896: a tag holding one empty value
     assert display(["a", "b"]) == "a; b"
     assert display(9) == "9"
 

@@ -29,7 +29,7 @@ from typing import Any
 
 from . import album_files, formats
 from .compare import Run, diff_runs
-from .formats.owned import ARTWORK, LABELS, SCOPE, Owned, Scope
+from .formats.owned import ARTWORK, LABELS, SCOPE, Owned, Scope, is_absent
 
 #: Local alias for the shared label map, which moved to `owned` so the album
 #: comparison can build its rows from it too (#295) — one name per field for
@@ -479,11 +479,11 @@ def revert_plan(records: Sequence[Any]) -> tuple[FileRevert, ...]:
 def display(value: Any) -> str | None:
     """One stored value as the page shows it, or None when it was absent.
 
-    `None`, `""` and `[]` all collapse to absent, matching `owned._absent` —
-    the record stores raw values so a revert can restore them exactly, but the
-    reader must not draw a distinction the tagger doesn't make.
+    Absent is whatever `owned.is_absent` says it is — the record stores raw
+    values so a revert can restore them exactly, but the reader must not draw a
+    distinction the tagger doesn't make.
     """
-    if value is None or value == "" or value == []:
+    if is_absent(value):
         return None
     if isinstance(value, (list, tuple)):
         return "; ".join(str(v) for v in value)

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from mutagen.mp4 import MP4, MP4Cover
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 
 from harmonist import formats as formats_mod
 from harmonist import tagger
@@ -1607,6 +1607,26 @@ def test_plan_of_an_already_tagged_album_is_empty(album_with_tracks):
     album_dir = album_with_tracks(2)
     rel = _release_2_tracks()
     tagger.tag_album(album_dir, rel)
+
+    assert tagger.plan_album(album_dir, rel).empty
+
+
+def test_plan_ignores_a_tag_the_files_carry_empty(album_with_tracks):
+    """#896. A tag holding one empty value is not a tag. 36's *The Box* arrived
+    with a blank composer and lyricist on every track, MusicBrainz has neither,
+    and the plan reported deleting them: an update flag, and a History entry
+    saying Composer was removed, over atoms that say nothing.
+
+    A re-tag for any other reason still clears them, as it clears every owned
+    atom before writing; it just isn't a change worth recording, or making."""
+    album_dir = album_with_tracks(2)
+    rel = _release_2_tracks()
+    tagger.tag_album(album_dir, rel)
+    for f in album_dir.glob("*.m4a"):
+        audio = MP4(f)
+        audio["©wrt"] = [""]
+        audio["----:com.apple.iTunes:LYRICIST"] = [MP4FreeForm(b"")]
+        audio.save()
 
     assert tagger.plan_album(album_dir, rel).empty
 
