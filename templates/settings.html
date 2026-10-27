@@ -33,6 +33,17 @@
         <div role="alert" class="my-4 px-4 py-2 rounded-md bg-red-50 border border-red-300 text-red-700 text-sm">Couldn't save: {{ error }}</div>
         {% endif %}
 
+        <section aria-labelledby="ui-settings-heading" class="border border-line rounded-lg">
+            <h2 id="ui-settings-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">User Interface</h2>
+            <div class="p-4">
+                <input type="hidden" name="ui_settings" value="1">
+                <label class="inline-flex items-center gap-2 text-sm text-ink cursor-pointer">
+                    <input type="checkbox" name="show_artists" value="true" {% if cfg.ui.show_artists %}checked{% endif %}>
+                    Show Artists tab
+                </label>
+            </div>
+        </section>
+
         <section aria-labelledby="artist-nfo-settings-heading" class="border border-line rounded-lg">
             <h2 id="artist-nfo-settings-heading" class="rounded-t-lg px-4 py-2.5 bg-line/50 border-b border-line text-sm font-bold text-ink uppercase tracking-widest">Artist metadata</h2>
             <div class="p-4">

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="space-y-5">
+<div class="space-y-5" data-artists-tab="{{ 'true' if cfg.ui.show_artists else 'false' }}">
     {# The status poll (#app-status) and the status bar's script are on every
        page now, from base.html (#757). #}
 
@@ -47,10 +47,12 @@
                 class="hmt-tab pb-2 -mb-px font-semibold border-b-2 transition">
             Library <span id="library-count" class="font-normal text-muted"></span>
         </button>
+        {% if cfg.ui.show_artists %}
         <button type="button" data-tab="artists" onclick="harmonistTab('artists')"
                 class="hmt-tab pb-2 -mb-px font-semibold border-b-2 transition">
             Artists
         </button>
+        {% endif %}
         <button type="button" data-tab="activity" onclick="harmonistTab('activity')"
                 class="hmt-tab pb-2 -mb-px font-semibold border-b-2 transition">
             Activity
@@ -108,11 +110,13 @@
         </div>
     </div>
 
+    {% if cfg.ui.show_artists %}
     <div id="panel-artists" class="hidden">
         <div id="artists-rows" hx-sync="#artists-rows:replace">
             {% include 'partials/artists_page.html' %}
         </div>
     </div>
+    {% endif %}
 
     <div id="panel-activity" class="hidden">
         {# morph, not innerHTML: this re-polls every 2s, and a plain swap tears
@@ -208,7 +212,16 @@ document.body.addEventListener('htmx:afterSwap', function (event) {
 // following a link from Activity doesn't silently move where they land next
 // time (and closing the modal returns them to their own preference on reload).
 function harmonistTab(name, persist = true) {
-    if (!['inbox', 'library', 'artists', 'activity'].includes(name)) name = 'inbox';
+    const available = {{ index_tabs | tojson }};
+    if (name === 'artists' && !available.includes(name)) name = 'library';
+    if (!available.includes(name)) name = 'inbox';
+    if (!available.includes('artists')) {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('tab') === 'artists') {
+            url.searchParams.set('tab', 'library');
+            history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+        }
+    }
     document.querySelectorAll('.hmt-tab').forEach(t => {
         const active = t.dataset.tab === name;
         t.classList.toggle('text-ink', active);

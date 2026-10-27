@@ -4540,8 +4540,11 @@ def _register_routes(app: FastAPI) -> None:
                 )
             except HTTPException:
                 deep_link_missing = True
+        cfg = request.app.state.cfg
+        visible_tabs = [t for t in _INDEX_TABS if t != "artists" or cfg.ui.show_artists]
         ctx = _ctx(
             request,
+            cfg=cfg,
             albums=_inbox_albums(albums, joined=_auto_filled(request, albums)),
             updates=_review_updates(request, albums),
             artwork_cards=_artwork_cards(request, albums),
@@ -4552,10 +4555,13 @@ def _register_routes(app: FastAPI) -> None:
             # (#139): the Library pager pushes them, and the album page's Back link
             # carries them. Unrecognised tab → None, and the script falls back to
             # the remembered one, so a mangled link still lands somewhere sane.
-            initial_tab=tab if tab in _INDEX_TABS else None,
+            initial_tab=(tab if tab in visible_tabs else "library") if tab in _INDEX_TABS else None,
+            index_tabs=visible_tabs,
             artists_view=artists.page_vars(
                 [a for a in albums if a.state in _TERMINAL_STATES], artist_page, artist_q
-            ),
+            )
+            if cfg.ui.show_artists
+            else None,
             # The Library grid renders inline, so `?page=` / `?limit=` / `?filter=` /
             # `?q=` are honoured by the HTML itself rather than by a follow-up fetch
             # that would have to be told which page it's on.
@@ -4663,6 +4669,7 @@ def _register_routes(app: FastAPI) -> None:
             _ctx(
                 request,
                 **grid,
+                cfg=cfg,
                 artist=artist,
                 history=history,
                 history_unavailable=history_unavailable,
@@ -4701,8 +4708,12 @@ def _register_routes(app: FastAPI) -> None:
                     )
                     if library_origin
                     else artists.index_url(max(1, artist_page), artist_q[:100])
+                    if cfg.ui.show_artists
+                    else _library_index_url(1, _library_limit(request, None), None, None)
                 ),
-                artist_back_label="Back to library" if library_origin else "Back to artists",
+                artist_back_label="Back to library"
+                if library_origin or not cfg.ui.show_artists
+                else "Back to artists",
                 artist_album_query=urlencode(query),
                 artist_previous=location(grid["prev_page"]) if grid["prev_page"] else None,
                 artist_next=location(grid["next_page"]) if grid["next_page"] else None,
@@ -5542,6 +5553,8 @@ def _register_routes(app: FastAPI) -> None:
         always_standardize_multivalue_artist: bool = Form(default=False),
         log_level: str = Form(...),
         artist_nfo_location: str | None = Form(None),
+        ui_settings: str | None = Form(None),
+        show_artists: bool = Form(False),
     ) -> Response:
         cfg: config_mod.Config = request.app.state.cfg
         # Re-validate by constructing fresh sub-models (model_copy does NOT
@@ -5558,6 +5571,9 @@ def _register_routes(app: FastAPI) -> None:
             new_mb = config_mod.MusicBrainzConfig(user_agent=user_agent.strip())
             new_artist_nfo = config_mod.ArtistNfoConfig.model_validate(
                 {"location": artist_nfo_location or cfg.artist_nfo.location}
+            )
+            new_ui = config_mod.UiConfig(
+                show_artists=show_artists if ui_settings is not None else cfg.ui.show_artists
             )
             # model_validate (vs the constructor) keeps mypy happy about the
             # str→Literal narrowing while still validating the value at runtime.
@@ -5594,6 +5610,7 @@ def _register_routes(app: FastAPI) -> None:
                     "tagging": new_tagging,
                     "log_level": log_level.strip().lower(),
                     "artist_nfo": new_artist_nfo,
+                    "ui": new_ui,
                 }
             )
         except (PydanticValidationError, ValueError) as e:
@@ -5630,6 +5647,7 @@ def _register_routes(app: FastAPI) -> None:
                 ),
                 "log_level": new_cfg.log_level,
                 "artist_nfo.location": new_artist_nfo.location,
+                "ui.show_artists": new_ui.show_artists,
             },
         )
         # Apply live — code reads these from app.state.cfg at use-time. The
@@ -5664,7 +5682,10 @@ def _register_routes(app: FastAPI) -> None:
         activity.info("Settings updated")
 
         return _templates(request).TemplateResponse(
-            request, "settings.html", _settings_ctx(request, new_cfg, saved=True)
+            request,
+            "settings.html",
+            _settings_ctx(request, new_cfg, saved=True),
+            headers={"HX-Refresh": "true"} if new_ui != cfg.ui else None,
         )
 
     @app.get("/settings/update-check", response_class=HTMLResponse)
@@ -5728,6 +5749,7 @@ def _register_routes(app: FastAPI) -> None:
                 # link-only sync). They need attention, so they count toward inbox.
                 "pending": pending_downloads.count(),
                 "artwork_revision": artwork_updates.revision(),
+                "ui": {"show_artists": state.cfg.ui.show_artists},
                 # Bulk background work and the last one's closing line (#757).
                 "progress": progress.status(),
             }
