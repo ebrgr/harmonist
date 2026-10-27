@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from harmonist import cover_art
+from harmonist import cover_art, images
 from harmonist.cover_art import CoverArtError, Front, cached_cover, front_image
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -546,8 +546,13 @@ def test_unchanged_listing_can_retry_a_missing_candidate(caa_cache):
         assert str(request.url) == known.image_url
         return httpx.Response(200, content=new, headers={"content-type": "image/jpeg"})
 
-    cover_art.check_front("rel-1", known=known, keep_if_wider_than=100, client=_client(handler))
+    answer = cover_art.check_front(
+        "rel-1", known=known, keep_if_wider_than=100, client=_client(handler)
+    )
     assert cover_art.cached_front("rel-1") == Front(new, "image/jpeg")
+    # Kept on the answer (#886): the bytes may be evicted before the front
+    # changes, and the digest is what an album is matched against then.
+    assert answer.digest == images.digest(new)
 
 
 def test_release_cover_supersedes_the_cached_group_cover(caa_cache):
@@ -578,6 +583,7 @@ def test_release_cover_supersedes_the_cached_group_cover(caa_cache):
     )
     assert answer.source == "release"
     assert cover_art.cached_front("rel-1") == Front(new, "image/jpeg")
+    assert answer.digest == images.digest(new)
 
 
 def test_failed_invalidation_cannot_publish_a_new_measurement(caa_cache, monkeypatch):

@@ -156,6 +156,38 @@ the check clears the record, and the album's History says so. The background art
 check reads the same record and proposes the same replacement; it leaves the
 record and music untouched until the user reviews the album.
 
+## A replaced front gives way too
+
+The archive's front is sometimes wrong: another album's cover uploaded to the
+wrong release, written faithfully into every track. When an editor removes it
+or demotes it, the album still carries it, and the size rule would keep it
+over a smaller successor for good. A change of front is a correction, not an
+upgrade, so whatever the album carries of the old front gives way to the front
+now, whatever either measures (#886).
+
+This is the stand-in rule reached from the other side, and it needs nothing
+recorded in the sidecar. A stand-in's reason can't be worked out later, but
+this one can: Harmonist writes an archive image only from the listing it was
+asked about, so an album carrying the release's old front got it from there.
+What's needed is the old front itself, which the archive no longer names. The
+archive check keeps it beside the stored answer when a refresh finds the front
+changed, and carries it forward on later checks until the front changes again.
+It is identified by digest, and the cached image is hashed just before a
+refresh discards it. A stored answer from before digests were kept, whose
+image has already been evicted, falls back to byte length and pixel size
+together. Only the same file is likely to share both, and that is enough to
+offer a replacement that is never written unasked.
+
+The successor is whatever front the archive check finds: the release's own
+first, and the release group's once the release has none. The group's front
+is MusicBrainz's choice among the group's releases, so the background check
+doesn't browse those releases itself. The album page's picker still steps
+through them. Because the check is sized by what the album carried before it
+learnt of the change, it downloads a smaller successor straight afterwards
+rather than waiting for the next check. Routing is a replacement's like any
+other ([below](#where-an-artwork-update-waits)): never written unattended, and
+**Don't suggest this image** or keeping the row turns the offer down.
+
 ## Finding changes without opening an album
 
 Artwork has its own background check under the same opt-in as tag updates.

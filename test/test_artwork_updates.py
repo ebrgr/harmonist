@@ -19,6 +19,7 @@ from harmonist import (
     caa_cache,
     cover_art,
     formats,
+    images,
     mb_lookup,
     scanner,
 )
@@ -539,3 +540,109 @@ def test_worker_warms_offline_and_has_an_independent_nonoverlapping_lock(monkeyp
     with web_main._artwork_check_lock:
         web_main._artwork_check_if_idle(_stub_app(), *args)
     assert calls == ["warm", "warm", "sweep"]
+
+
+# ---------------------------------------------------------------------------
+# A front the archive has replaced gives way (#886)
+# ---------------------------------------------------------------------------
+
+
+def _carrying(tmp_path, data: bytes):
+    """A tagged album whose track carries `data`, as the scanner sees it."""
+    root = tmp_path / "music"
+    album = _tagged(root, _release(mbid=MBID))
+    formats.write_cover(next(album.path.glob("*.m4a")), data)
+    return scanner.scan(root)[0]
+
+
+def _replaced_by(new: bytes, replaced: activity_store.ReplacedFront, *, source="release"):
+    """The archive's front is now `new`, smaller than anything the album has,
+    and the check that found it remembered the front it replaced."""
+    activity_store.store_cover_art(MBID, replace(_archive(new, source=source), replaced=replaced))
+    artwork_updates.observe(MBID)
+
+
+def test_a_replaced_front_the_album_carries_gives_way_to_a_smaller_one(tmp_path):
+    """The archive's editors took the album's image off the release: it is not
+    the cover, so the front now is offered whatever it measures."""
+    old = png_bytes(120, 120)
+    album = _carrying(tmp_path, old)
+    _archive(png_bytes(60, 60))
+    artwork_updates.observe(MBID)
+    assert artwork_updates.operation(album) is None
+
+    _replaced_by(
+        png_bytes(60, 60),
+        activity_store.ReplacedFront("https://example.test/old.png", images.digest(old)),
+    )
+
+    assert artwork_updates.threshold(album) == -1
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+
+
+def test_a_replaced_front_without_a_digest_is_matched_by_length_and_size(tmp_path):
+    old = png_bytes(120, 120)
+    album = _carrying(tmp_path, old)
+    fingerprint = activity_store.ReplacedFront(
+        "https://example.test/old.png", None, 120, 120, len(old)
+    )
+
+    _replaced_by(png_bytes(60, 60), replace(fingerprint, length=len(old) + 1))
+    assert artwork_updates.operation(album) is None
+
+    _replaced_by(png_bytes(60, 60), fingerprint)
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+
+
+def test_a_replaced_front_gives_way_to_the_groups(tmp_path):
+    """With nothing left on the release, the group's front stands in for it,
+    which a borrowed image would not give way to."""
+    old = png_bytes(120, 120)
+    album = _carrying(tmp_path, old)
+
+    _replaced_by(
+        png_bytes(60, 60),
+        activity_store.ReplacedFront("https://example.test/old.png", images.digest(old)),
+        source="release-group",
+    )
+
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+
+
+def test_the_check_that_sees_the_front_change_fetches_its_successor(tmp_path, monkeypatch):
+    """The check is sized by what the album carries before it learns that
+    image was replaced, so it would skip a smaller successor; a second look,
+    one image request, puts it in hand for the plan within the same check."""
+    old, new = png_bytes(120, 120), png_bytes(60, 60) + b"\x01"
+    album = _carrying(tmp_path, old)
+    _archive(old, age=timedelta(days=8))
+    fetched = []
+
+    def check(mbid, *, known, keep_if_wider_than, **kwargs):
+        # A changed listing, its front too small to be worth downloading.
+        cover_art._discard_image(mbid)
+        return activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://example.test/new.png",
+            width=60,
+            height=60,
+            length=len(new),
+            mime="image/png",
+            source="release",
+        )
+
+    def fetch(mbid, url, **kwargs):
+        fetched.append(url)
+        return cover_art.cache_image(mbid, new, "image/png")
+
+    monkeypatch.setattr(cover_art, "check_front", check)
+    monkeypatch.setattr(cover_art, "fetch_image", fetch)
+
+    assert artwork_updates.sweep([album], limit=1) == 1
+
+    assert fetched == ["https://example.test/new.png"]
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    # Settled: the next pass asks nothing and still offers it.
+    assert artwork_updates.sweep([album], limit=1) == 0
+    assert fetched == ["https://example.test/new.png"]
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT

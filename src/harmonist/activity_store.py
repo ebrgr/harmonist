@@ -332,6 +332,28 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     # NULL on every row written before this, which reads as "release" — the only
     # listing that was ever asked.
     ("ALTER TABLE caa_cache ADD COLUMN source TEXT",),
+    # 10 -> 11: the front a refresh replaced, and the current front's digest
+    # (#886).
+    #
+    # A front that changes is an editor saying the old one was not the cover,
+    # and an album carrying the old one should be offered the new one whatever
+    # its size. Seeing that needs the old front after the refresh that retired
+    # it, and the plan is rebuilt from the current answer each time — so the
+    # change has to be stored, as a fact about the release. The digest is how
+    # an album is matched against it exactly; the image cache's bytes may be
+    # evicted long before the front changes, so it is kept as soon as known.
+    # Without one, length and dimensions are the fallback fingerprint.
+    #
+    # All nullable: rows before this knew neither, and most releases never
+    # change their front.
+    (
+        "ALTER TABLE caa_cache ADD COLUMN digest TEXT",
+        "ALTER TABLE caa_cache ADD COLUMN replaced_url TEXT",
+        "ALTER TABLE caa_cache ADD COLUMN replaced_digest TEXT",
+        "ALTER TABLE caa_cache ADD COLUMN replaced_width INTEGER",
+        "ALTER TABLE caa_cache ADD COLUMN replaced_height INTEGER",
+        "ALTER TABLE caa_cache ADD COLUMN replaced_length INTEGER",
+    ),
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)  # the version this build expects/creates
@@ -834,6 +856,22 @@ def artwork_backups() -> list[ArtworkBackup]:
 
 
 @dataclass(frozen=True)
+class ReplacedFront:
+    """The front a later answer replaced (#886): what an album may still carry
+    after the archive changed its mind.
+
+    `digest` when the old image's bytes were in hand; otherwise `length` and
+    the dimensions are the fingerprint the plan falls back to.
+    """
+
+    image_url: str
+    digest: str | None = None
+    width: int | None = None
+    height: int | None = None
+    length: int | None = None
+
+
+@dataclass(frozen=True)
 class CachedCoverArt:
     """What the Cover Art Archive said about one release, and when (#276).
 
@@ -853,6 +891,11 @@ class CachedCoverArt:
     #: Which listing answered: "release" or "release-group" (#434). None on rows
     #: written before that existed, which can only have been the release.
     source: str | None = None
+    #: The front's content digest, when Harmonist has held its bytes (#886).
+    #: Kept because the image cache may evict them before the front changes.
+    digest: str | None = None
+    #: The front the most recent change replaced, until the next change (#886).
+    replaced: ReplacedFront | None = None
 
     @property
     def from_release_group(self) -> bool:
@@ -876,8 +919,9 @@ def cached_cover_art(mbid: str) -> CachedCoverArt | None:
         with _LOCK:
             conn = _ensure()
             row = conn.execute(
-                "SELECT fetched_at, etag, image_url, width, height, length, mime, source "
-                "FROM caa_cache WHERE mbid = ?",
+                "SELECT fetched_at, etag, image_url, width, height, length, mime, source, "
+                "digest, replaced_url, replaced_digest, replaced_width, replaced_height, "
+                "replaced_length FROM caa_cache WHERE mbid = ?",
                 (mbid,),
             ).fetchone()
     except sqlite3.Error:
@@ -885,7 +929,33 @@ def cached_cover_art(mbid: str) -> CachedCoverArt | None:
         return None
     if row is None:
         return None
-    fetched_at, etag, image_url, width, height, length, mime, source = row
+    (
+        fetched_at,
+        etag,
+        image_url,
+        width,
+        height,
+        length,
+        mime,
+        source,
+        digest,
+        replaced_url,
+        replaced_digest,
+        replaced_width,
+        replaced_height,
+        replaced_length,
+    ) = row
+    replaced = (
+        ReplacedFront(
+            image_url=replaced_url,
+            digest=replaced_digest,
+            width=replaced_width,
+            height=replaced_height,
+            length=replaced_length,
+        )
+        if replaced_url is not None
+        else None
+    )
     return CachedCoverArt(
         fetched_at=datetime.fromisoformat(fetched_at),
         etag=etag,
@@ -895,18 +965,24 @@ def cached_cover_art(mbid: str) -> CachedCoverArt | None:
         length=length,
         mime=mime,
         source=source,
+        digest=digest,
+        replaced=replaced,
     )
 
 
 def store_cover_art(mbid: str, answer: CachedCoverArt) -> None:
-    """Remember what the archive said. REPLACEs, so re-asking overwrites."""
+    """Remember what the archive said. REPLACEs, so re-asking overwrites —
+    which is why the caller carries `replaced` forward (`caa_cache.front`)."""
+    replaced = answer.replaced
     try:
         with _LOCK:
             conn = _ensure()
             conn.execute(
                 "INSERT OR REPLACE INTO caa_cache "
-                "(mbid, fetched_at, etag, image_url, width, height, length, mime, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(mbid, fetched_at, etag, image_url, width, height, length, mime, source, "
+                "digest, replaced_url, replaced_digest, replaced_width, replaced_height, "
+                "replaced_length) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     mbid,
                     answer.fetched_at.isoformat(),
@@ -917,6 +993,12 @@ def store_cover_art(mbid: str, answer: CachedCoverArt) -> None:
                     answer.length,
                     answer.mime,
                     answer.source,
+                    answer.digest,
+                    replaced.image_url if replaced else None,
+                    replaced.digest if replaced else None,
+                    replaced.width if replaced else None,
+                    replaced.height if replaced else None,
+                    replaced.length if replaced else None,
                 ),
             )
             conn.commit()

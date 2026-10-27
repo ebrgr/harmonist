@@ -19,6 +19,11 @@ versions follow [semantic versioning](https://semver.org).
   one folder fits the disc's track count and lengths it is filled in already,
   and isn't listed in the Inbox as an album of its own. Confirming tags both
   folders, and they become one album (#876).
+- **Artwork the Cover Art Archive no longer has as the release's front is
+  offered a replacement**, however small the front is now: the release's
+  front, or else the release group's. Its row on the album page says
+  "no longer the archive's front". This applies only once the archive check
+  has seen the front change after upgrading (#886).
 
 ### Changed
 

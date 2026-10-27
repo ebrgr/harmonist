@@ -186,6 +186,11 @@ def view(
                 image=formats.EmbeddedArt.of(data, mime),
                 path=album.cover_path,
             )
+    # What it carries of a front the archive has since replaced (#886).
+    carried = [t.art for _, t in tracks if t.art is not None]
+    if cover is not None:
+        carried.append(cover.image)
+    superseded = artwork.superseded(caa.replaced if caa else None, carried)
     proposed, proposed_images = (
         artwork_watch.proposal(sc, [(p, t.art) for p, t in tracks], cover, folder_cover)
         if not cover_unreadable and not any(t.unreadable for _, t in tracks)
@@ -204,6 +209,7 @@ def view(
         picks={**proposed_images, **picks},
         candidates=candidates,
         borrowed=borrowed,
+        superseded=superseded,
         folder_cover=folder_cover,
         # Stat'ed here as the tagger stats them at write time, so the page's
         # plan and the write's are weighed against the same size (#872).

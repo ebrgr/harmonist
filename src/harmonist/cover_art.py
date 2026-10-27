@@ -239,7 +239,8 @@ def check_front(
                 # retry a missing picture (a previous download may have failed,
                 # or the cap evicted it).
                 if url := unfetched_winner(release_mbid, known, keep_if_wider_than):
-                    _fetch_and_cache(http, release_mbid, url, known.mime)
+                    fetched = _fetch_and_cache(http, release_mbid, url, known.mime)
+                    return replace(known, fetched_at=now, digest=fetched or known.digest)
                 return replace(known, fetched_at=now)
             if listing.status_code == 404:
                 continue  # this listing has nothing; the next one may
@@ -264,10 +265,11 @@ def check_front(
             if not head.is_success:
                 raise CoverArtError(f"CAA returned {head.status_code} for {url}")
             size = images.dimensions(head.content)
+            digest = None
             if keep_if_wider_than is not None and (
                 keep_if_wider_than < 0 or (size is not None and size.width > keep_if_wider_than)
             ):
-                _fetch_and_cache(http, release_mbid, url, head.headers.get("content-type"))
+                digest = _fetch_and_cache(http, release_mbid, url, head.headers.get("content-type"))
             return activity_store.CachedCoverArt(
                 fetched_at=now,
                 etag=listing.headers.get("etag"),
@@ -280,6 +282,7 @@ def check_front(
                 length=_total_length(head),
                 mime=head.headers.get("content-type"),
                 source=kind,
+                digest=digest,
             )
         # Neither listing has a front cover. Recorded so the next check does not
         # ask again — the timestamp says when that was established.
@@ -354,18 +357,22 @@ def fetch_image(release_mbid: str, url: str, *, client: httpx.Client | None = No
             http.close()
 
 
-def _fetch_and_cache(http: httpx.Client, release_mbid: str, url: str, mime: str | None) -> None:
-    """Pull the whole image and keep it. Best-effort: a failure here loses the
-    picture, not the measurement that was the point of the check."""
+def _fetch_and_cache(
+    http: httpx.Client, release_mbid: str, url: str, mime: str | None
+) -> str | None:
+    """Pull the whole image and keep it, returning its digest (#886), or None
+    if it could not be fetched. Best-effort: a failure here loses the picture,
+    not the measurement that was the point of the check."""
     try:
         full = http.get(url)
     except httpx.HTTPError:
         log.warning("could not fetch the archive image for %s", release_mbid, exc_info=True)
-        return
+        return None
     if not full.is_success:
         log.warning("archive image for %s returned %s", release_mbid, full.status_code)
-        return
+        return None
     cache_image(release_mbid, full.content, mime or full.headers.get("content-type"))
+    return images.digest(full.content)
 
 
 def _front_url(listing: httpx.Response) -> str | None:
@@ -772,6 +779,25 @@ def _discard_image(release_mbid: str) -> None:
         raise CoverArtError(
             f"could not retire the cached archive image for {release_mbid}: {e}"
         ) from e
+
+
+def held_digest(release_mbid: str) -> str | None:
+    """The digest of this release's cached image, or None if none is held.
+
+    For a stored answer that predates recording one (#886). An unreadable
+    file is logged and treated as absent, as everywhere this cache is read:
+    the caller then falls back to the front's length and dimensions.
+    """
+    path = cached_image(release_mbid)
+    if path is None:
+        return None
+    try:
+        return images.digest(path.read_bytes())
+    except FileNotFoundError:
+        return None  # evicted since it was found
+    except OSError:
+        log.warning("could not read the cached archive image %s", path, exc_info=True)
+        return None
 
 
 def cached_image(release_mbid: str) -> Path | None:

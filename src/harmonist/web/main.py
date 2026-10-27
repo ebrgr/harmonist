@@ -2910,7 +2910,8 @@ def _widest(view: artwork.ArtworkView) -> int | None:
     """The same download threshold as the background assessment (#269).
 
     Compare against the folder cover, not a larger embedded image that could
-    conceal an improvement to it. Missing art and stand-ins accept any size.
+    conceal an improvement to it. Missing art, stand-ins and a front the
+    archive has replaced (#886) accept any size.
     """
     local = artwork_updates.LocalArtwork(
         tuple((Path(t.name), r.image) for r in view.rows for t in r.tracks),
@@ -2921,7 +2922,7 @@ def _widest(view: artwork.ArtworkView) -> int | None:
         view.lossless,
         view.audio_bytes,
     )
-    return artwork_updates.download_threshold(local, frozenset(view.borrowed))
+    return artwork_updates.download_threshold(local, frozenset(view.borrowed) | view.superseded)
 
 
 def _release_of(album: Album) -> str | None:

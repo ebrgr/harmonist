@@ -1297,3 +1297,58 @@ def test_connection_close_excludes_other_store_operations(tmp_path, monkeypatch,
     else:
         activity_store.init_memory()
     assert acquired == [False], "another operation could enter while close was running"
+
+
+def test_migrates_a_v10_database_in_place_keeping_its_answers(tmp_path):
+    """The 10 -> 11 upgrade (#886): a stored Cover Art Archive answer survives,
+    with no digest and no replaced front, which is what it knew."""
+    db = tmp_path / "v10.db"
+    conn = sqlite3.connect(db, isolation_level=None)
+    for statements in activity_store._MIGRATIONS[:10]:
+        for sql in statements:
+            conn.execute(sql)
+    conn.execute(
+        "INSERT INTO caa_cache (mbid, fetched_at, etag, image_url, width, height, length, mime, "
+        "source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "rel-old",
+            "2026-07-01T00:00:00+00:00",
+            '"e"',
+            "http://x/1.jpg",
+            500,
+            500,
+            1024,
+            "image/jpeg",
+            "release",
+        ),
+    )
+    conn.execute("PRAGMA user_version = 10")
+    conn.close()
+
+    activity_store.init(db)
+
+    assert _user_version(db) == activity_store.SCHEMA_VERSION
+    got = activity_store.cached_cover_art("rel-old")
+    assert got is not None
+    assert (got.image_url, got.width, got.source) == ("http://x/1.jpg", 500, "release")
+    assert got.digest is None
+    assert got.replaced is None
+
+
+def test_a_replaced_front_reads_back_as_it_was_stored():
+    replaced = activity_store.ReplacedFront(
+        image_url="http://x/old.jpg", digest="d", width=1200, height=1200, length=240690
+    )
+    activity_store.store_cover_art(
+        "rel",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="http://x/new.jpg",
+            digest="n",
+            replaced=replaced,
+        ),
+    )
+
+    got = activity_store.cached_cover_art("rel")
+    assert got is not None
+    assert (got.digest, got.replaced) == ("n", replaced)

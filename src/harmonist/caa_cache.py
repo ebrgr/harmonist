@@ -195,6 +195,11 @@ def front(
             with timing.warn_if_slow("Cover Art Archive image fetch", _SLOW_CHECK, mbid=mbid):
                 cover_art.fetch_image(mbid, url)
         return known
+    # Before asking: a changed listing retires the cached bytes, and with them
+    # the only exact way to say what the old front was (#886).
+    prior = activity_store.cached_cover_art(mbid)
+    if prior is not None and prior.has_art and prior.digest is None:
+        prior = replace(prior, digest=cover_art.held_digest(mbid))
     with timing.warn_if_slow("Cover Art Archive check", _SLOW_CHECK, mbid=mbid):
         # Through the module attribute, so demo mode's patch lands.
         #
@@ -209,8 +214,48 @@ def front(
         )
     if release_only and not answer.has_art:
         answer = replace(answer, source="release")
+    answer = _with_replaced(prior, answer, release_only=release_only)
     activity_store.store_cover_art(mbid, answer)
     return answer
+
+
+def _with_replaced(
+    prior: activity_store.CachedCoverArt | None,
+    answer: activity_store.CachedCoverArt,
+    *,
+    release_only: bool,
+) -> activity_store.CachedCoverArt:
+    """`answer`, carrying the front it replaced (#886).
+
+    Any change of front counts, removal and demotion alike: either is an
+    editor saying the old image is not the cover. An unchanged front carries
+    the earlier record forward, since the row is REPLACEd on every check and
+    the album may still carry what the last change retired.
+
+    A release-only question about a release whose front came from its group
+    is narrower, not different: the group's front was not asked about, so it
+    has not been replaced.
+    """
+    if prior is None:
+        return answer
+    narrower = release_only and prior.from_release_group
+    if prior.image_url is None or prior.image_url == answer.image_url or narrower:
+        same = prior.image_url == answer.image_url
+        return replace(
+            answer,
+            digest=answer.digest or (prior.digest if same else None),
+            replaced=prior.replaced,
+        )
+    return replace(
+        answer,
+        replaced=activity_store.ReplacedFront(
+            image_url=prior.image_url,
+            digest=prior.digest,
+            width=prior.width,
+            height=prior.height,
+            length=prior.length,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

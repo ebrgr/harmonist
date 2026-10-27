@@ -93,6 +93,42 @@ class CoverArtAnswer(Protocol):
     def mime(self) -> str | None: ...
 
 
+class ReplacedFront(Protocol):
+    """A front the archive has since replaced, as the check last saw it (#886).
+    `activity_store.ReplacedFront` satisfies it, as for `CoverArtAnswer`."""
+
+    @property
+    def digest(self) -> str | None: ...
+
+    @property
+    def width(self) -> int | None: ...
+
+    @property
+    def height(self) -> int | None: ...
+
+    @property
+    def length(self) -> int | None: ...
+
+
+def superseded(replaced: ReplacedFront | None, carried: Iterable[EmbeddedArt]) -> frozenset[str]:
+    """The digests of the `carried` images that are a front the archive has
+    since replaced (#886). Each gives way to the front now, as a stand-in
+    does, whatever either measures: an editor took it off the release.
+
+    By digest where the old front's bytes were held. Otherwise by byte length
+    and pixel size together, which in practice only the same file shares:
+    enough to offer a replacement, and a replacement is never written unasked.
+    """
+    if replaced is None:
+        return frozenset()
+    if replaced.digest is not None:
+        return frozenset(a.digest for a in carried if a.digest == replaced.digest)
+    if replaced.length is None or replaced.width is None or replaced.height is None:
+        return frozenset()
+    shape = (replaced.length, Size(replaced.width, replaced.height))
+    return frozenset(a.digest for a in carried if (a.length, a.size) == shape)
+
+
 #: How much embiggening may grow a lossy album's files (#872). On lossy audio
 #: #479's cost is real, so a larger front goes into the tracks only while it
 #: stays small beside them: about 800 KB per 4-minute track at 256 kbps.
@@ -1026,6 +1062,9 @@ class ArtRow:
     #: The image the row HAS was borrowed for want of the release's own front
     #: (#663): which listing it came from, `release-group` or `release`.
     borrowed_from: str | None = None
+    #: The image the row HAS was the archive's front until an editor replaced
+    #: it (#886), so it gives way to the front now as a stand-in does.
+    superseded: bool = False
     #: …and the image itself, so the row can SHOW what it would become rather
     #: than only assert it (#413). "Replaced by the album's own artwork" carries
     #: no tense — a reader cannot tell whether it already happened — and the
@@ -1191,6 +1230,9 @@ class ArtworkView:
     #: The album's stand-in covers for its release (#663), by digest, with the
     #: listing each came from.
     borrowed: Mapping[str, str] = field(default_factory=dict)
+    #: What the album carries of a front the archive has since replaced (#886),
+    #: by digest: kept for the page's archive check, as `borrowed` is.
+    superseded: frozenset[str] = frozenset()
     #: The audio facts the plan was weighed with (#872), kept for the page's
     #: archive check: its download threshold needs them as the plan does.
     lossless: bool = False
@@ -1442,6 +1484,7 @@ def summarise(
     picks: Mapping[str, EmbeddedArt] | None = None,
     candidates: Sequence[Candidate] = (),
     borrowed: Mapping[str, str] | None = None,
+    superseded: frozenset[str] = frozenset(),
     excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     audio_bytes: int | None = None,
@@ -1476,6 +1519,10 @@ def summarise(
     no front, by digest, with the listing each came from. A row carrying one
     says so. Once the archive's answer is the release's OWN front, in hand,
     those rows take it whatever it measures — it was only ever waited for.
+
+    `superseded` is what the album carries of a front the archive has since
+    replaced (#886), by digest (`superseded`). Those rows take the archive's
+    front now whatever it measures, the group's included.
     """
     readable = [(path, t) for path, t in tracks if not t.unreadable]
     taken = chosen if chosen is Source.ARCHIVE and archive is not None else None
@@ -1490,7 +1537,8 @@ def summarise(
         chosen=taken,
         choices=choices,
         picks=picks,
-        stand_ins=frozenset(borrowed or ()) if own_front is not None else frozenset(),
+        stand_ins=(frozenset(borrowed or ()) if own_front is not None else frozenset())
+        | superseded,
         excluded_archive=excluded_archive,
         folder_cover=folder_cover,
         lossless=lossless,
@@ -1586,6 +1634,9 @@ def summarise(
             borrowed_from=(borrowed or {}).get(image.digest)
             if image is not None and (own_front is None or image.digest != own_front.digest)
             else None,
+            superseded=image is not None
+            and image.digest in superseded
+            and (archive is None or image.digest != archive.digest),
             has_archive=archive is not None
             and image is not None
             and image.digest == archive.digest,
@@ -1631,6 +1682,7 @@ def summarise(
         choices=the_plan.choices,
         candidates=tuple(candidates),
         borrowed=dict(borrowed or {}),
+        superseded=superseded,
         lossless=lossless,
         audio_bytes=audio_bytes,
     )

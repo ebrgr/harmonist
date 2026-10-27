@@ -221,6 +221,11 @@
             {% if r.borrowed_from %}
             <span class="art-row__meta-plain">borrowed from {{ 'the release group' if r.borrowed_from == 'release-group' else 'another release' }}</span>
             {% endif %}
+            {# Was the archive's front until an editor replaced it (#886): it
+               gives way to the front now, whatever that measures. #}
+            {% if r.superseded %}
+            <span class="art-row__meta-plain">no longer the archive's front</span>
+            {% endif %}
             {% elif r.absent %}
             {# A folder cover the album does not have (#457, #659): the empty
                frame is the finding, and the row is there to be chosen for

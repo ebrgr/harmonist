@@ -199,6 +199,8 @@ def observe(mbid: str) -> None:
             bool(previous and previous.answer and previous.answer.from_release_group)
             != bool(answer and answer.from_release_group)
         )
+        or (previous.answer.replaced if previous and previous.answer else None)
+        != (answer.replaced if answer else None)
     ):
         _revision += 1
 
@@ -254,7 +256,10 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         local.tracks,
         local.cover,
         image,
-        stand_ins=borrowed,
+        # A replaced front gives way to whichever front the archive has now,
+        # the group's included: unlike a stand-in, it was never this release's
+        # to wait for (#886).
+        stand_ins=borrowed | _superseded(album),
         choices=choices,
         picks=picks,
         excluded_archive=artwork_watch.excluded(sc, image),
@@ -262,6 +267,20 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         lossless=local.lossless,
         audio_bytes=local.audio_bytes,
     )
+
+
+def _superseded(album: Album) -> frozenset[str]:
+    """What the album carries of a front the archive has since replaced (#886),
+    from the observation in memory."""
+    local = album.artwork_local
+    sc = album.sidecar
+    observed = _observed.get(sc.mb_release_id) if sc and sc.mb_release_id else None
+    if local is None or observed is None or observed.answer is None:
+        return frozenset()
+    carried = [a for _, a in local.tracks if a is not None]
+    if local.cover is not None:
+        carried.append(local.cover.image)
+    return artwork.superseded(observed.answer.replaced, carried)
 
 
 def reviews(op: artwork.Operation, review_from: ArtworkReviewFrom) -> bool:
@@ -478,7 +497,8 @@ def _carried(album: Album, digest: str) -> formats.EmbeddedArt | None:
 def threshold(album: Album) -> int | None:
     """Width a candidate must exceed to be useful; -1 means any image.
 
-    A stand-in gives way regardless of dimensions. Missing images can also
+    A stand-in gives way regardless of dimensions, and so does a front the
+    archive has since replaced (#886). Missing images can also
     take an unmeasurable candidate. Existing embedded art needs enlarging only
     on an album with no folder cover (#872): always if it's lossless, and if
     it's lossy, while that grows it little. The archive's byte size is known
@@ -492,7 +512,7 @@ def threshold(album: Album) -> int | None:
         if sc
         else frozenset()
     )
-    return download_threshold(local, borrowed)
+    return download_threshold(local, borrowed | _superseded(album))
 
 
 def download_threshold(local: LocalArtwork | None, borrowed: frozenset[str]) -> int | None:
@@ -583,6 +603,19 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
                 release_group_mbid=group if isinstance(group, str) else None,
                 keep_if_wider_than=width,
             )
+            # The check was sized by what the albums carried before it learnt
+            # one of those images is a front the archive has replaced (#886).
+            # Its successor wins whatever it measures, so it is fetched now,
+            # one image, rather than a whole check later.
+            observe(mbid)
+            wanted = min((w for a in groups[mbid] if (w := threshold(a)) is not None), default=None)
+            answer = caa_cache.stored(mbid)
+            if (
+                wanted != width
+                and answer is not None
+                and (url := cover_art.unfetched_winner(mbid, answer, wanted))
+            ):
+                cover_art.fetch_image(mbid, url)
         except cover_art.CoverArtError, mb_lookup.MBError:
             _failures.failed()
             # Kept out of the Activity feed (`_diagnostic`, see `_Failures`);

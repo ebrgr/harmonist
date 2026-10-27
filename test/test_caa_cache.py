@@ -370,3 +370,88 @@ def test_a_listing_that_could_not_be_asked_stores_nothing(monkeypatch):
         caa_cache.listing("release", MBID)
 
     assert caa_cache.stored_listing("release", MBID) is None
+
+
+# ---------------------------------------------------------------------------
+# The front a refresh replaced (#886)
+# ---------------------------------------------------------------------------
+
+OLD = "https://caa.example/old.jpg"
+
+
+def _answer(**kw) -> activity_store.CachedCoverArt:
+    return activity_store.CachedCoverArt(fetched_at=datetime.now(UTC), **kw)
+
+
+def test_a_refresh_that_changes_the_front_keeps_the_one_it_replaced(monkeypatch):
+    """The whole of #886's cache side: the old front's identity and
+    fingerprint outlive the refresh that retired it, so a plan built later can
+    still ask whether an album carries it."""
+    monkeypatch.setattr(cover_art, "check_front", _Counter())
+    _stored(
+        timedelta(days=8), image_url=OLD, width=1200, height=1200, length=240690, digest="d-old"
+    )
+
+    answer = caa_cache.front(MBID)
+
+    assert answer.image_url == "https://caa.example/front.jpg"
+    assert answer.replaced == activity_store.ReplacedFront(
+        image_url=OLD, digest="d-old", width=1200, height=1200, length=240690
+    )
+    assert activity_store.cached_cover_art(MBID).replaced == answer.replaced
+
+
+def test_a_front_removed_without_a_successor_is_still_a_replacement(monkeypatch):
+    """A release left with no front at all: the plan falls back to the group
+    and other releases, but only if it knows the old front went."""
+    monkeypatch.setattr(cover_art, "check_front", _Counter(_answer()))
+    _stored(timedelta(days=8), image_url=OLD, width=1200, height=1200, length=240690)
+
+    answer = caa_cache.front(MBID)
+
+    assert not answer.has_art
+    assert answer.replaced is not None
+    assert answer.replaced.image_url == OLD
+
+
+def test_an_unchanged_front_carries_the_earlier_replacement_forward(monkeypatch):
+    """The record lasts until the NEXT change, not the next check: the TTL
+    re-asks weekly, and a weekly 304 must not forget what the album may still
+    carry."""
+    earlier = activity_store.ReplacedFront(image_url=OLD, digest="d-old")
+    current = "https://caa.example/front.jpg"
+    monkeypatch.setattr(cover_art, "check_front", _Counter(_answer(image_url=current)))
+    _stored(timedelta(days=8), image_url=current, replaced=earlier)
+
+    assert caa_cache.front(MBID).replaced == earlier
+
+
+def test_an_old_front_without_a_recorded_digest_is_hashed_from_the_cache(monkeypatch, tmp_path):
+    """Rows written before #886 have no digest. The image cache may still hold
+    the old front's bytes, and the refresh is about to retire them — so they
+    are hashed first, or the exact comparison is lost for good."""
+    from harmonist import images
+
+    cover_art.configure_cache(tmp_path / "caa")
+    try:
+        cover_art.cache_image(MBID, b"old front bytes", "image/jpeg")
+        monkeypatch.setattr(cover_art, "check_front", _Counter())
+        _stored(timedelta(days=8), image_url=OLD, width=1200, height=1200, length=15)
+
+        answer = caa_cache.front(MBID)
+    finally:
+        cover_art.configure_cache(None)
+
+    assert answer.replaced is not None
+    assert answer.replaced.digest == images.digest(b"old front bytes")
+
+
+def test_a_narrower_question_is_not_a_change_of_front(monkeypatch):
+    """A sibling review asks about the release alone (`release_only`). A group
+    front it doesn't see has not been replaced, only not asked about."""
+    monkeypatch.setattr(cover_art, "check_front", _Counter(_answer()))
+    _stored(timedelta(days=8), image_url=OLD, source="release-group")
+
+    answer = caa_cache.front(MBID, release_only=True, max_age=caa_cache.FRESH)
+
+    assert answer.replaced is None

@@ -11840,6 +11840,75 @@ def test_keeping_a_stand_in_is_the_users_to_say(client, cfg):
     assert "borrowed from the release group" in kept
 
 
+def test_a_replaced_front_gives_way_on_the_album_page(client, cfg):
+    """The album carries what was the release's front until an editor replaced
+    it (#886): the page offers the front now, though it is smaller, and the
+    row says why."""
+    from harmonist import formats, images
+    from test.test_artwork import png_bytes
+
+    old = png_bytes(900, 900) + b"\x01"
+    new = png_bytes(200, 200) + b"\x03"
+    d = _release_backed_album_with_art(
+        cfg, "Replaced", _BORROW_MBID, covers=[old, old], folder=None
+    )
+    aid = _id_for(cfg, d)
+    _gains_its_own_front(new)
+    assert "no longer the archive's front" not in client.get(f"/album/{aid}/artwork").text
+    answer = activity_store.cached_cover_art(_BORROW_MBID)
+    assert answer is not None
+    activity_store.store_cover_art(
+        _BORROW_MBID,
+        replace(
+            answer,
+            replaced=activity_store.ReplacedFront(
+                f"https://coverartarchive.org/release/{_BORROW_MBID}/1.png", images.digest(old)
+            ),
+        ),
+    )
+
+    page = client.get(f"/album/{aid}/artwork").text
+
+    assert "no longer the archive's front" in page
+    _apply_shown(client, aid, page)
+    for track in ("01 Track.m4a", "02 Track.m4a"):
+        art = formats.read_cover(d / track)
+        assert art is not None and art[0] == new
+
+
+def test_a_replaced_front_sends_the_page_for_its_successor_however_small(client, cfg):
+    """As for a stand-in: the successor wins whatever it measures, so the page
+    fetches it (#886)."""
+    from harmonist import images
+    from test.test_artwork import png_bytes
+
+    old = png_bytes(900, 900) + b"\x01"
+    d = _release_backed_album_with_art(
+        cfg, "Replaced", _BORROW_MBID, covers=[old, old], folder=None
+    )
+    aid = _id_for(cfg, d)
+    _listed(_BORROW_MBID, ("2", _OWN_URL, True))
+    smaller = activity_store.CachedCoverArt(
+        fetched_at=datetime.now(UTC), image_url=_OWN_URL, width=200, height=200
+    )
+    activity_store.store_cover_art(_BORROW_MBID, smaller)
+    assert f'hx-get="/album/{aid}/artwork?check=1' not in client.get(f"/album/{aid}/artwork").text
+
+    activity_store.store_cover_art(
+        _BORROW_MBID,
+        replace(
+            smaller,
+            replaced=activity_store.ReplacedFront(
+                f"https://coverartarchive.org/release/{_BORROW_MBID}/1.png", images.digest(old)
+            ),
+        ),
+    )
+
+    page = client.get(f"/album/{aid}/artwork").text
+
+    assert f'hx-get="/album/{aid}/artwork?check=1' in page
+
+
 def test_a_rematch_lapses_a_stand_in(client, cfg):
     """A stand-in is for one release: matched to another, the album's record
     says nothing about it (#663)."""
