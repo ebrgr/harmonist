@@ -3,12 +3,42 @@
 
 import hashlib
 import sqlite3
+from zoneinfo import ZoneInfo
 
 import pytest
+from bs4 import BeautifulSoup, Tag
 
 from harmonist import activity_store, artist_nfo, artist_nfo_edit
 from test.test_artist_nfo_edit import local_nfo  # noqa: F401
-from test.test_artist_web import ALICE, BOB, artist_client  # noqa: F401
+from test.test_artist_web import ALICE, BOB, RELEASE, artist_client  # noqa: F401
+from test.test_web import zone  # noqa: F401
+
+
+@pytest.mark.parametrize("path", [f"/artist/{ALICE}", f"/album/{RELEASE}"])
+def test_shared_history_shows_local_time_and_preserves_the_utc_instant(artist_client, zone, path):
+    client, _cfg, network = artist_client
+    zone("America/New_York")
+    activity_store.append(
+        message="Metadata reviewed",
+        level=activity_store.Level.INFO,
+        source=activity_store.Source.ACTIVITY,
+        album_id=RELEASE,
+        artist_id=ALICE,
+    )
+    event = next(
+        e for e in activity_store.artist_history(ALICE) if e.message == "Metadata reviewed"
+    )
+    local = event.ts.astimezone(ZoneInfo("America/New_York"))
+    body = BeautifulSoup(client.get(path).text, "html.parser")
+    row = next(
+        row for row in body.select(".album-history li") if "Metadata reviewed" in row.get_text()
+    )
+    stamp = row.find("time")
+    assert isinstance(stamp, Tag)
+    assert stamp.get_text(strip=True) == f"{local:%Y-%m-%d %H:%M}"
+    assert stamp["datetime"] == event.ts.isoformat()
+    assert stamp["title"] == f"{local:%Y-%m-%d %H:%M:%S %Z} ({event.ts:%H:%M:%S} UTC)"
+    network.assert_not_called()
 
 
 def test_upgrade_adds_artist_history_without_changing_existing_records(tmp_path):
