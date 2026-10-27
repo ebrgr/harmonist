@@ -112,7 +112,11 @@ from harmonist.models import (
 from harmonist.tagger import PicardCompatibleTagger, Tagger, tagsets_for
 from harmonist.transforms import NO_CHOICES, TaggingChoices, TagTransform
 from harmonist.web import dir_watcher, periodic
-from harmonist.web.reconcile_runner import ReconcileRunner, reconcile_pending_orphans
+from harmonist.web.reconcile_runner import (
+    ReconcileRunner,
+    reconcile_pending_orphans,
+    wrote_anything,
+)
 from harmonist.web.scan_runner import ScanRunner
 from harmonist.web.security import BasicAuthMiddleware, CSRFMiddleware
 from harmonist.web.sync_runner import AlreadyRunningError, SyncRunner
@@ -808,15 +812,24 @@ def create_app(
         # work + a second copy of the snapshot in RAM). Fall back to an internal
         # scan only if the background scanner hasn't produced one yet.
         snapshot = scan_runner.albums() if scan_runner.has_completed() else None
-        reconcile_pending_orphans(
-            cfg.paths.music_dir,
-            fetch_urls=mb_cache.fetch_release_urls,
-            fetch_video_media=mb_lookup.fetch_video_media,
-            status_updater=status_updater,
-            exempt_paths=forgotten_paths,
-            albums=snapshot,
-        )
-        scan_runner.request_scan()  # sidecars written → refresh the snapshot
+        try:
+            stats = reconcile_pending_orphans(
+                cfg.paths.music_dir,
+                fetch_urls=mb_cache.fetch_release_urls,
+                fetch_video_media=mb_lookup.fetch_video_media,
+                status_updater=status_updater,
+                exempt_paths=forgotten_paths,
+                albums=snapshot,
+            )
+        except Exception:
+            # Died partway: whatever it wrote before then is unknown, so refresh.
+            scan_runner.request_scan()
+            raise
+        # Only when it wrote (#891): a pass that changed nothing on disk has the
+        # snapshot it started from, and rescanning walks the whole library to
+        # find that out — after every startup and every sync.
+        if wrote_anything(stats):
+            scan_runner.request_scan()  # sidecars written → refresh the snapshot
 
     reconcile_runner = ReconcileRunner(runner_fn=reconcile_runner_fn)
 

@@ -260,10 +260,6 @@ def reconcile_pending_orphans(
         status_updater(total=total)
     _report()  # publish the base (all-zero deltas) before the first album
 
-    # Split releases (#16), BEFORE the early return below: a release filed as
-    # per-disc directories is made of COMPLETE albums, not of the orphans this
-    # pass otherwise exists for, so gating it on `total` would mean it only ever
-    # ran on a library that also happened to have something new in it.
     # Video-only media (#206), before the early return: the albums this applies
     # to are terminal Library albums missing a whole disc, not orphans.
     video_checked = (
@@ -398,6 +394,29 @@ def reconcile_pending_orphans(
         "skipped": skipped,
         "errors": errors,
     }
+
+
+#: The counts in `reconcile_pending_orphans`' result that each stand for a
+#: sidecar written. Every write the pass makes is one of these; a step added to
+#: the pass that writes without counting here leaves the snapshot stale.
+_WRITE_COUNTS = (
+    "reconciled_bandcamp",
+    "reconciled_manual",
+    "recovered_url",
+    "adopted",
+    "video_checked",
+    "adopted_external",
+)
+
+
+def wrote_anything(stats: dict[str, int]) -> bool:
+    """True when a pass with these results changed a sidecar on disk (#891).
+
+    `errors` is deliberately not among them: `sidecar.write` is the last thing
+    each step does, it is atomic, and what it does after the rename is
+    best-effort bookkeeping — so an album that failed was not written.
+    """
+    return any(stats[key] for key in _WRITE_COUNTS)
 
 
 def _record_video_media(

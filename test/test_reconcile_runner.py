@@ -237,6 +237,16 @@ def test_reconcile_reuses_snapshot_without_rescanning(tmp_path, monkeypatch):
     assert stats["reconciled_manual"] == 1  # reconciled from the snapshot, no scan
 
 
+def test_every_count_is_classed_as_a_write_or_not(tmp_path):
+    """#891: the runner rescans only when a write count is non-zero, so a count
+    added to the result must be placed on one side or the other. Forgetting to
+    list a new kind of write would leave the snapshot stale after it."""
+    from harmonist.web.reconcile_runner import _WRITE_COUNTS
+
+    stats = reconcile_pending_orphans(tmp_path, fetch_urls=lambda mbid: [], albums=[])
+    assert set(stats) == {*_WRITE_COUNTS, "total", "skipped", "errors"}
+
+
 def test_reconcile_reports_live_inbox_library_counts(tmp_path):
     """As it files each orphan, reconcile reports live counts = base (0 here,
     all orphans) + the running tallies: → Library, → Needs Linking, → stuck New."""
@@ -333,6 +343,56 @@ def test_manual_post_reconcile_starts_runner(client, tmp_path):
     r = client.post("/reconcile")
     assert r.status_code == 200
     assert "Reconcile started" in r.text or "already running" in r.text
+
+
+def _count_scans(client, monkeypatch) -> list[int]:
+    """Collect one entry per rescan requested, with MusicBrainz stubbed out."""
+    from harmonist import mb_cache, mb_lookup
+
+    monkeypatch.setattr(mb_cache, "fetch_release_urls", lambda mbid: [])
+    monkeypatch.setattr(mb_lookup, "fetch_video_media", lambda mbid: ())
+    scans: list[int] = []
+    monkeypatch.setattr(client.app.state.scan_runner, "request_scan", lambda: scans.append(1))
+    return scans
+
+
+def _run_pass(client) -> None:
+    """One reconcile pass, in this thread, exactly as the runner would run it."""
+    client.app.state.reconcile_runner._runner_fn(lambda **kw: None)
+
+
+def test_pass_that_wrote_nothing_does_not_rescan(client, tmp_path, monkeypatch):
+    """#891: an untagged album gives reconcile nothing to write, so the snapshot
+    is already right — rescanning walks and stats the whole library for nothing."""
+    d = _make_album(tmp_path / "music", "Untagged")
+    scans = _count_scans(client, monkeypatch)
+    _run_pass(client)
+    assert not sc.has_sidecar(d)  # the pass really did write nothing...
+    assert scans == []  # ...so the snapshot was left alone
+
+
+def test_pass_that_wrote_a_sidecar_rescans(client, tmp_path, monkeypatch):
+    """The counterpart: a sidecar written means the snapshot is stale."""
+    d = _make_album(tmp_path / "music", "Tagged", mbid="rel-1")
+    scans = _count_scans(client, monkeypatch)
+    _run_pass(client)
+    assert sc.has_sidecar(d)
+    assert scans == [1]
+
+
+def test_pass_that_dies_partway_still_rescans(client, monkeypatch):
+    """A pass that raises returns no counts, so what it wrote before dying is
+    unknown — the snapshot is refreshed rather than left stale on a guess."""
+    from harmonist.web import main
+
+    def dies(*args, **kwargs):
+        raise RuntimeError("mid-pass")
+
+    monkeypatch.setattr(main, "reconcile_pending_orphans", dies)
+    scans = _count_scans(client, monkeypatch)
+    with pytest.raises(RuntimeError, match="mid-pass"):
+        _run_pass(client)
+    assert scans == [1]
 
 
 def test_post_reconcile_returns_warning_when_in_debounce(client, monkeypatch):

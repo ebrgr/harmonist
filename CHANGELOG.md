@@ -58,6 +58,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Fixed
 
+- **Startup and sync no longer scan the library a second time** when there was
+  nothing new to sort into it (#891).
 - **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with
   a link to the purchase, even when its files have lost Bandcamp's comment (#867).
 
