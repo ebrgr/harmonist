@@ -55,10 +55,17 @@ def stores(tags: ProvenanceTags) -> frozenset[Origin]:
     return frozenset(found)
 
 
+def _linked_purchase(album: Album) -> bool:
+    """The album is linked to a Bandcamp purchase in the owner's collection —
+    one, or several it could be, every one of them a Bandcamp purchase."""
+    bc = album.sidecar.bandcamp if album.sidecar is not None else None
+    return bc is not None and (bc.item_id is not None or bool(bc.candidate_item_ids))
+
+
 def _evidence(album: Album) -> frozenset[Origin]:
-    """Every origin some file's tags point to."""
+    """Every origin the files' tags or a linked purchase point to."""
     found = set(album.download_stores)
-    if album.bandcamp_comment_urls:
+    if album.bandcamp_comment_urls or _linked_purchase(album):
         found.add(Origin.BANDCAMP)
     if album.ripped:
         found.add(Origin.CD)
@@ -70,10 +77,11 @@ def _harmonist_download(album: Album) -> bool:
 
 
 def origin(album: Album) -> Origin:
-    """The owner's choice, otherwise Harmonist's download record or tag evidence.
+    """The owner's choice, otherwise Harmonist's download record, or the
+    evidence of the tags and a linked purchase.
 
-    Without a choice or download record, conflicting or absent tag evidence
-    means Unknown."""
+    Without a choice or download record, conflicting or absent evidence means
+    Unknown."""
     if album.sidecar is not None and album.sidecar.origin_override is not None:
         return album.sidecar.origin_override
     if _harmonist_download(album):
@@ -90,6 +98,8 @@ def _why(album: Album, found: Origin) -> str:
         return "You selected this origin."
     if found is Origin.BANDCAMP and _harmonist_download(album):
         return "Harmonist downloaded it from Bandcamp."
+    if found is Origin.BANDCAMP and not album.bandcamp_comment_urls:
+        return "It's linked to your Bandcamp purchase."
     if found is Origin.UNKNOWN:
         if _evidence(album):
             return "Its tags point to more than one origin."

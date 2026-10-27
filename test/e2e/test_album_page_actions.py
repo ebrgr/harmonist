@@ -53,7 +53,8 @@ def test_dismissed_suggestion_returns_to_selectable_store_results(
         dismiss.click()
     playwright_sync.expect(tools).to_be_visible()
     playwright_sync.expect(tools.get_by_role("radio", name="By name", exact=True)).to_be_visible()
-    playwright_sync.expect(tools.locator('input[name="mbid"]')).to_be_visible()
+    # Pasting an MBID is the cluster's last mode (#880), behind its radio.
+    playwright_sync.expect(tools.get_by_role("radio", name="By MBID", exact=True)).to_be_visible()
     # Polling must neither hide the tools again nor re-suggest the rejected release.
     if not on_album:
         with page.expect_response(lambda r: r.url.endswith("/tasks")):

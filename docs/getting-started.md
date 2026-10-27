@@ -22,8 +22,8 @@ and NAS boxes) and `linux/arm64` (including Raspberry Pi with a 64-bit OS).
 Docker selects the matching image automatically; no `--platform` option is
 needed. A 32-bit ARM OS is not supported by the published images.
 
-Save this as `docker-compose.yml`, change the two host paths and the `user:`
-line, and run `docker compose up -d`:
+Save this as `docker-compose.yml`, change the two host paths, the `user:` line
+and `TZ`, and run `docker compose up -d`:
 
 ```yaml
 services:
@@ -37,6 +37,8 @@ services:
       - /path/to/music:/music     # your music library
       - /path/to/config:/config   # Harmonist's settings and history
     user: "1000:1000"             # the owner of the two folders above
+    environment:
+      - TZ=Europe/London          # your timezone, for the times Harmonist shows
 ```
 
 Then open `http://<your-server>:8000`.

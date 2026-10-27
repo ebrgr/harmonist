@@ -1175,6 +1175,27 @@ button.library-update-option:focus-visible { background: var(--color-surface); c
    taking something away. */
 .tag-fields__removed { font-weight: 600; }
 
+/* A track's changes to the tags with no column (#863): label and value pairs
+   run along one line under the row, wrapping as a line of text does. Labelled
+   as the band under the table labels its rows, a size down, since they sit
+   among the tracks. */
+.track-diff__overflow dl {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.25rem;
+  row-gap: .15rem;
+  font-size: .8em;
+}
+.track-diff__overflow dl > div { display: inline-flex; align-items: baseline; gap: .4rem; }
+.track-diff__overflow dt {
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--color-muted);
+  font-weight: 700;
+}
+.track-diff__overflow dd { margin: 0; }
+
 .track-diff__absent,
 .track-diff__unreadable { font-style: italic; }
 .track-diff__absent { color: var(--color-muted); }

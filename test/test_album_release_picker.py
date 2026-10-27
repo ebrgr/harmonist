@@ -71,9 +71,6 @@ def test_siblings_use_shared_rows_and_one_browse(client, cfg, monkeypatch):
     assert calls == ["group"]
     soup = BeautifulSoup(response.text, "html.parser")
     assert len(soup.select('[role="listitem"]')) == 2
-    assert all(
-        form.select_one('[name="review_only"][value="true"]') for form in soup.select("form")
-    )
     assert (
         soup.select_one(f'#release-revert-{aid}[hx-swap-oob="innerHTML"] button').get_text()
         == "Revert to Previous"

@@ -13,8 +13,50 @@ pw = pytest.importorskip("playwright.sync_api")
 @pytest.fixture(scope="module")
 def artists_server(tmp_path_factory):
     yield from _run_demo_server(
-        tmp_path_factory.mktemp("artists"), app_module="test.e2e.artists_app:app"
+        tmp_path_factory.mktemp("artists"),
+        app_module="test.e2e.artists_app:app",
+        config_toml="[ui]\nshow_artists = true\n",
     )
+
+
+@pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
+def test_library_artist_links_survive_htmx_and_return_to_the_original_view(
+    browser_factory, artists_server, htmx_ready, engine, width
+):
+    page = browser_factory(engine).new_page(viewport={"width": width, "height": 900})
+    page.goto(artists_server + "/?tab=library&page=1&limit=1&filter=codec-alac&q=alice")
+    panel = page.locator("#panel-library")
+    with page.expect_response(lambda r: "/library?" in r.url and r.ok):
+        htmx_ready(panel.get_by_role("link", name="Next →", exact=True).first).click()
+    pw.expect(panel.locator("#library-page")).to_have_attribute("data-page", "2")
+    origin = page.url
+    artist_link = panel.get_by_role("link", name="Álice", exact=True)
+    pw.expect(artist_link).to_be_visible()
+    # The cover/title still opens the album independently of the artist row.
+    with page.expect_navigation():
+        panel.locator(".lib-tile a[id^='lib-']").click()
+    assert "/album/" in page.url
+    page.go_back()
+    pw.expect(page).to_have_url(origin)
+    with page.expect_navigation():
+        artist_link.click()
+    pw.expect(page.get_by_role("heading", name="Álice", exact=True)).to_be_visible()
+    pw.expect(page.get_by_role("link", name="← Back to library", exact=True)).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    with page.expect_navigation():
+        page.locator(".lib-tile a[id^='lib-']").first.click()
+    with page.expect_navigation():
+        page.get_by_role("link", name="← Back to artist", exact=True).click()
+    with page.expect_navigation():
+        page.get_by_role("link", name="← Back to library", exact=True).click()
+    pw.expect(page).to_have_url(origin)
+    pw.expect(panel.locator("#library-page")).to_have_attribute("data-page", "2")
+    pw.expect(panel.get_by_role("searchbox", name="Search the library")).to_have_value("alice")
+    artist_link.focus()
+    with page.expect_navigation():
+        artist_link.press("Enter")
+    pw.expect(page.get_by_role("heading", name="Álice", exact=True)).to_be_visible()
+    page.context.close()
 
 
 @pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])

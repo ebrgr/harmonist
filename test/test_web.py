@@ -7,9 +7,11 @@ templates render without crashing for each AlbumState.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
+import time
 import zipfile
 from collections.abc import Sequence
 from dataclasses import replace
@@ -17,12 +19,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 from mutagen.mp4 import MP4
 
-from harmonist import activity, activity_store, artwork, mb_lookup
+from harmonist import activity, activity_store, artwork, mb_lookup, mb_search
 from harmonist import sidecar as sc
 from harmonist.activity_store import Level, Source
 from harmonist.config import (
@@ -283,7 +286,9 @@ def test_consolidated_status_endpoint(client):
         "pending",
         "artwork_revision",
         "progress",
+        "ui",
     }
+    assert body["ui"] == {"show_artists": False}
     assert body["sync"]["state"] == "idle"
     assert body["reconcile"]["state"] == "idle"
     assert "state" in body["scan"]
@@ -465,7 +470,7 @@ def test_new_card_untagged_offers_search_no_reconcile(client, cfg):
     # tools — no per-card blurb, and no (useless here) "Reconcile from tags".
     assert "need a MusicBrainz release" in r.text
     assert "Reconcile from tags" not in r.text
-    assert "Assign &amp; Tag" in r.text or "Assign & Tag" in r.text
+    assert "MB release URL or 36-char MBID" in r.text  # the paste box
 
 
 def test_new_card_tagged_orphan_offers_reconcile(client, cfg):
@@ -1501,12 +1506,17 @@ def test_404_for_missing_album(client):
 # ---------- manual ingest flow ----------
 
 
+def _searched(*rows: dict[str, object]) -> tuple[list[dict[str, object]], int]:
+    """A complete `mb_search.search_releases` answer: every match returned."""
+    return list(rows), len(rows)
+
+
 def test_manual_search_returns_results(client, cfg, monkeypatch):
     d = _make_album(cfg, "Search Album")
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {
                 "id": "rel-1",
                 "title": "Result A",
@@ -1529,7 +1539,7 @@ def test_manual_search_returns_results(client, cfg, monkeypatch):
                 "label": None,
                 "catalog_number": None,
             },
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert r.status_code == 200
@@ -1552,28 +1562,72 @@ def test_manual_search_no_strikethrough_on_track_count_match(client, cfg, monkey
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {"id": "rel-9", "title": "Exactly One", "artist": "X", "track_count": 1}
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert "rel-9" in r.text
     assert "line-through" not in r.text
 
 
-def test_manual_search_caps_results_at_five(client, cfg, monkeypatch):
-    """The route requests at most 5 from MB — beyond that, MB's own search."""
+def test_manual_search_caps_results_at_fifteen(client, cfg, monkeypatch):
+    """The route requests at most 15 from MB — beyond that, MB's own search."""
     seen = {}
 
     def fake_search(artist, title, limit=10):
         seen["limit"] = limit
-        return []
+        return [], 0
 
     monkeypatch.setattr("harmonist.mb_search.search_releases", fake_search)
     d = _make_album(cfg, "CapSearch")
     aid = _id_for(cfg, d)
     client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
-    assert seen["limit"] == 5
+    assert seen["limit"] == 15
+
+
+def _search_rows(n: int) -> list[dict[str, object]]:
+    return [{"id": f"rel-{i}", "title": f"T{i}", "artist": "X", "track_count": 1} for i in range(n)]
+
+
+def test_truncated_manual_search_ends_with_the_search_on_musicbrainz(client, cfg, monkeypatch):
+    """When MB found more than it returned, the list says so and its last entry
+    opens the same query on musicbrainz.org (#878)."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from bs4 import BeautifulSoup
+
+    monkeypatch.setattr(
+        "harmonist.mb_search.search_releases",
+        lambda artist, title, limit=10: (_search_rows(15), 42),
+    )
+    d = _make_album(cfg, "Truncated")
+    aid = _id_for(cfg, d)
+    r = client.post(
+        f"/manual/{aid}/search", data={"artist": "Various Artists", "title": 'WARP 10+3 "Remixes"'}
+    )
+    soup = BeautifulSoup(r.text, "html.parser")
+    region = soup.select_one('[role="region"]')
+    assert region is not None
+    link = region.select_one('a[href^="https://musicbrainz.org/search"]')
+    assert link is not None
+    assert "15 of 42" in region.get_text(" ", strip=True)
+    query = parse_qs(urlsplit(str(link["href"])).query)
+    assert query["type"] == ["release"]
+    assert query["method"] == ["advanced"]
+    assert query["query"] == [mb_search.release_query("Various Artists", 'WARP 10+3 "Remixes"')]
+
+
+def test_complete_manual_search_has_no_musicbrainz_search_link(client, cfg, monkeypatch):
+    monkeypatch.setattr(
+        "harmonist.mb_search.search_releases",
+        lambda artist, title, limit=10: _searched(*_search_rows(3)),
+    )
+    d = _make_album(cfg, "Complete")
+    aid = _id_for(cfg, d)
+    r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
+    assert "rel-2" in r.text
+    assert "musicbrainz.org/search" not in r.text
 
 
 def test_manual_search_empty_results(client, cfg, monkeypatch):
@@ -1581,7 +1635,7 @@ def test_manual_search_empty_results(client, cfg, monkeypatch):
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [],
+        lambda artist, title, limit=10: _searched(),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert r.status_code == 200
@@ -1634,9 +1688,9 @@ def test_manual_search_results_carry_heading(client, cfg, monkeypatch):
     aid = _id_for(cfg, d)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda artist, title, limit=10: [
+        lambda artist, title, limit=10: _searched(
             {"id": "rel-h", "title": "H", "artist": "X", "track_count": 1}
-        ],
+        ),
     )
     r = client.post(f"/manual/{aid}/search", data={"artist": "X", "title": "Y"})
     assert "MusicBrainz search results" in r.text
@@ -1672,7 +1726,7 @@ def test_name_search_use_reviews_before_writing_and_confirms_without_refetching(
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "harmonist.mb_search.search_releases",
-        lambda *args, **kwargs: [mb_lookup.release_summary(release)],
+        lambda *args, **kwargs: _searched(mb_lookup.release_summary(release)),
     )
     search = client.post(
         f"/manual/{aid}/search",
@@ -1884,7 +1938,7 @@ def test_manual_assign_with_full_url(client, cfg, monkeypatch):
     assert captured["mbid"] == "abc12345-1234-1234-1234-1234567890ab"
     loaded = sc.read(d)
     assert loaded.store_url is None
-    assert loaded.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
+    assert loaded.mb_match_candidate.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
 
 
 def test_manual_assign_with_bare_mbid(client, cfg, monkeypatch):
@@ -1903,10 +1957,27 @@ def test_manual_assign_with_bare_mbid(client, cfg, monkeypatch):
     )
     assert r.status_code == 200
     loaded = sc.read(d)
-    assert loaded.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
+    assert loaded.mb_match_candidate.mb_release_id == "abc12345-1234-1234-1234-1234567890ab"
 
 
 _ASSIGN_MBID = "abc12345-1234-1234-1234-1234567890ab"
+
+
+def _paste_and_confirm(client, aid: str, mbid: str = _ASSIGN_MBID):
+    """Paste `mbid`, then confirm the suggestion it opens (#880) — the way a
+    pasted release now gets tagged. Returns the confirm response."""
+    from bs4 import BeautifulSoup
+
+    pasted = client.post(f"/manual/{aid}/assign", data={"mbid": mbid})
+    assert pasted.status_code == 200
+    review = client.get(f"/assignments/{aid}", params={"cancel": "true"})
+    confirm = BeautifulSoup(review.text, "html.parser").select_one(
+        f'button[hx-post="/confirm/{aid}/accept"]'
+    )
+    assert confirm is not None, review.text
+    form = confirm.find_parent("form")
+    payload = {field["name"]: field.get("value", "") for field in form.select("input[name]")}
+    return client.post(confirm["hx-post"], data=payload)
 
 
 def _state_of(cfg, album_dir):
@@ -1935,36 +2006,16 @@ def test_manual_assign_derives_store_url_from_embedded_comment(client, cfg, monk
 
     monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", no_urls)
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     assert sc.read(d).store_url == "https://artist.bandcamp.com/album/x"
     assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
 
 
-def test_manual_assign_falls_back_to_mb_url_when_comment_is_root(client, cfg, monkeypatch):
-    """Artist-root ©cmt + MB has a Bandcamp url-rel → MB's canonical URL recorded."""
-    from harmonist.models import AlbumState
-
-    d = _make_album(cfg, "RootURL", comment="Visit https://artist.bandcamp.com")
-    aid = _id_for(cfg, d)
-    monkeypatch.setattr(
-        "harmonist.mb_lookup.fetch_release", lambda m: _release_for_match(m, n_tracks=1)
-    )
-    monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
-    monkeypatch.setattr(
-        "harmonist.mb_lookup.fetch_release_urls",
-        lambda _m: ["https://artist.bandcamp.com/album/canonical"],
-    )
-
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
-    assert r.status_code == 200
-    assert sc.read(d).store_url == "https://artist.bandcamp.com/album/canonical"
-    assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
-
-
-def test_manual_assign_uses_artist_root_placeholder_when_no_mb_url(client, cfg, monkeypatch):
-    """Artist-root ©cmt + MB has no Bandcamp url-rel → keep the artist-root as a
-    placeholder store_url so it's still recognised as a Bandcamp purchase."""
+def test_manual_assign_uses_artist_root_placeholder_without_asking_mb(client, cfg, monkeypatch):
+    """Artist-root ©cmt → keep the artist-root as a placeholder store_url so it's
+    still recognised as a Bandcamp purchase. Confirming a review never fetches
+    (#532), so MB's url-rels aren't asked for; linking finds the album URL."""
     from harmonist.models import AlbumState
 
     d = _make_album(cfg, "Placeholder", comment="Visit https://artist.bandcamp.com")
@@ -1973,9 +2024,13 @@ def test_manual_assign_uses_artist_root_placeholder_when_no_mb_url(client, cfg, 
         "harmonist.mb_lookup.fetch_release", lambda m: _release_for_match(m, n_tracks=1)
     )
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
-    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", lambda _m: [])
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    def no_urls(_m):
+        raise AssertionError("a reviewed release must not fetch its url-rels")
+
+    monkeypatch.setattr("harmonist.mb_lookup.fetch_release_urls", no_urls)
+
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     assert sc.read(d).store_url == "https://artist.bandcamp.com"
     assert _state_of(cfg, d) == AlbumState.NEEDS_SYNC
@@ -1995,7 +2050,7 @@ def test_manual_assign_store_url_derivation_error_is_swallowed(client, cfg, monk
 
     monkeypatch.setattr("harmonist.reconcile.store_url_for_tagging", boom)
 
-    r = client.post(f"/manual/{aid}/assign", data={"mbid": _ASSIGN_MBID})
+    r = _paste_and_confirm(client, aid)
     assert r.status_code == 200
     loaded = sc.read(d)
     assert loaded.mb_release_id == _ASSIGN_MBID  # tagged despite the derivation error
@@ -2013,26 +2068,42 @@ def test_manual_assign_invalid_input(client, cfg):
     assert not sc.has_sidecar(d)
 
 
-def test_manual_assign_with_approximate_match_stores_candidate(client, cfg, monkeypatch):
-    d = _make_album(cfg, "Approximate")
-    aid = _id_for(cfg, d)
+@pytest.mark.parametrize("confidence", ["exact", "approximate"])
+def test_pasted_mbid_is_suggested_for_review_however_well_it_fits(
+    client, cfg, monkeypatch, confidence
+):
+    """A pasted MBID is a choice like a search result's Use, so even an exact
+    fit opens review rather than tagging (#880)."""
+    from bs4 import BeautifulSoup
 
-    # Release with one track, but a length way off → "approximate"
+    from harmonist.models import FoundBy
+
+    d = _make_album(cfg, "Pasted")
+    audio = d / "01 Track.m4a"
+    before = audio.read_bytes()
+    aid = _id_for(cfg, d)
+    length_ms = 1000 if confidence == "exact" else 99999
     monkeypatch.setattr(
         "harmonist.mb_lookup.fetch_release",
-        lambda mbid: _release_for_match(mbid, n_tracks=1, length_ms=99999),
+        lambda mbid: _release_for_match(mbid, n_tracks=1, length_ms=length_ms),
     )
 
-    r = client.post(
-        f"/manual/{aid}/assign",
-        data={"mbid": "abc12345-1234-1234-1234-1234567890ab"},
-    )
+    # Submit the paste box as rendered, not a hand-built request.
+    card = BeautifulSoup(client.get("/tasks").text, "html.parser")
+    paste = card.select_one(f'form[hx-post="/manual/{aid}/assign"]')
+    assert paste is not None
+    assert paste.select_one('button[type="submit"]').get_text(strip=True) == "Use"
+    fields = {field["name"]: field.get("value", "") for field in paste.select("input[name]")}
+    r = client.post(paste["hx-post"], data=fields | {"mbid": _ASSIGN_MBID})
+
     assert r.status_code == 200
     assert "review and confirm" in r.text
+    assert audio.read_bytes() == before
     loaded = sc.read(d)
     assert loaded.mb_release_id is None
-    assert loaded.mb_match_candidate is not None
-    assert loaded.mb_match_candidate.confidence == "approximate"
+    assert loaded.mb_match_candidate.mb_release_id == _ASSIGN_MBID
+    assert loaded.mb_match_candidate.confidence == confidence
+    assert loaded.mb_match_candidate.found_by == FoundBy.MBID
 
 
 # ---------- URL recovery ----------
@@ -5767,6 +5838,7 @@ def test_canonical_id_change_mid_transaction(client, cfg, monkeypatch):
         ),
     )
     temp_uid = sc.read(d).temp_uid
+    assert temp_uid is not None
     mbid = "abc12345-1234-1234-1234-1234567890ab"
 
     monkeypatch.setattr(
@@ -5775,8 +5847,8 @@ def test_canonical_id_change_mid_transaction(client, cfg, monkeypatch):
     )
     monkeypatch.setattr("harmonist.cover_art.front_image", lambda *a, **kw: None)
 
-    # POST at the temp_uid URL — runs the handler, returns 200
-    r = client.post(f"/manual/{temp_uid}/assign", data={"mbid": mbid})
+    # Confirm at the temp_uid URL — runs the handler, returns 200
+    r = _paste_and_confirm(client, temp_uid, mbid)
     assert r.status_code == 200
     assert "tasks-changed" in r.headers.get("hx-trigger", "")
 
@@ -6537,6 +6609,77 @@ def test_until_rounds_remaining_time_up(offset, said):
     from harmonist.web.main import _until
 
     assert _until(datetime.now(UTC) + offset) == said
+
+
+@pytest.fixture
+def zone(monkeypatch):
+    """Run under a `TZ`, as the container does, restoring the process's zone."""
+
+    def use(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield use
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize(
+    ("tz", "at", "short", "exact"),
+    [
+        (
+            "America/New_York",
+            datetime(2026, 10, 26, 11, 15, 14, tzinfo=UTC),
+            "Oct 26 07:15",
+            "2026-10-26 07:15:14 EDT (11:15:14 UTC)",
+        ),
+        # The local date, not the UTC one, when the zone puts it on another day.
+        (
+            "America/New_York",
+            datetime(2026, 10, 26, 0, 5, 6, tzinfo=UTC),
+            "Oct 25 20:05",
+            "2026-10-25 20:05:06 EDT (00:05:06 UTC)",
+        ),
+        # A single-digit day keeps the column's width.
+        (
+            "UTC",
+            datetime(2026, 3, 5, 4, 15, 23, tzinfo=UTC),
+            "Mar \N{FIGURE SPACE}5 04:15",
+            "2026-03-05 04:15:23 UTC",
+        ),
+    ],
+)
+def test_times_are_shown_in_the_tz_zone(zone, tz, at, short, exact):
+    from harmonist.web.main import _local_stamp, _local_time
+
+    zone(tz)
+    assert _local_time(at) == short
+    assert _local_stamp(at) == exact
+
+
+def test_activity_feed_rows_carry_a_local_date(client, cfg, zone):
+    zone("America/New_York")
+    activity.clear()
+    activity.record("Sync finished")
+    ts = activity.recent()[0].ts
+    local = ts.astimezone(ZoneInfo("America/New_York"))
+
+    body = client.get("/activity").text
+    shown = f"{local:%b} {local.day:\N{FIGURE SPACE}>2} {local:%H:%M}"
+    assert re.search(rf"<time[^>]*>\s*{shown}\s*</time>", body)
+    assert f"{ts:%H:%M:%S} UTC)" in body
+
+
+def test_an_unknown_tz_is_a_warning(zone, caplog):
+    from harmonist.web.main import _check_timezone
+
+    zone("America/New_York")
+    _check_timezone()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    zone("Mars/Olympus_Mons")
+    _check_timezone()
+    assert "TZ=Mars/Olympus_Mons" in caplog.records[-1].getMessage()
+    assert caplog.records[-1].levelno == logging.WARNING
 
 
 def test_tasks_shows_scanning_placeholder_while_scanning(client, cfg, monkeypatch):
@@ -10131,15 +10274,23 @@ def test_the_outlier_popover_still_reads_as_a_plural_when_it_is_one(client, cfg,
 # ---------- Artwork section (#155) ----------
 
 
-def _album_with_art(cfg, name: str, *, covers: list[bytes | None], folder: bytes | None = None):
-    """An album whose tracks carry the given images (None = no embedded art)."""
+def _album_with_art(
+    cfg,
+    name: str,
+    *,
+    covers: list[bytes | None],
+    folder: bytes | None = None,
+    source: Path = SINE_M4A,
+):
+    """An album whose tracks carry the given images (None = no embedded art).
+    ALAC unless `source` is another `.m4a`, such as `sine-aac.m4a`."""
     from harmonist import formats
 
     d = cfg.paths.music_dir / "Artist" / name
     d.mkdir(parents=True)
     for i, cover in enumerate(covers, start=1):
         f = d / f"{i:02d} Track.m4a"
-        shutil.copy(SINE_M4A, f)
+        shutil.copy(source, f)
         # Numbered, because the Artwork section names the tracks carrying each
         # image by position — an unnumbered file can only be counted (#400).
         audio = MP4(f)
@@ -10562,6 +10713,92 @@ def test_the_page_and_the_tagger_fingerprint_one_plan_alike(client, cfg, policy)
 
     plan = tagger.decide_artwork(d, sorted(d.glob("*.m4a")), None, folder_cover=policy)
     assert _form_value(html, "art_plan") == plan.fingerprint(artwork.Scope.ADDITIONS)
+    assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [artwork.FolderCoverPolicy.NEVER, artwork.FolderCoverPolicy.IF_MISSING],
+)
+def test_the_page_and_the_tagger_agree_on_embiggening_lossless_tracks(client, cfg, policy):
+    """#872 makes whether the audio is lossless one of the plan's inputs, and
+    the two sides learn it differently: the page from the tags it read, the
+    tagger from the files. A side that missed it would plan to keep the tracks
+    while the other replaced them, and Apply would refuse every time."""
+    from harmonist import cover_art, tagger
+    from test.test_artwork import png_bytes
+
+    client.app.state.cfg.tagging.folder_cover = policy
+    small = _png_sized(1, 60)
+    # The fixture is ALAC, and there is no folder cover.
+    d = _release_backed_album_with_art(cfg, "Lossless", "rel-lossless", covers=[small, small])
+    cover_art.cache_image("rel-lossless", png_bytes(120, 120), "image/png")
+    activity_store.store_cover_art(
+        "rel-lossless",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://coverartarchive.org/release/rel-lossless/1.png",
+            width=120,
+            height=120,
+            mime="image/png",
+        ),
+    )
+
+    html = client.get(f"/album/{_id_for(cfg, d)}/artwork").text
+
+    files = sorted(d.glob("*.m4a"))
+    plan = tagger.decide_artwork(
+        d, files, None, archive=cover_art.cached_front("rel-lossless"), folder_cover=policy
+    )
+    assert plan.track_targets(artwork.Scope.ALL) == frozenset(files)
+    assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
+
+
+@pytest.mark.parametrize(("front", "embiggened"), [(120, True), (1200, False)])
+def test_the_page_and_the_tagger_agree_on_embiggening_lossy_tracks(client, cfg, front, embiggened):
+    """A lossy album embiggens while that grows its files by at most
+    `LOSSY_GROWTH` (#872), so the album's size is a plan input too, and again
+    the two sides measure it separately. Two ~16 KB AAC tracks: a 120px front
+    grows them by about 1%, a 1200px one by about 40%.
+
+    Under `IF_MISSING`, so the page has a plan to fingerprint either way: the
+    missing `cover.png` is created whether or not the tracks take the front.
+    """
+    from harmonist import cover_art, tagger
+    from test.test_artwork import png_bytes
+
+    client.app.state.cfg.tagging.folder_cover = artwork.FolderCoverPolicy.IF_MISSING
+    small = _png_sized(1, 60)
+    d = _release_backed_album_with_art(
+        cfg,
+        "Lossy",
+        "rel-lossy",
+        covers=[small, small],
+        source=SINE_M4A.parent / "sine-aac.m4a",
+    )
+    cover_art.cache_image("rel-lossy", png_bytes(front, front), "image/png")
+    activity_store.store_cover_art(
+        "rel-lossy",
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC),
+            image_url="https://coverartarchive.org/release/rel-lossy/1.png",
+            width=front,
+            height=front,
+            mime="image/png",
+        ),
+    )
+
+    html = client.get(f"/album/{_id_for(cfg, d)}/artwork").text
+
+    files = sorted(d.glob("*.m4a"))
+    plan = tagger.decide_artwork(
+        d,
+        files,
+        None,
+        archive=cover_art.cached_front("rel-lossy"),
+        folder_cover=artwork.FolderCoverPolicy.IF_MISSING,
+    )
+    assert plan.track_targets(artwork.Scope.ALL) == (frozenset(files) if embiggened else set())
     assert _form_value(html, "plan") == plan.fingerprint(artwork.Scope.ALL)
 
 
@@ -11861,6 +12098,32 @@ def test_the_archive_check_downloads_any_cover_for_an_album_with_no_art(client, 
     client.get(f"/album/{_id_for(cfg, d)}/artwork?check=1")
 
     assert seen == [-1]
+
+
+@pytest.mark.parametrize("source", ["sine.m4a", "sine-aac.m4a"], ids=["alac", "aac"])
+def test_the_archive_check_downloads_a_front_that_could_embiggen_the_tracks(
+    client, cfg, monkeypatch, source
+):
+    """With no folder cover, a larger front can replace the tracks' own image
+    (#872), so the page's check has to download one to propose it: a plan
+    proposes only an image in the cache. The page used to work out its
+    threshold without the audio's facts, and downloaded nothing, so the
+    proposal never appeared."""
+    client.app.state.cfg.tagging.folder_cover = artwork.FolderCoverPolicy.NEVER
+    small = _png_sized(1, 60)
+    d = _release_backed_album_with_art(
+        cfg, "Embiggenable", "rel-big", covers=[small, small], source=SINE_M4A.parent / source
+    )
+    seen: list[int | None] = []
+
+    def front(mbid, **kw):
+        seen.append(kw.get("keep_if_wider_than"))
+
+    monkeypatch.setattr("harmonist.caa_cache.front", front)
+
+    client.get(f"/album/{_id_for(cfg, d)}/artwork?check=1")
+
+    assert seen == [60]
 
 
 def test_the_artwork_action_writes_artwork_and_not_tags(client, cfg):

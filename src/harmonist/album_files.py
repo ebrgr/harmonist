@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path, PurePosixPath
 
 from . import formats
@@ -51,6 +51,13 @@ def video_files(album_dir: Path) -> list[Path]:
     (#193): read, never written.
     """
     return sorted((p for p in album_dir.iterdir() if formats.is_video(p)), key=_key)
+
+
+def total_bytes(files: Iterable[Path]) -> int:
+    """The files' combined size on disk: what a lossy album's embiggening is
+    weighed against (#872). An `OSError` propagates, as from any read of them:
+    a size that couldn't be read is not a size of zero."""
+    return sum(f.stat().st_size for f in files)
 
 
 def for_paths(paths: Sequence[Path]) -> list[Path]:

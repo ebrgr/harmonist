@@ -51,12 +51,12 @@
             <a href="https://musicbrainz.org/artist/{{ review.mbid }}" target="_blank" rel="noopener noreferrer" class="font-bold text-mb-purple hover:underline">{{ review.name }} · MusicBrainz ↗</a>
             <p class="break-all">{{ review.mbid }}</p>
             <p>Review created <time datetime="{{ review.prepared_at }}" title="{{ review.prepared_at }}">{{ ago(import_review_time) }}</time> · MusicBrainz fetched <time datetime="{{ review.fetched_at }}" title="{{ review.fetched_at }}">{{ ago(import_mb_time) }}</time></p>
-            <p class="break-all">{{ display_path(review.target) }}</p>
         </div>
         {% if review.biography_error %}<p role="alert" class="text-sm text-amber-800 break-words">{{ review.biography_error }}</p>
         {% elif not review.biography %}<p class="text-sm text-muted">No linked biography in {{ import_languages[review.language] }}.{% if review.languages %} Available: {% for code in review.languages if code in import_languages %}{{ import_languages[code] }}{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}</p>{% endif %}
         <form id="artist-import-selection" hx-post="{{ import_base }}/apply?{{ import_query_string }}" hx-target="#modal" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#artist-import-loading" class="space-y-4">
             <input type="hidden" name="review" value="{{ review.token }}">
+            {% include 'partials/_artist_nfo_destination.html' %}
             <div class="space-y-3">
                 {% for field in nfo_fields if field.tag in review['values'] %}
                 <fieldset class="border border-line rounded p-3 space-y-2">
@@ -101,7 +101,7 @@
             </section>
             <div class="flex flex-wrap justify-end gap-2">
                 <button type="button" onclick="harmonistCloseModal()" class="px-3 py-1.5 rounded border border-line text-sm font-bold text-ink">Cancel</button>
-                <button type="submit" class="px-3 py-1.5 rounded bg-accent text-white text-sm font-bold">Import selected</button>
+                <button type="submit" {% if not nfo_destinations %}disabled{% endif %} class="px-3 py-1.5 rounded bg-accent text-white text-sm font-bold disabled:opacity-40">Import selected</button>
             </div>
         </form>
         {% else %}

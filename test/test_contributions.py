@@ -19,6 +19,7 @@ from harmonist.config import Config, PathsConfig
 from harmonist.models import Album, AlbumState, BandcampInfo, Sidecar
 from harmonist.web.main import _library_page_vars, create_app
 from harmonist.web.scan_runner import ScanRunner
+from test.helpers import ACCURATERIP_TAGS, write_provenance_tags
 from test.test_bandcamp_hook import _bare_syncer, _StubItem
 from test.test_gardener import _release
 
@@ -77,11 +78,17 @@ def test_independent_media_and_url_findings(formats, urls, media, missing):
     assert (result.media_mismatch, result.missing_url) == (media, missing)
 
 
-def test_purchase_ownership_and_legacy_timestamp_are_not_file_provenance():
+def test_a_legacy_timestamp_is_not_file_provenance_and_a_linked_purchase_is():
     a = album(comment=False)
+    assert a.sidecar is not None
+    a.sidecar = replace(a.sidecar, bandcamp=None)
     contributions.observe(a, release(("CD",)), NOW)
     assert not contributions.assess(a).eligible
-    assert a.sidecar is not None
+    # A purchase whose comment a conversion dropped is still its download (#867),
+    # but the URL it was linked by isn't evidence to contribute.
+    a.sidecar = replace(a.sidecar, bandcamp=BandcampInfo(item_id=123))
+    result = contributions.assess(a)
+    assert result.eligible and result.media_mismatch and result.missing_url is None
     a.sidecar = replace(
         a.sidecar, bandcamp_downloaded=True, store_url="https://music.example/album/x"
     )
@@ -187,7 +194,7 @@ def harmony_link(page):
     return next((a for a in page.select("a") if "Add Release" in a.text), None)
 
 
-def make_files(root, name, mbid=MBID, *, comment=URL, private=False):
+def make_files(root, name, mbid=MBID, *, comment=URL, private=False, ripped=False):
     d = root / name
     d.mkdir(parents=True)
     f = d / "track.m4a"
@@ -198,6 +205,8 @@ def make_files(root, name, mbid=MBID, *, comment=URL, private=False):
     tags["\xa9alb"] = [name]
     tags["\xa9cmt"] = [comment]
     tags.save()
+    if ripped:
+        write_provenance_tags(d, ".m4a", ACCURATERIP_TAGS)
     sidecar.write(
         d,
         Sidecar(
@@ -212,7 +221,8 @@ def make_files(root, name, mbid=MBID, *, comment=URL, private=False):
 def test_restart_rebuild_and_library_filters_make_no_mb_calls(tmp_path, monkeypatch):
     root = tmp_path / "music"
     make_files(root, "Download")
-    make_files(root, "CD rip", comment="")
+    # Its purchase link and its rip's verification point two ways: Unknown.
+    make_files(root, "CD rip", comment="", ripped=True)
     make_files(root, "Reissue", mbid="another-release")
     fetch = Mock(return_value=release(("CD",)))
     monkeypatch.setattr(mb_lookup, "fetch_release", fetch)
@@ -331,7 +341,7 @@ def test_fresh_check_changes_only_observation_and_preserves_failures(tmp_path, m
     cfg = Config(paths=PathsConfig(music_dir=tmp_path / "music", config_dir=tmp_path / "config"))
     cfg.paths.config_dir.mkdir()
     d = make_files(cfg.paths.music_dir, "Download")
-    make_files(cfg.paths.music_dir, "CD rip", comment="")
+    make_files(cfg.paths.music_dir, "CD rip", comment="", ripped=True)
     app = create_app(cfg)
     client = TestClient(app, headers={"HX-Request": "true"})
     a = next(a for a in app.state.scan_runner.scan_now() if a.path == d)

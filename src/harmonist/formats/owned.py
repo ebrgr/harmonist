@@ -100,6 +100,32 @@ class Owned(StrEnum):
     MB_RELEASE_TRACK_ID = "mb_release_track_id"
     MB_ARTIST_IDS = "mb_artist_ids"
     ISRCS = "isrcs"
+    WORKS = "works"
+    MB_WORK_IDS = "mb_work_ids"
+    COMPOSERS = "composers"
+    COMPOSER_SORT = "composer_sort"
+    MB_COMPOSER_IDS = "mb_composer_ids"
+    LYRICISTS = "lyricists"
+    WRITERS = "writers"
+
+
+#: The credits Picard writes from MusicBrainz relationships (#680), which a
+#: release can leave unanswered: above 500 recordings the web service omits
+#: every recording's relationships (`credits.relationships_answered`). A `TagSet`
+#: holds `None` for these when that happened, and a tagging then keeps what the
+#: file has (`formats.settled`) rather than reading the silence as "none".
+#: Everywhere else `None` and `[]` are one state; only here do they differ.
+RELATIONSHIP_CREDITS: frozenset[Owned] = frozenset(
+    {
+        Owned.WORKS,
+        Owned.MB_WORK_IDS,
+        Owned.COMPOSERS,
+        Owned.COMPOSER_SORT,
+        Owned.MB_COMPOSER_IDS,
+        Owned.LYRICISTS,
+        Owned.WRITERS,
+    }
+)
 
 
 SCOPE: dict[Owned, Scope] = {
@@ -143,6 +169,16 @@ SCOPE: dict[Owned, Scope] = {
     Owned.MB_RELEASE_TRACK_ID: Scope.TRACK,
     Owned.MB_ARTIST_IDS: Scope.TRACK,
     Owned.ISRCS: Scope.TRACK,
+    # What each RECORDING performs, so a different work on every track of a
+    # classical album, and a medley's several on one.
+    Owned.WORKS: Scope.TRACK,
+    Owned.MB_WORK_IDS: Scope.TRACK,
+    # Credited on the works, so they differ wherever the works do.
+    Owned.COMPOSERS: Scope.TRACK,
+    Owned.COMPOSER_SORT: Scope.TRACK,
+    Owned.MB_COMPOSER_IDS: Scope.TRACK,
+    Owned.LYRICISTS: Scope.TRACK,
+    Owned.WRITERS: Scope.TRACK,
 }
 
 ALBUM_FIELDS: tuple[Owned, ...] = tuple(f for f in Owned if SCOPE[f] is Scope.ALBUM)
@@ -229,6 +265,20 @@ SIGNIFICANCE: dict[str, Significance] = {
     Owned.DISC_SUBTITLE: Significance.ENRICHMENT,
     Owned.MEDIA: Significance.ENRICHMENT,
     Owned.ISRCS: Significance.ENRICHMENT,
+    # A work's title changing under the same id is MusicBrainz correcting how a
+    # composition is named. Which work a track performs is the id's to say, and
+    # the id is IDENTITY when it moves (#680).
+    Owned.WORKS: Significance.ENRICHMENT,
+    # Credits, not identity: who wrote a work doesn't change which recording a
+    # track is, or how a player groups the album, as its artist credit does.
+    # A composer who is genuinely someone else shows as their id moving, which
+    # is IDENTITY; a file with no ids can't prove that either way (#680).
+    Owned.COMPOSERS: Significance.ENRICHMENT,
+    Owned.COMPOSER_SORT: Significance.ENRICHMENT,
+    # Credits for the same reason. Picard writes no id for either, so a
+    # lyricist or writer who is somebody else can only show as a name.
+    Owned.LYRICISTS: Significance.ENRICHMENT,
+    Owned.WRITERS: Significance.ENRICHMENT,
     # --- Identity: what the album, or one of its tracks, IS ---
     Owned.ALBUM: Significance.IDENTITY,
     Owned.ALBUM_ARTIST: Significance.IDENTITY,
@@ -261,6 +311,10 @@ SIGNIFICANCE: dict[str, Significance] = {
     Owned.MB_RELEASE_GROUP_ID: Significance.IDENTITY,
     Owned.MB_ALBUM_ARTIST_IDS: Significance.IDENTITY,
     Owned.MB_ARTIST_IDS: Significance.IDENTITY,
+    # IDENTITY when it moves or goes; arriving where there was none is lower —
+    # see BY_VALUE. The composer ids alike.
+    Owned.MB_WORK_IDS: Significance.IDENTITY,
+    Owned.MB_COMPOSER_IDS: Significance.IDENTITY,
     Owned.MB_TRACK_ID: Significance.IDENTITY,
     Owned.MB_RELEASE_TRACK_ID: Significance.IDENTITY,
     # Identity by default, and the one field that can be less than that — see
@@ -370,6 +424,14 @@ BY_VALUE: dict[str, Significance] = {
     Owned.ARTISTS: Significance.ENRICHMENT,
     Owned.MB_ALBUM_ARTIST_IDS: Significance.ENRICHMENT,
     Owned.MB_ARTIST_IDS: Significance.ENRICHMENT,
+    # Unlike the artist ids, a work or composer id ARRIVING drops too (#680).
+    # An artist id arriving says which entities the album's own credit points
+    # at; these add a fact about the composition beside a track that already
+    # says what it is, and can contradict nothing on the file. Adopted libraries
+    # carry none, so holding every arrival at IDENTITY would make the first pass
+    # an IDENTITY update on nearly every album.
+    Owned.MB_WORK_IDS: Significance.ENRICHMENT,
+    Owned.MB_COMPOSER_IDS: Significance.ENRICHMENT,
 }
 
 
@@ -599,5 +661,12 @@ LABELS: dict[str, str] = {
     Owned.MB_RELEASE_TRACK_ID: "Release track",
     Owned.MB_ARTIST_IDS: "Artist IDs",
     Owned.ISRCS: "ISRC",
+    Owned.WORKS: "Work",
+    Owned.MB_WORK_IDS: "Work IDs",
+    Owned.COMPOSERS: "Composer",
+    Owned.COMPOSER_SORT: "Composer sort",
+    Owned.MB_COMPOSER_IDS: "Composer IDs",
+    Owned.LYRICISTS: "Lyricist",
+    Owned.WRITERS: "Writer",
     ARTWORK: "Artwork",
 }

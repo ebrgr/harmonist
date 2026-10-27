@@ -68,8 +68,13 @@ _FIELD_ORDER: tuple[Owned, ...] = (
     Owned.COMPILATION,
     Owned.ALBUM_ARTISTS,
     Owned.ARTISTS,
+    Owned.WORKS,
+    Owned.COMPOSERS,
+    Owned.LYRICISTS,
+    Owned.WRITERS,
     Owned.ALBUM_ARTIST_SORT,
     Owned.ARTIST_SORT,
+    Owned.COMPOSER_SORT,
     Owned.SCRIPT,
     Owned.BARCODE,
     Owned.ASIN,
@@ -80,6 +85,8 @@ _FIELD_ORDER: tuple[Owned, ...] = (
     Owned.MB_TRACK_ID,
     Owned.MB_RELEASE_TRACK_ID,
     Owned.MB_ARTIST_IDS,
+    Owned.MB_WORK_IDS,
+    Owned.MB_COMPOSER_IDS,
 )
 _ORDER: dict[str, int] = {f.value: i for i, f in enumerate(_FIELD_ORDER)} | {
     ARTWORK: len(_FIELD_ORDER)
@@ -100,6 +107,8 @@ ID_ENTITIES: dict[str, str] = {
     Owned.MB_ARTIST_IDS.value: "artist",
     Owned.MB_TRACK_ID.value: "recording",
     Owned.MB_RELEASE_TRACK_ID.value: "track",
+    Owned.MB_WORK_IDS.value: "work",
+    Owned.MB_COMPOSER_IDS.value: "artist",
 }
 
 #: How many tracks a partial change names in its reach before counting them

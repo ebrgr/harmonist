@@ -6,9 +6,57 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- The Artists tab is hidden by default and can be enabled in Settings under User Interface; Library artist links remain available (#9).
+
+- New artist NFOs can use one reviewed location beside the audio or in the Artist Information Folder, with a saved preference and portable artist folder names (#8).
+
+- Artist names on album cards open their local profiles, with a return to the same Library page, filters and search (#7).
+
 - Artist metadata and Wikipedia biographies can be reviewed in four languages and imported into local NFOs with source attribution, paginated discography and Undo (#5).
 
 - **Artists browses local album artists** with artwork, collapsible profiles, an NFO editor with genre tags, and backed-up NFO history with Undo (#813).
+- **Tracks are tagged with their composers, lyricists, writers and the works
+  they perform**, as Picard writes them. A credit arriving is an Enrichment
+  update. A composer MusicBrainz doesn't credit, such as one from a CD-rip
+  database, is removed.
+  After upgrading, every cached release is fetched again, so Update available
+  starts nearly empty and refills (#680).
+- **A suggestion's missing disc can be filled from another unmatched folder**,
+  for a release ripped a disc at a time into folders of its own. When exactly
+  one folder fits the disc's track count and lengths it is filled in already,
+  and isn't listed in the Inbox as an album of its own. Confirming tags both
+  folders, and they become one album (#876).
+
+### Changed
+
+- **Pasting an MBID is the last of the Find release options, By MBID**, and
+  its button is **Use**, like a search result's. The release it names opens
+  for review even when the files fit it exactly, instead of being tagged at
+  once (#880).
+- **A release search by name lists up to 15 releases in a scrolling list**,
+  instead of five. When MusicBrainz found more, the list says how many and
+  ends with a link to the same search on MusicBrainz (#878).
+- **A track's tag change that has no column in the album page's tracklist is
+  shown under that track**, instead of in a box in the Tags section. Composer
+  and work credits take one column each, with every name linking to
+  MusicBrainz (#863).
+- **Background artwork check failures stay out of Activity**: the container
+  log has them, and the checks retry on their own (#864).
+- **Times are shown in your timezone**, set with the `TZ` environment
+  variable (#865).
+- **Activity rows show the date** as well as the time (#865).
+- **An album with no `cover.jpg` is offered a larger Cover Art Archive image
+  for its tracks**: always if it's lossless, and if it's lossy, when that adds
+  at most 10% to its size. It's an artwork replacement, so it waits for review
+  and is never applied unattended. Elsewhere, embedded artwork is still kept
+  unless you choose otherwise (#872).
+
+### Fixed
+
+- **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with
+  a link to the purchase, even when its files have lost Bandcamp's comment (#867).
 
 ## [1.30.0] - 2026-10-22
 

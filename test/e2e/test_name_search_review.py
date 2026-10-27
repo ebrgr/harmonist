@@ -1,4 +1,5 @@
-"""Search choices require review even when their tracks fit exactly (#848)."""
+"""Search choices require review even when their tracks fit exactly (#848), and
+so does a pasted MBID, the find-release cluster's last mode (#880)."""
 
 import os
 
@@ -18,9 +19,10 @@ def name_search_server(tmp_path):
         yield base, tmp_path / "harmonist-demo" / "LFO" / "Frequencies"
 
 
+@pytest.mark.parametrize("method", ["search", "paste"])
 @pytest.mark.parametrize("on_album_page,width", [(True, 1280), (False, 390)])
-def test_exact_name_search_reviews_before_one_confirmation(
-    browser_factory, name_search_server, htmx_ready, on_album_page, width
+def test_exact_choice_reviews_before_one_confirmation(
+    browser_factory, name_search_server, htmx_ready, method, on_album_page, width
 ):
     base, folder = name_search_server
     audio = folder / "01 LFO.m4a"
@@ -39,15 +41,25 @@ def test_exact_name_search_reviews_before_one_confirmation(
     with page.expect_response(lambda r: r.url.endswith(f"/manual/{aid}/barcode")):
         page.goto(f"{base}/album/{aid}?from_q=LFO" if on_album_page else f"{base}/?tab=inbox")
     panel = page.locator("#album-inbox-actions" if on_album_page else f"#task-{aid}")
-    htmx_ready(panel.get_by_role("radio", name="By name", exact=True)).check()
-    with page.expect_response(lambda r: r.url.endswith(f"/manual/{aid}/search")):
-        htmx_ready(panel.get_by_role("button", name="Search", exact=True)).click()
-    results = panel.get_by_role("list", name="Release candidates")
-    choice = results.get_by_role("listitem").filter(
-        has=page.locator(f'form input[name="mbid"][value="{mbid}"]')
-    )
-    pw.expect(choice).to_contain_text("1 tracks")
-    use = choice.get_by_role("button", name="Use", exact=True)
+    if method == "search":
+        htmx_ready(panel.get_by_role("radio", name="By name", exact=True)).check()
+        with page.expect_response(lambda r: r.url.endswith(f"/manual/{aid}/search")):
+            htmx_ready(panel.get_by_role("button", name="Search", exact=True)).click()
+        results = panel.get_by_role("list", name="Release candidates")
+        choice = results.get_by_role("listitem").filter(
+            has=page.locator(f'form input[name="mbid"][value="{mbid}"]')
+        )
+        pw.expect(choice).to_contain_text("1 tracks")
+        use = choice.get_by_role("button", name="Use", exact=True)
+    else:
+        # The last mode of the one find-release cluster: one field and Use.
+        field = panel.get_by_placeholder("MB release URL or 36-char MBID")
+        pw.expect(field).to_be_hidden()
+        htmx_ready(panel.get_by_role("radio", name="By MBID", exact=True)).check()
+        pw.expect(field).to_be_visible()
+        pw.expect(panel.get_by_role("button", name="Search", exact=True)).to_be_hidden()
+        field.fill(f"https://musicbrainz.org/release/{mbid}")
+        use = panel.get_by_role("button", name="Use", exact=True)
 
     # A failed selection retains the usable choice and leaves the files alone.
     assign_url = f"{base}/manual/{aid}/assign"

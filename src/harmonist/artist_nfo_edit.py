@@ -11,16 +11,19 @@ import hashlib
 import json
 import logging
 import os
+import re
 import stat
 import tempfile
 import threading
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from . import activity_store, artist_nfo, audit
-from .artists import Artist, mbid
+from . import activity_store, artist_nfo, audit, formats
+from .artists import Artist, keyed_credits, mbid
+from .models import Album
 
 _LOCK = threading.Lock()
 log = logging.getLogger(__name__)
@@ -41,19 +44,248 @@ class Saved:
     created: bool = False
 
 
+@dataclass(frozen=True)
+class Destination:
+    key: str
+    path: Path
+    label: str
+    cautious: bool = False
+
+
+@dataclass(frozen=True)
+class Destinations:
+    options: tuple[Destination, ...]
+    default: Destination | None
+    reasons: tuple[str, ...] = ()
+
+
+def _location_stamp(path: Path) -> tuple[str, int, int]:
+    """Bind a review to the existing directory, including missing-root creation."""
+    current = path.parent
+    while True:
+        try:
+            entry = current.stat()
+            break
+        except FileNotFoundError:
+            # A missing configured root can be created on explicit Save.
+            current = current.parent
+    return str(current.resolve()), entry.st_dev, entry.st_ino
+
+
+def _occupied(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        # Absence is a valid creation candidate; other inspection failures aren't.
+        return False
+    return True
+
+
+def _destination(
+    artist: Artist, path: Path, label: str, evidence: object = (), *, cautious: bool = False
+) -> Destination:
+    payload = (artist.key, str(path), _location_stamp(path), evidence)
+    key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    return Destination(key, path, label, cautious)
+
+
+def _walk_error(error: OSError) -> None:
+    raise error
+
+
+def destinations(
+    artist: Artist,
+    profile: artist_nfo.Profile | None,
+    music_dir: Path,
+    info_dir: Path | None,
+    albums: Sequence[Album],
+    preference: str = "info_preferred",
+) -> Destinations:
+    """Suggest placement from the complete snapshot, without claiming ownership.
+
+    Only server-derived paths become choices. The opaque key binds the path to
+    its directory and local evidence, so Save cannot silently choose a fallback.
+    Existing sources never move when the creation preference changes.
+    """
+    if profile:
+        existing = _destination(artist, profile.path.resolve(), "Existing NFO")
+        return Destinations((existing,), existing)
+    root = music_dir.resolve()
+    options: list[Destination] = []
+    reasons: list[str] = []
+    external = None
+    if info_dir is not None:
+        try:
+            path = target(artist, None, info_dir)
+            if _occupied(path):
+                raise artist_nfo.NfoError("An NFO already exists in the information-folder target.")
+            external = _destination(artist, path, "Artist Information Folder")
+        except artist_nfo.NfoError as exc:
+            # A rejected external target is visible alongside any audio choices.
+            reasons.append(str(exc))
+    candidates: set[Path] = set()
+    for album in artist.albums:
+        for folder in album.folders:
+            logical = folder.absolute()
+            if not any(
+                logical.is_relative_to(base)
+                and root / logical.relative_to(base) == folder.resolve()
+                for base in (music_dir.absolute(), root)
+            ):
+                continue  # a linked audio branch is not an owned write destination
+            parent = folder.resolve().parent
+            while parent != root and parent.is_relative_to(root):
+                candidates.add(parent)
+                parent = parent.parent
+    eligible: dict[Path, tuple[list[Album], list[tuple[str, int, int]]]] = {}
+    for directory in sorted(candidates):
+        related = [
+            a for a in albums if any(f.resolve().is_relative_to(directory) for f in a.folders)
+        ]
+        if not related or any(
+            {key for key, _ in keyed_credits(a)} != {artist.key} for a in related
+        ):
+            continue
+        folders = {
+            f.resolve() for a in related for f in a.folders if f.resolve().is_relative_to(directory)
+        }
+        if directory in folders or _occupied(directory / "artist.nfo"):
+            continue
+        if len(related) == 1 and len(folders) > 1 and {f.parent for f in folders} == {directory}:
+            continue  # Album/CD1 + Album/CD2 is not evidence for writing in Album.
+        evidence: list[tuple[str, int, int]] = []
+        safe = True
+        for base, dirs, files in directory.walk(on_error=_walk_error, follow_symlinks=False):
+            if any((base / d).is_symlink() for d in dirs):
+                safe = False
+                break
+            for name in files:
+                path = base / name
+                if name == "artist.nfo" or path.is_symlink():
+                    safe = False
+                    break
+                if formats.is_supported(path) or formats.is_video(path):
+                    if base not in folders or path.is_symlink():
+                        safe = False
+                        break
+                    entry = path.stat()
+                    evidence.append((str(path), entry.st_size, entry.st_mtime_ns))
+            if not safe:
+                break
+        # One logical album may have discs in unrelated audio branches. Verify
+        # its remaining physical folders too, rather than comparing one branch
+        # with the full album's track count or claiming a generic ancestor.
+        outside_folders = {f.resolve() for a in related for f in a.folders} - folders
+        for outside in sorted(outside_folders):
+            if not safe or not outside.is_relative_to(root):
+                safe = False
+                break
+            for path in sorted(outside.iterdir()):
+                if formats.is_supported(path) or formats.is_video(path):
+                    if path.is_symlink():
+                        safe = False
+                        break
+                    entry = path.stat()
+                    evidence.append((str(path), entry.st_size, entry.st_mtime_ns))
+        # New/unscanned tracks must not inherit an earlier snapshot's credit.
+        expected_count = sum(a.track_count for a in related)
+        if safe and len(evidence) == expected_count:
+            eligible[directory] = related, sorted(evidence)
+    for directory, (related, evidence) in eligible.items():
+        covered = {a.id for a in related}
+        if any(
+            other != directory
+            and other.is_relative_to(directory)
+            and {a.id for a in rows} == covered
+            for other, (rows, _) in eligible.items()
+        ):
+            continue  # prefer the closest candidate over generic containers
+        cautious = (
+            len(related) < 2
+            or artist.mbid is None
+            or any(c.missing_id_count for a in related for c in a.artist_credits)
+        )
+        identity = sorted((a.id, tuple(key for key, _ in keyed_credits(a))) for a in related)
+        options.append(
+            _destination(
+                artist,
+                directory / "artist.nfo",
+                "Audio folders",
+                (identity, evidence),
+                cautious=cautious,
+            )
+        )
+    audio_default = options[0] if len(options) == 1 and not options[0].cautious else None
+    if not options:
+        reasons.append("No suitable artist folder was found beside the audio.")
+        if info_dir is None:
+            reasons.append("Configure an Artist Information Folder or review the library layout.")
+    if external:
+        options.append(external)
+    default = (
+        (audio_default or external)
+        if preference == "audio_preferred"
+        else (external or audio_default)
+    )
+    return Destinations(tuple(options), default, tuple(reasons))
+
+
+def chosen_destination(plan: Destinations, key: str) -> Destination:
+    found = next((d for d in plan.options if d.key == key), None)
+    if found is None:
+        raise NfoChangedError(
+            "The NFO destination changed or was not selected. Review the destination again."
+        )
+    return found
+
+
+def _sanitize_folder_name(name: str) -> str:
+    """Apply the artist-folder convention without changing the credit or XML."""
+    folder = re.sub(r'[\\/:*?"<>|]', "", name)
+    folder = re.sub(r"\s+", " ", folder).strip(" .") or "Noname Artist"
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {
+        f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)
+    }
+    # Device names remain reserved when followed by a filename extension.
+    if folder.split(".", 1)[0].upper() in reserved:
+        folder = "_" + folder
+    if (
+        any(unicodedata.category(c) in {"Cc", "Cs"} for c in folder)
+        or len(folder.encode("utf-8")) > 255
+    ):
+        raise artist_nfo.NfoError(
+            "The artist name cannot be used as a portable folder name. "
+            "An existing NFO can still be edited in its current location."
+        )
+    return folder
+
+
 def target(artist: Artist, profile: artist_nfo.Profile | None, info_dir: Path | None) -> Path:
-    artist_id = mbid(artist.mbid or "")
-    if artist_id is None:
+    if mbid(artist.mbid or "") is None:
         raise artist_nfo.NfoError("A MusicBrainz artist ID is required to edit an artist NFO.")
     if profile is not None:
         return profile.path.resolve()
     if info_dir is None:
         raise artist_nfo.NfoError("Configure an Artist Information Folder to create an artist NFO.")
     root = info_dir.resolve()
-    folder = artist.key if artist.key.startswith("local-") else artist_id
+    folder = _sanitize_folder_name(artist.name)
     path = root / folder / "artist.nfo"
     if not path.resolve().is_relative_to(root):
         raise artist_nfo.NfoError("The artist NFO target is outside the Artist Information Folder.")
+    try:
+        children = tuple(root.iterdir())
+    except FileNotFoundError:
+        # A new information root is created only when the reviewed edit is saved.
+        children = ()
+    folded = unicodedata.normalize("NFC", folder).casefold()
+    if any(
+        child.name != folder and unicodedata.normalize("NFC", child.name).casefold() == folded
+        for child in children
+    ):
+        raise artist_nfo.NfoError(
+            "An artist folder with the same name already exists with different spelling. "
+            "Check its NFO and artist identity before creating another."
+        )
     return path
 
 
@@ -116,6 +348,8 @@ def save(
     confirmed_mbid: str | None = None,
     biography_source: Mapping[str, str] | None = None,
     discography: Sequence[artist_nfo.DiscographyAlbum] = (),
+    albums: Sequence[Album] | None = None,
+    destination: str | None = None,
 ) -> Saved:
     """Write an explicit edit, with no-op, stale-draft and backup safeguards."""
     with _LOCK, activity_store.action():
@@ -125,7 +359,17 @@ def save(
         chosen_id = mbid(confirmed_mbid or artist.mbid or "")
         if chosen_id is None:
             raise artist_nfo.NfoError("A MusicBrainz artist ID is required to edit an artist NFO.")
-        path = target(replace(artist, mbid=chosen_id), result.profile, info_dir)
+        identified = replace(artist, mbid=chosen_id)
+        path = (
+            chosen_destination(
+                destinations(identified, result.profile, music_dir, info_dir, albums),
+                destination or "",
+            ).path
+            if albums is not None and result.profile is None
+            else target(identified, result.profile, info_dir)
+        )
+        reviewed_parent = path.parent.resolve()
+        parent_stamp = _location_stamp(path)
         roots = [music_dir.resolve(), *([info_dir.resolve()] if info_dir is not None else [])]
         if not any(path.resolve().is_relative_to(root) for root in roots):
             raise artist_nfo.NfoError("The NFO target is outside the configured folders.")
@@ -233,6 +477,13 @@ def save(
             return Saved(result.profile.path if result.profile else path, False)
         if expected != digest:
             raise NfoChangedError("The NFO changed since this editor was opened. Read again.")
+        if albums is not None and (result.profile is None or destination):
+            confirmed = chosen_destination(
+                destinations(identified, result.profile, music_dir, info_dir, albums),
+                destination or "",
+            )
+            if confirmed.path != path:
+                raise NfoChangedError("The NFO destination changed. Review the destination again.")
         for field in changed:
             for element in list(root):
                 if element.tag in (field.tag, *field.aliases):
@@ -250,6 +501,12 @@ def save(
         if original is not None:
             backup = _keep(backup_dir, original)
         path.parent.mkdir(parents=True, exist_ok=True)
+        if (
+            path.parent.resolve() != reviewed_parent
+            or path.is_symlink()
+            or (parent_stamp[0] == str(reviewed_parent) and _location_stamp(path) != parent_stamp)
+        ):
+            raise NfoChangedError("The NFO destination changed before saving. Review again.")
         # Recheck immediately before replacement, including an externally created
         # file. In-process edits are serialized; outside edits are never merged.
         if original is not None:

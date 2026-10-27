@@ -68,7 +68,7 @@ breadcrumbs ("matched via barcode on…") belong in `activity.db`.
 | Field | Why it exists |
 |---|---|
 | `store_url` | Where the album was bought. It is evidence of provenance for matching, and the key Bandcamp linking starts from. Any store Harmony understands; the store is read from the host. |
-| `bandcamp.item_id`, `band_id` | The purchase this album is linked to: what Re-download fetches, and what keeps a sync from downloading it again. |
+| `bandcamp.item_id`, `band_id` | The purchase this album is linked to: what Re-download fetches, what keeps a sync from downloading it again, and Bandcamp evidence for the [origin](tagging.md#the-origin). |
 | `bandcamp.candidate_item_ids` | Several purchases could be this album and nothing exact tells them apart. Recorded instead of guessing one, and enough to take the album out of Needs Linking. |
 | `bandcamp.is_private` | Bandcamp said the purchase is private, so its URL is never offered to MusicBrainz or Harmony. Absence doesn't mean public. |
 | `bandcamp_downloaded` | Harmonist itself downloaded these files. The only proof of download provenance that doesn't depend on tags; see [contributions](contributions.md). |

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="space-y-5">
-    <a href="{{ artist_back_url }}" class="inline-block text-2xs text-muted hover:text-accent uppercase tracking-widest font-bold">← Back to artists</a>
+    <a href="{{ artist_back_url }}" class="inline-block text-2xs text-muted hover:text-accent uppercase tracking-widest font-bold">← {{ artist_back_label }}</a>
 
     <header class="flex flex-col sm:flex-row items-start gap-5">
         {% if artist_image %}
@@ -31,7 +31,7 @@
                 <button type="button" hx-get="{{ artist_import_url }}" hx-target="#modal" hx-swap="innerHTML"
                         class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-xs font-bold text-ink transition">Import metadata</button>
                 <button type="button" hx-get="{{ artist_edit_url }}" hx-target="#modal" hx-swap="innerHTML"
-                        {% if not artist_can_edit %}disabled title="Choose an NFO source or configure an Artist Information Folder."{% endif %}
+                        {% if not artist_can_edit %}disabled title="Identify the artist or choose an NFO source."{% endif %}
                         class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-xs font-bold text-ink transition disabled:opacity-40">Edit</button>
                 <a href="{{ artist_reload_url }}" class="px-3 py-1 rounded border border-line bg-surface hover:bg-line text-xs font-bold text-ink transition">Read again</a>
             </div>

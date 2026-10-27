@@ -37,6 +37,7 @@ from . import (
     tag_history,
     track_structure,
 )
+from . import credits as credits_mod
 from . import sidecar as sidecar_mod
 from . import transforms as transforms_mod
 from .formats import TagSet, owned
@@ -342,10 +343,11 @@ def _write_prepared_tags(
     for file_path, (medium, track_pos_in_medium, track) in job.items(
         prep.pairs, lambda pair: naming.name_of(pair[0])
     ):
-        tagset = _build_tagset(
-            release, medium, track_pos_in_medium, track, prep.media_total, tagging
-        )
         before = formats.read_owned(file_path)
+        tagset = formats.settled(
+            _build_tagset(release, medium, track_pos_in_medium, track, prep.media_total, tagging),
+            before,
+        )
         # `cover=None` throughout: this writes tags, and leaves every file's
         # image exactly as it is (#481). `_changes_for` records no artwork
         # change either, because none happens here.
@@ -445,8 +447,10 @@ def plan_album(
     supported: dict[Path, dict[str, frozenset[Any]]] = {}
     positions: dict[Path, str | None] = {}
     for file_path, (medium, track_pos_in_medium, track) in prep.pairs:
-        tagset = _build_tagset(
-            release, medium, track_pos_in_medium, track, prep.media_total, tagging
+        now = _owned_now(file_path, prep.read)
+        tagset = formats.settled(
+            _build_tagset(release, medium, track_pos_in_medium, track, prep.media_total, tagging),
+            now,
         )
         positions[file_path] = _tagset_position(tagset)
         supported[file_path] = _supported_spellings(
@@ -454,7 +458,7 @@ def plan_album(
         )
         if file_changes := _changes_for(
             tagset,
-            _owned_now(file_path, prep.read),
+            now,
             file_path,
             prep.art.before,
             # Only where the tagging would really write it — the same targets
@@ -486,6 +490,12 @@ SETTING_FIELDS: tuple[owned.Owned, ...] = (
     owned.Owned.ARTIST_SORT,
     owned.Owned.ALBUM_ARTISTS,
     owned.Owned.ARTISTS,
+    # A composer, lyricist or writer credited under a variation is spelled by
+    # the same setting (#680).
+    owned.Owned.COMPOSERS,
+    owned.Owned.COMPOSER_SORT,
+    owned.Owned.LYRICISTS,
+    owned.Owned.WRITERS,
 )
 
 
@@ -699,6 +709,10 @@ LOWERED_WHEN: dict[str, Callable[[Any, Any], bool]] = {
     # says which entities the album points at, and that is what IDENTITY is for.
     owned.Owned.MB_ALBUM_ARTIST_IDS: owned.splits_a_joined_list,
     owned.Owned.MB_ARTIST_IDS: owned.splits_a_joined_list,
+    # Work and composer ids fill, which the artist ids above do not: see
+    # `owned.BY_VALUE`.
+    owned.Owned.MB_WORK_IDS: owned.fills_in_an_absent_list,
+    owned.Owned.MB_COMPOSER_IDS: owned.fills_in_an_absent_list,
 }
 
 
@@ -842,6 +856,10 @@ def decide_artwork(
         archive_image,
         excluded_archive=artwork_watch.excluded(sc, archive_image),
         overwrite_art=overwrite_art,
+        # From the files, as the page has it from their tags: a side without
+        # it would plan to keep tracks the other embiggens (#872).
+        lossless=formats.all_lossless(formats.describe(f) for f in files),
+        audio_bytes=album_files.total_bytes(files),
         chosen=chosen,
         choices=choices,
         picks={
@@ -2255,6 +2273,24 @@ def _build_tagset(
 
     track_total = mb_tracks.track_total(medium)
     disc_num = _disc_num(medium)
+    # None, not empty, when the release could not answer: a TagSet then keeps
+    # the file's credits (`formats.settled`) instead of removing them (#680).
+    works: list[str] | None = None
+    work_ids: list[str] | None = None
+    composers: list[str] | None = None
+    composer_sort: list[str] | None = None
+    composer_ids: list[str] | None = None
+    lyricists: list[str] | None = None
+    writers: list[str] | None = None
+    if credits_mod.relationships_answered(release):
+        found = credits_mod.track_credits(release, track, tagging)
+        works = [w.title for w in found.works]
+        work_ids = [w.mbid for w in found.works]
+        composers = [p.name for p in found.composers]
+        composer_sort = [p.sort_name for p in found.composers]
+        composer_ids = [p.mbid for p in found.composers]
+        lyricists = [p.name for p in found.lyricists]
+        writers = [p.name for p in found.writers]
 
     return TagSet(
         mb_album_id=release["id"],
@@ -2308,6 +2344,13 @@ def _build_tagset(
         # writes this as `discsubtitle`, so a Picard-tagged library already
         # carries it — and until #218 a Harmonist re-tag silently removed it.
         disc_subtitle=medium.get("title") or None,
+        works=works,
+        mb_work_ids=work_ids,
+        composers=composers,
+        composer_sort=composer_sort,
+        mb_composer_ids=composer_ids,
+        lyricists=lyricists,
+        writers=writers,
     )
 
 
@@ -2473,6 +2516,18 @@ def mbid_names(release: Release) -> dict[str, str]:
     rg = release.get("release-group") or {}
     if (rg_id := rg.get("id")) and (rg_title := rg.get("title")):
         names[rg_id] = rg_title
+    # Works are named, unlike recordings: the Work column is not pinned beside
+    # the ids the way Title is, so its title is not already on the row (#680).
+    # A composer id is named by the artist's own name, as an artist id is, which
+    # is the name "standardize always" spells every credit with.
+    own_names = TaggingChoices(standardize_artist_names=transforms_mod.ArtistNames.ALL)
+    for _, _, track in _flatten_tracks(release):
+        found = credits_mod.track_credits(release, track, own_names)
+        for work in found.works:
+            if work.title:
+                names[work.mbid] = work.title
+        for person in found.composers:
+            names.setdefault(person.mbid, person.name)
     return names
 
 
@@ -2588,11 +2643,18 @@ class CreditPart(NamedTuple):
     `join` is the text that runs from this artist to the next — " feat. ", " & ",
     ", " — and is empty on the last. `mbid` is None for an artist MusicBrainz
     names without identifying, which renders as plain text rather than a link.
+
+    A relationship credit is a part too (#863): a composer, lyricist or writer,
+    or the work itself, whose `entity` is then "work". `sort` is the person's
+    sort name, shown on the link: for a composer it is what the `composersort`
+    tag carries, which the Composer column states. An artist credit has none.
     """
 
     name: str
     mbid: str | None
     join: str
+    entity: str = "artist"
+    sort: str | None = None
 
 
 def _credit_entries(artist_credit: list[Any] | None) -> Iterator[dict[str, Any]]:
@@ -2677,20 +2739,55 @@ def artist_credits(release: Release) -> dict[str, tuple[CreditPart, ...]]:
     **Every setting's phrase is keyed** (#678). A file carries whichever spelling
     the setting it was tagged under wrote — as credited, or standardized — and
     each names the same artists, so each gets the same links.
+
+    **The relationship credits are keyed too** (#863): each track's composers,
+    lyricists, writers and works, as the "; "-joined list the page reads their
+    tags as. Under the same rule, so a composer list spelled exactly like an
+    artist credit naming other people is drawn flat rather than linked to either.
     """
     found: dict[str, tuple[CreditPart, ...] | None] = {}
-    for credit in _credits_of(release):
-        for names in transforms_mod.ArtistNames:
-            spelled = TaggingChoices(standardize_artist_names=names)
-            parts = _credit_parts(credit, spelled)
-            if not parts:
-                continue
-            phrase = _artist_phrase(credit, spelled)
-            if phrase in found and found[phrase] != parts:
-                found[phrase] = None
-            else:
-                found.setdefault(phrase, parts)
+
+    def unsorted(parts: tuple[CreditPart, ...]) -> tuple[CreditPart, ...]:
+        return tuple(p._replace(sort=None) for p in parts)
+
+    def key(phrase: str, parts: tuple[CreditPart, ...]) -> None:
+        # The same people whether or not a sort name came with them: an artist
+        # credit carries none, and a composer credited as a track's artist too
+        # is still one person. The parts that know the sort name are kept.
+        if phrase not in found:
+            found[phrase] = parts
+        elif (known := found[phrase]) is not None and unsorted(known) != unsorted(parts):
+            found[phrase] = None
+        elif known is not None and any(p.sort for p in parts):
+            found[phrase] = parts
+
+    answered = credits_mod.relationships_answered(release)
+    for names in transforms_mod.ArtistNames:
+        spelled = TaggingChoices(standardize_artist_names=names)
+        for credit in _credits_of(release):
+            if parts := _credit_parts(credit, spelled):
+                key(_artist_phrase(credit, spelled), parts)
+        if not answered:
+            continue
+        for _, _, track in _flatten_tracks(release):
+            for parts in _relationship_parts(credits_mod.track_credits(release, track, spelled)):
+                key("; ".join(p.name for p in parts), parts)
     return {phrase: parts for phrase, parts in found.items() if parts}
+
+
+def _relationship_parts(credits: credits_mod.TrackCredits) -> Iterator[tuple[CreditPart, ...]]:
+    """One track's relationship credits as parts, a tuple per tag (#863)."""
+
+    def joined(parts: list[CreditPart]) -> tuple[CreditPart, ...]:
+        return tuple(
+            p._replace(join="; " if i < len(parts) - 1 else "") for i, p in enumerate(parts)
+        )
+
+    for people in (credits.composers, credits.lyricists, credits.writers):
+        if people:
+            yield joined([CreditPart(p.name, p.mbid, "", sort=p.sort_name) for p in people])
+    if credits.works:
+        yield joined([CreditPart(w.title, w.mbid, "", entity="work") for w in credits.works])
 
 
 #: MusicBrainz's special **Various Artists** artist. A real MBID like any other,

@@ -9,7 +9,7 @@
     <dt class="text-2xs text-muted uppercase tracking-widest">MB checked</dt>
     {% if mb_read_at %}
     <dd class="text-ink tabular-nums whitespace-nowrap"
-        title="MusicBrainz release last read {{ mb_read_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}">{{ ago(mb_read_at) }}</dd>
+        title="MusicBrainz release last read {{ local_stamp(mb_read_at) }}">{{ ago(mb_read_at) }}</dd>
     {% else %}
     <dd class="text-muted italic whitespace-nowrap">not yet</dd>
     {% endif %}

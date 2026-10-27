@@ -387,7 +387,6 @@ def test_barcode_search_lists_lfo_choices(client, cfg, monkeypatch):
     response = client.post(f"/manual/{aid}/barcode")
     assert response.status_code == 200
     assert MBID in response.text and OTHER in response.text
-    assert 'name="review_only" value="true"' in response.text
     assert file.read_bytes() == before
     assert sidecar.read(path).mb_match_candidate is None
 
@@ -451,7 +450,7 @@ def test_barcode_selection_requires_review_even_with_exact_lengths(client, cfg, 
     exact = release()
     exact["medium-list"][0]["track-list"][0]["length"] = str(round(MP4(file).info.length * 1000))
     services(monkeypatch, [exact])
-    response = client.post(f"/manual/{aid}/assign", data={"mbid": MBID, "review_only": "true"})
+    response = client.post(f"/manual/{aid}/assign", data={"mbid": MBID})
     assert response.status_code == 200
     assert sidecar.read(path).mb_match_candidate.confidence == "exact"
     assert sidecar.read(path).mb_release_id is None
@@ -512,7 +511,6 @@ def test_store_url_search_lists_one_release_without_suggesting(client, cfg, monk
     assert response.status_code == 200
     assert response.headers["HX-Retarget"] == f"#mbid-results-{aid}"
     assert "Store URL matches" in response.text
-    assert 'name="review_only" value="true"' in response.text
     assert sidecar.read(path).mb_match_candidate is None
     assert sidecar.read(path).mb_release_id is None
     assert file.read_bytes() == before

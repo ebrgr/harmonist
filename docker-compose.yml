@@ -14,7 +14,9 @@ services:
     # files aren't written as root. `id -u` / `id -g` to find yours; omit to run
     # as root. (Synology: usually a 1026+ uid and gid 100 — the `users` group.)
     user: "1000:1000"
-    # Only if you expose Harmonist beyond localhost: restrict the hostname
-    # allow-list (DNS-rebinding protection). Loopback is always allowed.
-    # environment:
-    #   - HARMONIST_ALLOWED_HOSTS=harmonist.example.com,nas.local
+    environment:
+      # Your timezone, for the times Harmonist shows (UTC without it).
+      - TZ=Etc/UTC
+      # Only if you expose Harmonist beyond localhost: restrict the hostname
+      # allow-list (DNS-rebinding protection). Loopback is always allowed.
+      # - HARMONIST_ALLOWED_HOSTS=harmonist.example.com,nas.local

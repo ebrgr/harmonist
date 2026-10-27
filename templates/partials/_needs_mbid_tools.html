@@ -18,9 +18,4 @@
 {% if album.has_tag_mbid %}
 {# Filled by the release-group response when the files identify a prior match. #}
 <div id="release-revert-{{ album.id }}" class="mt-4 flex justify-end empty:hidden"></div>
-{% else %}
-<div class="mt-6">
-    <p class="text-muted font-bold uppercase tracking-widest text-2xs mb-1">Or paste a MusicBrainz ID</p>
-    {% include 'partials/_mbid_paste.html' %}
-</div>
 {% endif %}

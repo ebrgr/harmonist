@@ -36,7 +36,9 @@ def test_scan_keeps_separate_album_artists_in_one_read(tmp_path, filename):
     fields = formats.read_scan_fields(path)
     assert getattr(fields, "album_artist_names", ()) == ("Alice", "Bob")
     assert getattr(fields, "album_artist_ids", ()) == (ALICE, BOB)
-    album = scanner.build_album(tmp_path, [path], scanner.read_album_io(tmp_path, [path]))
+    album = scanner.build_album(
+        tmp_path, [path], scanner.read_album_io(tmp_path, [path], audio_bytes=path.stat().st_size)
+    )
     assert [(c.name, c.mbid) for c in album.artist_credits] == [("Alice", ALICE), ("Bob", BOB)]
 
 

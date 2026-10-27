@@ -13,7 +13,7 @@
         class="px-3 py-1.5 bg-surface hover:bg-line text-ink border border-line rounded text-xs font-bold uppercase tracking-widest transition">Retry</button>
 {% endif %}
 {% elif results %}
-<div class="max-h-64 overflow-auto" tabindex="0" role="region" aria-label="Releases in this release group">
-    {% include 'partials/manual_search_results.html' %}
-</div>
+{% with region_label="Releases in this release group" %}
+{% include 'partials/manual_search_results.html' %}
+{% endwith %}
 {% endif %}

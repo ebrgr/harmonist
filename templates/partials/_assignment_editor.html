@@ -53,8 +53,13 @@
         {% endfor %}
         <form hx-post="{{ review_url('/assignments/' ~ album.id, replacement) }}" hx-target="closest .assignment-content"
               {% if not on_album_page %}hx-sync="body:queue last" hx-disinherit="hx-sync"{% endif %}
-              hx-trigger="submit, change target:input[name='included_pregaps']"
-              hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button, find input[name='included_pregaps']" class="space-y-2">
+              {# One change trigger for every control that redraws the review: htmx
+                 counts an event handled by the form at its first change listener,
+                 before that listener's target filter, so a second never fires. #}
+              hx-trigger="submit, change target:[data-review-change]"
+              hx-swap="outerHTML settle:0ms" hx-disabled-elt="find button, find input[name='included_pregaps'], find select[name='fill_add']" class="space-y-2">
+            {% for disc, part in added.items() %}<input type="hidden" name="fill" value="{{ disc }}:{{ part.id }}">{% endfor %}
+            <input type="hidden" name="view" value="{{ 'true' if cancel else 'false' }}">
             <input type="hidden" name="disk_order" value="{{ panel.draft.disk_order }}">
             <input type="hidden" name="mb_order" value="{{ panel.draft.mb_order }}">
             <input type="hidden" name="disk_fingerprint" value="{{ panel.draft.disk_fingerprint }}">
@@ -98,14 +103,48 @@
                             <th scope="col" class="track-diff__num border-l border-line">#</th><th scope="col">Title</th><th scope="col" class="track-diff__len">Length</th>
                         </tr>
                     </thead>
+                        {% set fill_seen = namespace(discs=[]) %}
                         {% for disk, mb in panel.rows %}
                         {% set row = loop.index0 %}
+                        {% set mb_disc = mb.number.split('.')[0]|int if mb else none %}
+                        {% if mb_disc is not none and mb_disc not in fill_seen.discs and (mb_disc in added or fill_choices.get(mb_disc)) %}
+                        {% set fill_seen.discs = fill_seen.discs + [mb_disc] %}
+                        <tbody class="track-diff__track">
+                        <tr data-disc-fill="{{ mb_disc }}">
+                            <td colspan="6">
+                                {% if mb_disc in added %}
+                                {% set part = added[mb_disc] %}
+                                <div class="flex flex-wrap items-center gap-3 text-xs">
+                                    <span>Disc {{ mb_disc }} from <span class="font-semibold" title="{{ part.path }}">{{ rel_path(part.path, cfg.paths.music_dir) }}</span></span>
+                                    <button type="submit" name="fill_remove" value="{{ mb_disc }}"
+                                            aria-label="Remove {{ rel_path(part.path, cfg.paths.music_dir) }} from disc {{ mb_disc }}"
+                                            class="px-2 py-1 bg-white hover:bg-surface text-ink border border-line rounded text-2xs font-bold uppercase tracking-widest transition">Remove</button>
+                                </div>
+                                {% else %}
+                                {% set choices = fill_choices[mb_disc] %}
+                                <select name="fill_add" aria-label="Fill disc {{ mb_disc }} from another folder" data-review-change
+                                        class="max-w-full bg-white border border-line rounded px-2 py-1 text-xs text-ink focus:border-accent">
+                                    <option value="">Fill disc {{ mb_disc }} from another folder…</option>
+                                    {% for fits, label in [(true, 'Track lengths match'), (false, choices[0].album.track_count ~ ' files')] %}
+                                    {% set group = choices|selectattr('fits', 'equalto', fits)|list %}
+                                    {% if group %}
+                                    <optgroup label="{{ label }}">
+                                        {% for c in group %}<option value="{{ mb_disc }}:{{ c.album.id }}">{{ rel_path(c.album.path, cfg.paths.music_dir) }}</option>{% endfor %}
+                                    </optgroup>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        </tbody>
+                        {% endif %}
                         {% for offer in panel.available_pregaps if panel.mb_order[row] == offer.pregap_slot %}
                         <tbody class="track-diff__track">
                         <tr data-pregap-choice>
                             <td colspan="6">
                                 <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
-                                    <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}"
+                                    <input type="checkbox" name="included_pregaps" value="{{ offer.decision.pregap }}" data-review-change
                                            id="included-pregap-{{ album.id }}-{{ offer.decision.pregap }}"
                                            {% if offer.decision.pregap in panel.included_pregaps %}checked{% endif %}>
                                     {{ 'Disc ' ~ offer.disc ~ ', track' if counts.multidisc else 'Track' }} 1 includes the pregap
@@ -123,7 +162,7 @@
                             <td rowspan="{{ 2 if included else 1 }}" class="track-diff__num assignment-entry">
                                 {% if disk %}
                                     <span title="Current on-disk track number">{{ disk.number|replace('.', '-') if counts.multidisc else disk.number.split('.')[1] }}</span>
-                                    {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
+                                    {% if renumbered %}<div class="text-2xs text-amber-700 whitespace-nowrap" aria-label="Track numbering changes from {{ disk.number }} to {{ mb.number }}">{{ disk.number|replace('.', '-') if counts.multidisc else disk.number.split('.')[1] }} → {{ mb.number|replace('.', '-') if counts.multidisc else mb.number.split('.')[1] }}</div>{% endif %}
                                 {% else %}—{% endif %}
                             </td>
                             <td rowspan="{{ 2 if included else 1 }}" class="assignment-entry">
@@ -172,7 +211,7 @@
             </div>
             {% for pregap in panel.unavailable_pregaps %}
             <label class="flex items-center gap-1.5 text-xs text-amber-700">
-                <input type="checkbox" name="included_pregaps" value="{{ pregap }}" id="included-pregap-{{ album.id }}-{{ pregap }}" checked>
+                <input type="checkbox" name="included_pregaps" value="{{ pregap }}" id="included-pregap-{{ album.id }}-{{ pregap }}" checked data-review-change>
                 Previously included pregap — these files or assignments no longer qualify
             </label>
             {% endfor %}

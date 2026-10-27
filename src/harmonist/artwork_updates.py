@@ -39,7 +39,6 @@ log = logging.getLogger(__name__)
 TICK = timedelta(minutes=10)
 _WINDOW = timedelta(days=1)
 _RETRY = timedelta(hours=1)
-_FAILURE_NOTICE_INTERVAL = timedelta(hours=6)
 #: Albums an artwork update can be routed for, as for a tag update: one still in
 #: an Inbox state is listed there under its state, which is the next thing to do.
 _LIBRARY_STATES = frozenset({AlbumState.COMPLETE, AlbumState.INCOMPLETE})
@@ -53,54 +52,51 @@ _NAMED_MAX = 5
 
 @dataclass
 class _Failures:
-    """Worker-local pacing and reporting, independent of per-release observations.
+    """Worker-local pacing, independent of per-release observations.
 
-    A successful check resets backoff, but not the notice window: intermittent
-    failures must not generate a new pair of Activity entries every ten minutes.
-    Unreported failures accumulate for the next summary. Nothing here is an
-    archive answer, and restarting simply permits another attempt and notice.
+    Kept out of Activity (#864): the check changes nothing, retries on its own
+    and never gives up, and an archive outage is not the user's to act on, as
+    for the album page's own check (`_check_cover_art`). Nothing here is an
+    archive answer, and restarting permits another attempt.
     """
 
     delay: float = 0
     retry_after: float = 0
     count: int = 0
-    last_notice: float | None = None
-    reported: bool = False
 
-    def failed(self, error: cover_art.CoverArtError | mb_lookup.MBError) -> None:
-        now = time.monotonic()
+    def failed(self) -> None:
         self.delay = min(max(TICK.total_seconds(), self.delay * 2), _RETRY.total_seconds())
-        self.retry_after = now + self.delay
+        self.retry_after = time.monotonic() + self.delay
         self.count += 1
-        if (
-            self.last_notice is None
-            or now - self.last_notice >= _FAILURE_NOTICE_INTERVAL.total_seconds()
-        ):
-            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
-            activity.error(
-                f"Background artwork checks delayed — {failures}; latest error: {error}. "
-                f"Next attempt in at least {int(self.delay / 60)} minutes."
-            )
-            self.last_notice = now
-            self.reported = True
 
     def succeeded(self) -> None:
-        self.delay = 0
-        self.retry_after = 0
-        if self.reported:
-            failures = "1 failed check" if self.count == 1 else f"{self.count} failed checks"
+        if self.count:
             # This one check is evidence of progress, not proof that every
             # release endpoint has recovered.
-            activity.info(f"Background artwork check succeeded after {failures}.")
-            self.reported = False
-            self.count = 0
+            log.info("background artwork check succeeded after %d failed checks", self.count)
+        self.delay = 0
+        self.retry_after = 0
+        self.count = 0
 
 
 @dataclass(frozen=True)
 class LocalArtwork:
+    """What an album's files carry, for the plan and its download threshold.
+
+    No field has a default, on purpose: the page once built one of these
+    without the audio facts, and its threshold downloaded nothing for an album
+    the plan could embiggen (#872). mypy now names every construction that
+    forgets one."""
+
     tracks: tuple[tuple[Path, formats.EmbeddedArt | None], ...]
     cover: artwork.FolderCover | None
-    unreadable: bool = False
+    unreadable: bool
+    #: Every audio file is lossless (`formats.all_lossless`), which lets the
+    #: plan embiggen the tracks (#872).
+    lossless: bool
+    #: The audio files' combined size, from the scan's stat: what lossy
+    #: embiggening's growth is measured against (#872).
+    audio_bytes: int | None
 
     @property
     def missing(self) -> bool:
@@ -153,7 +149,10 @@ def revision() -> int:
 
 
 def read_local(
-    files: Sequence[Path], fields: Sequence[formats.ScanFields], cover_path: Path | None
+    files: Sequence[Path],
+    fields: Sequence[formats.ScanFields],
+    cover_path: Path | None,
+    audio_bytes: int | None,
 ) -> LocalArtwork:
     """Finish a scan's observation with one folder-image read on a cache miss."""
     unreadable = any(f.unreadable or (f.has_cover and f.art is None) for f in fields)
@@ -176,6 +175,8 @@ def read_local(
         tuple((p, f.art) for p, f in zip(files, fields, strict=True) if not f.unreadable),
         cover,
         unreadable,
+        formats.all_lossless(f.codec for f in fields),
+        audio_bytes,
     )
 
 
@@ -258,6 +259,8 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         picks=picks,
         excluded_archive=artwork_watch.excluded(sc, image),
         folder_cover=_policy(),
+        lossless=local.lossless,
+        audio_bytes=local.audio_bytes,
     )
 
 
@@ -476,7 +479,11 @@ def threshold(album: Album) -> int | None:
     """Width a candidate must exceed to be useful; -1 means any image.
 
     A stand-in gives way regardless of dimensions. Missing images can also
-    take an unmeasurable candidate. Existing embedded art never needs enlarging.
+    take an unmeasurable candidate. Existing embedded art needs enlarging only
+    on an album with no folder cover (#872): always if it's lossless, and if
+    it's lossy, while that grows it little. The archive's byte size is known
+    only once it's fetched, so a lossy album fetches by width like a lossless
+    one, and the plan weighs the bytes.
     """
     local = album.artwork_local
     sc = album.sidecar
@@ -499,9 +506,16 @@ def download_threshold(local: LocalArtwork | None, borrowed: frozenset[str]) -> 
         carried.add(local.cover.image.digest)
     if carried & borrowed:
         return -1
+    per_track = artwork.has_per_track_art(a.digest if a else None for _, a in local.tracks)
     if local.cover is None:
-        return -1 if local.missing or _policy() is artwork.FolderCoverPolicy.IF_MISSING else None
-    if artwork.has_per_track_art(a.digest if a else None for _, a in local.tracks):
+        if local.missing or _policy() is artwork.FolderCoverPolicy.IF_MISSING:
+            return -1
+        # The one album whose tracks a larger front can embiggen (#872).
+        own = next((a for _, a in local.tracks if a), None)
+        if (local.lossless or local.audio_bytes) and not per_track and own and own.size:
+            return own.size.width
+        return None
+    if per_track:
         return None
     size = local.cover.image.size
     return size.width if size else None
@@ -569,15 +583,17 @@ def sweep(albums: Sequence[Album], *, limit: int | None = None) -> int:
                 release_group_mbid=group if isinstance(group, str) else None,
                 keep_if_wider_than=width,
             )
-        except (cover_art.CoverArtError, mb_lookup.MBError) as error:
-            # Keep every attempted failure's traceback without mirroring it
-            # into Activity: the bounded summary below is its visible record.
-            log.exception(
-                "background artwork check failed for %s; will retry later",
+        except cover_art.CoverArtError, mb_lookup.MBError:
+            _failures.failed()
+            # Kept out of the Activity feed (`_diagnostic`, see `_Failures`);
+            # the log keeps every attempt's traceback.
+            log.warning(
+                "background artwork check failed for %s; next attempt in at least %d minutes",
                 mbid,
-                extra={"_activity": True},
+                _failures.delay // 60,
+                exc_info=True,
+                extra={"_diagnostic": True},
             )
-            _failures.failed(error)
             break
         observe(mbid)
         _failures.succeeded()

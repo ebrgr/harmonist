@@ -37,6 +37,14 @@ ArtworkReviewFrom = Operation | Literal["none"]
 DownloadFormat = Literal["flac", "alac", "mp3-320", "mp3-v0", "aac-hi", "vorbis"]
 
 
+class UiConfig(BaseModel):
+    show_artists: bool = False
+
+
+class ArtistNfoConfig(BaseModel):
+    location: Literal["audio_preferred", "info_preferred"] = "info_preferred"
+
+
 class PathsConfig(BaseModel):
     config_dir: Path
     music_dir: Path
@@ -345,6 +353,8 @@ class Config(BaseModel):
     library: LibraryConfig = Field(default_factory=LibraryConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
     tagging: TaggingConfig = Field(default_factory=TaggingConfig)
+    artist_nfo: ArtistNfoConfig = Field(default_factory=ArtistNfoConfig)
+    ui: UiConfig = Field(default_factory=UiConfig)
     test: TestConfig = Field(default_factory=TestConfig)
     log_level: str = "info"
     demo_mode: bool = False
@@ -416,12 +426,18 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     library = data.setdefault("library", {})
     gardener = data.setdefault("gardener", {})
     tagging = data.setdefault("tagging", {})
+    artist_nfo = data.setdefault("artist_nfo", {})
+    ui = data.setdefault("ui", {})
     test = data.setdefault("test", {})
 
     if v := env.get("HARMONIST_MUSIC_DIR"):
         paths["music_dir"] = v
     if v := env.get("HARMONIST_ARTIST_INFO_DIR"):
         paths["artist_info_dir"] = v
+    if v := env.get("HARMONIST_ARTIST_NFO_LOCATION"):
+        artist_nfo["location"] = v.strip()
+    if v := env.get("HARMONIST_UI_SHOW_ARTISTS"):
+        ui["show_artists"] = v.strip()
     if v := env.get("HARMONIST_DOWNLOAD_FORMAT"):
         # Unvalidated, for the reason the gardener level is (below): pydantic
         # rejects a format Harmonist can't tag with the permitted ones listed.

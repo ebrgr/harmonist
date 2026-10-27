@@ -58,8 +58,8 @@
     <li class="px-3 py-2 text-sm">
     <div class="flex items-center gap-3">
         <time class="flex-shrink-0 font-mono text-2xs text-muted tabular-nums self-center"
-              title="{{ e.ts.strftime('%Y-%m-%d %H:%M:%S UTC') }}">
-            {{ e.ts.strftime('%H:%M:%S') }}
+              datetime="{{ e.ts.isoformat() }}" title="{{ local_stamp(e.ts) }}">
+            {{ local_time(e.ts) }}
         </time>
         <span class="flex-shrink-0 w-1.5 h-1.5 rounded-full
             {% if e.source == 'audit' %}bg-line

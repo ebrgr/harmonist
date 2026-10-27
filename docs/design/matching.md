@@ -96,7 +96,11 @@ it isn't used.
 Only a first, exact, unique match is tagged unasked. Store-URL searches list
 every linked release, even a single result: the URL is evidence for the owner's
 choice, not a reason to recreate a suggestion they just dismissed. Choosing a
-result opens review before tagging.
+result opens review before tagging (#848), and so does pasting an MBID (#880):
+it is a choice made the same way, so it gets the same review. A pasted release
+that tagged at once when it fit exactly, and opened review when it didn't, made
+the same button do one of two things depending on an assessment the user
+couldn't see before pressing it.
 
 **A lookup never replaces a suggestion awaiting the user** (#638). The search
 tools are hidden while one waits, so a barcode or store-URL lookup arriving then
@@ -173,3 +177,43 @@ The user can choose otherwise:
 The count check itself is never skipped, even when the user has already named the
 release. Whether a tagging makes sense isn't something an assertion can make
 true.
+
+### A disc kept in another folder
+
+A release ripped a disc at a time into folders of its own, with no MusicBrainz
+tags, is adopted as one album per folder. The scan can't put them back together:
+with neither release-track IDs nor disc numbers there is no evidence that the
+folders hold different tracks rather than two copies of the same ones, and
+without that the scan never merges ([the model](model.md#duplicates-must-not-merge)).
+A stored "these belong together" would be a decision with no reader once the
+files said so themselves, so none is stored.
+
+The review can do what the scan can't, because there the user is looking at one
+release with one disc missing. **A disc with nothing on disk can be filled from
+another unmatched folder**, and the folder becomes part of the review's draft
+like any other pairing (#876). Its files take that disc's tracks in file order,
+since the user chose the disc. Confirming writes the release and its
+release-track IDs into every folder, and from then on the folders have disjoint
+track IDs, so the scan merges them by the ordinary rule. A folder moved away
+later is still a correct album on its own.
+
+**A folder is filled in unasked only when it is the one that fits**: as many
+files as the disc has tracks, every one within the four-second tolerance of its
+track, in order. That is the Exact rule applied to the missing disc, and it is
+unique-or-nothing for the same reason Exact is: two folders that fit, or one that
+fits two discs, are the user's choice. The pre-filled folder is still only part
+of a suggestion, named on the disc with a way to remove it, and nothing is written
+before Confirm. Lengths choose the folder and nothing else; which file is which
+track is still decided by the user's choice of disc and file order, not by
+duration. The lengths come from what the scan already read, so looking costs no
+MusicBrainz request and no file reads.
+
+**The Inbox lists that folder only as the disc it fills**, not also as an album
+waiting to be identified, which would ask for the same decision twice. This is
+worked out each time from the same rule the review uses, so the two always
+agree, and it is the one place the Inbox shows something other than each
+folder's own state. That's tolerable because it lasts only until the suggestion
+is confirmed or dismissed. Storing the join instead would have made it true on
+disk, at the cost of a sidecar field and a write before the user confirmed
+anything. A folder chosen by hand stays listed until Confirm, since that choice
+lives only in the review's page.

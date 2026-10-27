@@ -25,14 +25,46 @@ folder can be outside the music library, provided Harmonist can read it. Docker
 needs that folder mounted too; a read-only mount is sufficient. Demo mode ignores
 this setting and reads only its sandbox.
 
-Editing or creating an NFO requires write access. New artist NFOs use a subfolder
-named for the MusicBrainz artist ID inside this information folder; the folder
-is created on an explicit save if missing. Existing NFOs can also be edited
+Editing or creating an NFO requires write access. New artist NFOs use one reviewed
+destination, either a suitable existing artist directory in the music library
+or a subfolder derived from the local credit (for example, `Linkin Park/artist.nfo`)
+inside the information folder. The editor and online-import review show the
+eligible paths and allow one selection. The optional information folder is not
+required for creation when an in-tree path can be confirmed. Existing sources
+are edited in place; changing the preference never relocates or duplicates them.
+
+Audio-folder suggestions inspect all album credits, including incomplete and
+unidentified entries. Compilations, shared credits, the music root, folders
+containing tracks directly, conflicting NFOs, symlinks and unscanned tracks can
+prevent a suggestion. Single-album and split layouts require an explicit choice.
+No suitable in-tree candidate and no information root means creation remains
+blocked with a visible reason. Changed paths or permission failures preserve the
+draft and never cause a silent switch to another destination.
+
+Only newly created information-folder names are sanitized. Existing music
+directories are never renamed. Folder names remove `\ / : * ? " < > |`, collapse
+whitespace, and trim leading/trailing spaces and dots. An empty result becomes
+`Noname Artist`; Windows device names gain an underscore, including names with
+extensions. For example, `AC/DC` becomes `ACDC` and `NUL` becomes `_NUL`. The
+original artist name and MusicBrainz ID stay inside the XML. The folder is
+created on an explicit save if missing. Unrepresentable names, conflicting
+names (including collisions introduced by sanitization), and existing
+unassociated NFOs block creation rather than overwriting another artist. Existing NFOs,
+including those in older ID-named folders, stay in place and can also be edited
 where they were discovered in the music library. Originals are preserved under
 `nfoartists/<sha256>.nfo` in the config directory before an edit replaces them.
 For example, a local config directory of `.dev-data/config` keeps these copies
 in `.dev-data/config/nfoartists`. This backup folder is separate from the
 Artist Information Folder, which contains the active NFOs.
+
+For the Navidrome plugin, this folder also needs to be within a library mounted
+and accessible to the plugin, with its relative location configured as the
+Artistfolder Subpath. A folder outside Navidrome's mounted libraries is not
+discoverable merely because Harmonist can access it.
+The plugin currently matches artist folder names exactly, ignoring case; it
+does not apply this sanitization. An altered name such as `ACDC` for `AC/DC`
+therefore does not guarantee automatic discovery by that plugin. See the
+[plugin's lookup rules](https://github.com/metalheim/navidrome-plugin-artist-nfo-metadata).
 
 If the configured Artist Information Folder does not exist, NFOs in the music
 library remain available. The artist page reports the unavailable source, and
@@ -43,6 +75,40 @@ Local artist pictures can be named `artist.jpg` or `artist.png` beside the
 associated `artist.nfo`. A local `<thumb>` reference takes precedence, followed
 by `folder.jpg` / `folder.png`. The Artists list and artist page share this
 artwork; remote image URLs are not downloaded.
+
+## `[ui]`
+
+| Key | Env | Default | |
+|---|---|---|---|
+| `show_artists` | `HARMONIST_UI_SHOW_ARTISTS` | `false` | Shows the Artists tab on the home page. Available in Settings under User Interface. |
+
+The Artists tab is hidden unless enabled. The preference is saved in
+`harmonist.toml` and applies without restarting. Artist-name links in Library,
+direct artist profiles and NFO metadata remain available while the tab is hidden.
+An Artists URL or remembered Artists selection falls back to Library. Existing
+Library navigation context is preserved when returning from an artist profile.
+
+```toml
+[ui]
+show_artists = false
+```
+
+## `[artist_nfo]`
+
+| Key | Env | Default | |
+|---|---|---|---|
+| `location` | `HARMONIST_ARTIST_NFO_LOCATION` | `"info_preferred"` | Preferred location for new artist NFOs: `info_preferred` or `audio_preferred`. Available in Settings and applied live. |
+
+The preference preselects a destination when suitable; the review always exposes
+the actual path before Save. With no information root, eligible audio paths are
+still available. With no unambiguous audio suggestion, an available information
+folder can be selected instead. Each save writes one source only. Existing NFO
+discovery and editing do not depend on this creation preference.
+
+```toml
+[artist_nfo]
+location = "audio_preferred"
+```
 
 ## `[bandcamp]`
 
@@ -145,6 +211,7 @@ Needs a restart.
 |---|---|---|---|
 | `log_level` | `HARMONIST_LOG_LEVEL` | `"info"` | `debug`, `info`, `warning` or `error`. On the Settings page. |
 | `demo_mode` | `HARMONIST_DEMO_MODE` | `false` | Runs the sample library with simulated services. Your music folder is never touched. |
+| | `TZ` | UTC in Docker; the system's zone elsewhere | The timezone Activity, History and other times are shown in, as a name such as `Europe/London`. Stored times are UTC whatever it says. An unknown name is reported at startup and leaves times in UTC. |
 
 ## Example
 

@@ -91,10 +91,12 @@ def test_the_demo_shows_a_settings_update_for_a_credited_variation(library):
 
 def test_library_has_focused_changes_and_quiet_controls(library):
     current = albums(library)
-    assert len(current) == 12
+    assert len(current) == 13
     expected = {
         "We Are Here To Make You Sad": Significance.COSMETIC,
         "Rawhide": Significance.ENRICHMENT,
+        # Tagged before credits were written, so they all arrive (#863).
+        "Little Bit o' Hoot, Whole Lotta Nanny": Significance.ENRICHMENT,
         "Fever Dog": Significance.STRUCTURE,
         "Man of Constant Sorrow": Significance.IDENTITY,
         "The Rural Juror (OST)": Significance.IDENTITY,
@@ -111,10 +113,17 @@ def test_library_has_focused_changes_and_quiet_controls(library):
     assert len(current["Can You Picture That?"].paths) == 2
     assert current["Can You Picture That?"].state == AlbumState.COMPLETE
     assert {p.suffix for p in audio_files(library)} == {".mp3", ".m4a", ".flac"}
-    assert {a.title for a in current.values() if a.state == AlbumState.NEEDS_MBID} == {
-        "Gimme Some Money",
-        "Top 5 Records For A Wednesday",
-    }
+    # From the scan rather than `current`: Aquafina After Dark is two albums of
+    # one title until its second disc is added to the first's review (#876).
+    assert sorted(
+        str(a.path.relative_to(library))
+        for a in scanner.scan(library)
+        if a.state == AlbumState.NEEDS_MBID
+    ) == [
+        "Sextina Aquafina/Aquafina After Dark (The Remixes)/Disc 1",
+        "Sonic Death Monkey/Top 5 Records For A Wednesday",
+        "The Thamesmen/Gimme Some Money",
+    ]
 
 
 def test_adoption_recipe_preserves_tags_and_layout(tmp_path, monkeypatch):
@@ -172,7 +181,7 @@ def test_startup_adopts_both_discs_without_rewriting_audio(tmp_path, monkeypatch
         else:
             pytest.fail("startup adoption did not finish")
         current = albums(root)
-        assert len(current) == 12
+        assert len(current) == 13
         assert len(current["Can You Picture That?"].paths) == 2
         assert {p.relative_to(root): p.read_bytes() for p in audio_files(root)} == before
 
@@ -401,7 +410,7 @@ def test_link_existing_download_new_and_upgrade_mp3_to_flac(client):
     # approvals silently downloading the albums approved in the first take.
     assert client.post("/sync").status_code == 200
     wait_sync(client)
-    assert len(albums(root)) == 12
+    assert len(albums(root)) == 13
     assert demo.pending_downloads.count() == 3
 
 
@@ -470,12 +479,12 @@ def test_download_cap_pauses_then_limits_new_purchases(client):
     client.app.state.cfg.bandcamp.max_downloads_per_sync = 0
     client.post("/sync", data={"from_popover": "true"})
     wait_sync(client)
-    assert len(albums(root)) == 12
+    assert len(albums(root)) == 13
     assert demo.pending_downloads.count() == 3
     client.app.state.cfg.bandcamp.max_downloads_per_sync = 1
     client.post("/sync", data={"from_popover": "true"})
     wait_sync(client)
-    assert len(albums(root)) == 13
+    assert len(albums(root)) == 14
     assert albums(root)["Straight Outta Lowcash"].state == AlbumState.COMPLETE
     assert demo.pending_downloads.count() == 2
 

@@ -1,5 +1,6 @@
 """Artwork discovery uses all local carriers, and never the tag-update verdict."""
 
+import logging
 import shutil
 import threading
 from dataclasses import replace
@@ -194,11 +195,62 @@ def test_compilation_is_preserved_and_larger_archive_only_improves_folder(tmp_pa
     album = scanner.scan(root)[0]
     assert artwork_updates.operation(album) is None
     formats.write_cover(paths[1], png_bytes(60, 60))
-    album = scanner.scan(root)[0]
-    assert artwork_updates.operation(album) is None
     (album.path / "cover.png").write_bytes(png_bytes(70, 70))
     album = scanner.scan(root)[0]
     assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert [c.target for c in plan.changes] == [album.path / "cover.png"]
+
+
+def test_a_lossless_album_without_a_folder_cover_is_embiggened(tmp_path):
+    """#872: the fixtures are ALAC, so with no `cover.*` a larger archive front
+    is proposed for the tracks — and is downloaded to be weighed, which #479's
+    threshold never did for an album that already had embedded art."""
+    root = tmp_path / "music"
+    album = _tagged(root, _release(mbid=MBID, tracks=2), tracks=2)
+    for path in album.path.glob("*.m4a"):
+        formats.write_cover(path, png_bytes(60, 60))
+    _archive(png_bytes(120, 120))
+    artwork_updates.warm([album])
+    album = scanner.scan(root)[0]
+    assert album.artwork_local is not None and album.artwork_local.lossless
+
+    assert artwork_updates.threshold(album) == 60
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert set(plan.track_targets(artwork.Scope.ALL)) == set(album.path.glob("*.m4a"))
+
+
+def test_a_lossy_album_is_embiggened_only_while_it_grows_little(tmp_path):
+    """Lossy audio embiggens under `LOSSY_GROWTH` (#872). The archive's byte
+    size is known only once it's fetched, so the front is fetched for any
+    album that could take it, and the plan decides."""
+    root = tmp_path / "music"
+    aac = Path(__file__).parent / "fixtures/sine-aac.m4a"
+    album = _tagged(root, _release(mbid=MBID, tracks=2), tracks=2, source=aac)
+    for path in album.path.glob("*.m4a"):
+        formats.write_cover(path, png_bytes(60, 60))
+    album = scanner.scan(root)[0]
+    local = album.artwork_local
+    assert local is not None and not local.lossless
+    files = sorted(album.path.glob("*.m4a"))
+    assert local.audio_bytes == sum(f.stat().st_size for f in files)
+    assert artwork_updates.threshold(album) == 60
+
+    # A small front grows two ~16 KB tracks by under 10%…
+    _archive(png_bytes(120, 120))
+    artwork_updates.observe(MBID)
+    assert artwork_updates.operation(album) is artwork.Operation.REPLACEMENT
+    plan = artwork_updates._plan(album)
+    assert plan is not None
+    assert plan.track_targets(artwork.Scope.ALL) == frozenset(files)
+
+    # …and a large one by far more, so they keep their own image.
+    _archive(png_bytes(1200, 1200))
+    artwork_updates.observe(MBID)
+    assert artwork_updates.operation(album) is None
 
 
 def test_stand_in_yields_to_smaller_own_cover_but_not_group_or_rematch(tmp_path):
@@ -379,56 +431,26 @@ def test_background_failure_backs_off_across_releases_and_caps_delay(failing_arc
         assert len(calls) == before + 1
 
 
-def test_background_failure_summaries_and_recovery(failing_archive, caplog):
+def test_background_failures_and_recovery_are_logged_not_posted(failing_archive, caplog):
     albums, clock, calls, failing = failing_archive
-    artwork_updates.sweep(albums, limit=1)
-    first = activity.recent()
-    assert len(first) == 1
-    assert "500" in first[0].message
-    assert "10 minutes" in first[0].message
-    for _ in range(5):
-        clock[0] += timedelta(hours=1)
+    caplog.set_level(logging.INFO, logger="harmonist.artwork_updates")
+    for _ in range(7):
         artwork_updates.sweep(albums, limit=1)
-    assert len(activity.recent()) == 1
-    assert len(calls) == 6
-    diagnostics = [r for r in caplog.records if r.name == "harmonist.artwork_updates"]
-    assert len(diagnostics) == 6
-    assert all(r.exc_info for r in diagnostics)
-
-    clock[0] += timedelta(hours=1)
-    artwork_updates.sweep(albums, limit=1)
-    entries = activity.recent()
-    assert len(entries) == 2
-    assert "7 failed checks" in entries[0].message
-    assert "500" in entries[0].message
+        clock[0] += timedelta(hours=1)
+    assert len(calls) == 7
+    # Through the real log mirror: an archive outage is not the user's to act on.
+    assert activity.recent() == []
+    failures = [r for r in caplog.records if r.name == "harmonist.artwork_updates"]
+    assert len(failures) == 7
+    assert all(r.levelno == logging.WARNING and r.exc_info for r in failures)
+    assert "500" in str(failures[-1].exc_info[1])
 
     failing[0] = False
-    clock[0] += timedelta(hours=1)
     assert artwork_updates.sweep(albums, limit=1) == 1
-    entries = activity.recent()
-    assert len(entries) == 3
-    assert "succeeded" in entries[0].message
-    assert "7 failed checks" in entries[0].message
+    assert activity.recent() == []
+    assert "after 7 failed checks" in caplog.records[-1].getMessage()
     # Recovery resets pacing; another release can be checked immediately.
     assert artwork_updates.sweep(albums, limit=1) == 1
-    assert len(activity.recent()) == 3
-
-
-def test_intermittent_failures_do_not_restart_activity_notice_window(failing_archive):
-    albums, clock, calls, failing = failing_archive
-    for _ in range(4):
-        failing[0] = True
-        assert artwork_updates.sweep(albums, limit=1) == 0
-        failing[0] = False
-        clock[0] += timedelta(minutes=10)
-        assert artwork_updates.sweep(albums, limit=1) == 1
-    assert len(calls) == 8
-    # One error and one successful-check notice, despite four separate failures.
-    assert len(activity.recent()) == 2
-    clock[0] += timedelta(hours=6)
-    failing[0] = True
-    artwork_updates.sweep(albums, limit=1)
-    assert "4 failed checks" in activity.recent()[0].message
 
 
 def test_background_failure_preserves_observation_and_configure_resets_backoff(failing_archive):
@@ -443,7 +465,6 @@ def test_background_failure_preserves_observation_and_configure_resets_backoff(f
     artwork_updates.configure(lambda: artwork.FolderCoverPolicy.NEVER)
     artwork_updates.sweep(albums, limit=1)
     assert len(calls) == 2
-    assert len(activity.recent()) == 2
 
 
 def test_any_image_threshold_fetches_and_recovers_unmeasurable_artwork(tmp_path):

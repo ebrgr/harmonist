@@ -49,6 +49,7 @@ from harmonist.tagger import (
     TagMismatchError,
 )
 from harmonist.transforms import TaggingChoices
+from test.conftest import FIXTURES_DIR
 from test.helpers import keep_one
 
 
@@ -2297,6 +2298,65 @@ def test_one_phrase_two_different_credits_is_dropped_rather_than_guessed():
     assert tagger.artist_credits(release) == {}
 
 
+def _composing_release(composer_id: str) -> dict:
+    """A release by Nova whose one track performs a work Nova is credited with
+    composing, under `composer_id` (#863)."""
+    nova = {"id": "art-1", "name": "Nova", "sort-name": "Nova, The"}
+    return {
+        "id": "rel-1",
+        "artist-credit": [{"artist": nova}],
+        "medium-list": [
+            {
+                "position": "1",
+                "track-list": [
+                    {
+                        "id": "rt-1",
+                        "position": "1",
+                        "title": "One",
+                        "recording": {
+                            "id": "rec-1",
+                            "work-relation-list": [
+                                {
+                                    "type": "performance",
+                                    "work": {
+                                        "id": "work-1",
+                                        "title": "One",
+                                        "artist-relation-list": [
+                                            {
+                                                "type": "composer",
+                                                "artist": {**nova, "id": composer_id},
+                                            }
+                                        ],
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_a_composer_and_a_work_are_keyed_as_links():
+    """#863. The Work and Composer columns stand in for the id tags beside them by
+    drawing each name as a link to its MusicBrainz page. The release's artist is
+    also its composer here, so the phrase "Nova" comes from both an artist credit
+    and a composer credit: one person, so one link, and the sort name the composer
+    credit knows is kept for the link's tooltip."""
+    credits = tagger.artist_credits(_composing_release("art-1"))
+
+    assert credits["Nova"] == (tagger.CreditPart("Nova", "art-1", "", sort="Nova, The"),)
+    assert credits["One"] == (tagger.CreditPart("One", "work-1", "", entity="work"),)
+
+
+def test_a_composer_spelled_like_another_artist_is_not_linked():
+    """The exact-scoped-unique rule holds across the two kinds of credit: a
+    composer who shares the release artist's name but not their id is ambiguity,
+    so neither gets the phrase."""
+    assert "Nova" not in tagger.artist_credits(_composing_release("art-2"))
+
+
 def _set_country_tag(album_dir, value: str) -> None:
     """Put `value` in every file's release-country atom — what Picard writes
     when `preferred_release_countries` names one of the release's own."""
@@ -2462,12 +2522,20 @@ def test_release_events_is_empty_when_musicbrainz_records_none():
 # ---------- the larger local image wins (#410) ----------
 
 
-def _sized_jpeg(width: int, height: int) -> bytes:
+def _sized_jpeg(width: int, height: int, *, padding: int = 0) -> bytes:
     """A JPEG whose frame header states a real size, so `images.dimensions` can
-    read it — `_minimal_jpeg` has no SOF and measures as unknown."""
+    read it — `_minimal_jpeg` has no SOF and measures as unknown.
+
+    A bare header is a few dozen bytes whatever it states, which embiggens any
+    lossy album (#872). `padding` gives it the weight of a real image."""
     from test.test_artwork import jpeg_bytes
 
-    return jpeg_bytes(width, height)
+    return jpeg_bytes(width, height, padding=padding)
+
+
+#: Enough bytes that embedding the image grows the AAC fixture album past
+#: `artwork.LOSSY_GROWTH`, as a real 1400px front would grow a real album.
+_HEAVY = 20_000
 
 
 def test_a_larger_embedded_image_is_promoted_to_the_folder_cover(album_with_tracks, tmp_path):
@@ -2732,34 +2800,46 @@ def test_tagging_never_asks_the_archive(album_with_tracks, tmp_path, monkeypatch
     tagger.tag_and_artwork(album_dir, _single_track_release(), cover_path=cover)
 
 
-def test_a_larger_archive_image_wins_with_no_folder_cover(album_with_tracks, tmp_path):
+@pytest.mark.parametrize(
+    ("source", "embiggened"),
+    [(FIXTURES_DIR / "sine.m4a", True), (FIXTURES_DIR / "sine-aac.m4a", False)],
+    ids=["alac", "aac"],
+)
+def test_a_larger_archive_image_wins_with_no_folder_cover(
+    album_with_tracks, tmp_path, source, embiggened
+):
     """The album shape an adopted library arrives in: art embedded in the files,
     no `cover.jpg` beside them (#442).
 
     The archive needs no folder cover to be a candidate — the folder file is not
     what carries it — so it is judged against the tracks' own image and written
     when it wins. The page says the same thing, through the same `beats`.
+
+    Both containers are `.m4a`, so only the codec inside tells the tagger
+    whether the tracks may be embiggened (#872). The archive's image is heavy:
+    past the lossy cap for the AAC album, and no matter for the ALAC one.
     """
     from harmonist import artwork_store, cover_art
 
     artwork_store.configure(tmp_path / "artwork")
     cover_art.configure_cache(tmp_path / "caa")
-    album_dir = album_with_tracks(2)
+    album_dir = album_with_tracks(2, source=source)
     mine = _sized_jpeg(500, 500)
     for track in ("01 Track 1.m4a", "02 Track 2.m4a"):
         _embed_cover(album_dir / track, mine)
-    theirs = _sized_jpeg(1400, 1400)
+    theirs = _sized_jpeg(1400, 1400, padding=_HEAVY)
     release = _release_2_tracks()
     cover_art.cache_image(release["id"], theirs, "image/jpeg")
 
     changed = _update_artwork(album_dir, release, None)
 
-    # ONE write: the folder cover the album lacked, from the archive (#469) —
-    # the tracks keep the image they carry, whatever the archive measures
-    # (#479). Nothing was destroyed, so nothing needed keeping.
-    assert changed == 1
-    assert bytes(MP4(album_dir / "01 Track 1.m4a")[ATOM_COVER][0]) == mine
-    assert bytes(MP4(album_dir / "02 Track 2.m4a")[ATOM_COVER][0]) == mine
+    # The folder cover the album lacked, from the archive (#469). On lossless
+    # audio the tracks take it too (#872); on lossy they keep the image they
+    # carry when it would grow them by too much (#479).
+    assert changed == (3 if embiggened else 1)
+    tracks = mine if not embiggened else theirs
+    assert bytes(MP4(album_dir / "01 Track 1.m4a")[ATOM_COVER][0]) == tracks
+    assert bytes(MP4(album_dir / "02 Track 2.m4a")[ATOM_COVER][0]) == tracks
     assert (album_dir / "cover.jpg").read_bytes() == theirs
     # …and pressing again finds everything already where it belongs.
     assert _update_artwork(album_dir, release, None) == 0
@@ -2919,10 +2999,12 @@ def test_a_larger_archive_image_becomes_the_created_cover(album_with_tracks, tmp
 
     activity_store.init(tmp_path / "audit.db")
     monkeypatch.setattr(cover_art, "_caa_root", None)
-    album_dir = album_with_tracks(2)
+    # Lossy, and heavy enough that #479 keeps the tracks' own image: a light
+    # image, or lossless audio, would take the archive's into both (#872).
+    album_dir = album_with_tracks(2, source=FIXTURES_DIR / "sine-aac.m4a")
     mine = _sized_jpeg(800, 800)
     _embed_cover(album_dir / "01 Track 1.m4a", mine)
-    theirs = _sized_jpeg(3000, 3000)
+    theirs = _sized_jpeg(3000, 3000, padding=_HEAVY)
 
     tagger.tag_and_artwork(
         album_dir, _release_2_tracks(), archive=cover_art.Front(theirs, "image/jpeg")

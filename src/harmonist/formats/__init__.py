@@ -10,12 +10,13 @@ read/write functions used here, then register it in `_MODULES`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from . import flac, m4a, mp3, ogg, opus
+from . import flac, m4a, mp3, ogg, opus, owned
 
 # `READ_ERRORS` and `WRITE_ERRORS` are re-exported (redundant aliases) rather
 # than used here: this package is where mutagen stops, so `formats.READ_ERRORS`
@@ -136,6 +137,18 @@ def describe(path: Path) -> str | None:
     "FLAC"). None if no module handles the extension."""
     mod = _module_for(path)
     return mod.describe(path) if mod else None
+
+
+#: The `describe` labels, and `ScanFields.codec` / `TrackTags.codec` values, of
+#: lossless audio.
+LOSSLESS_CODECS = frozenset({"ALAC", "FLAC"})
+
+
+def all_lossless(codecs: Iterable[str | None]) -> bool:
+    """Whether every file of an album is lossless (#872). False for no files,
+    and for a file whose codec couldn't be read: unknown isn't lossless."""
+    seen = list(codecs)
+    return bool(seen) and all(c in LOSSLESS_CODECS for c in seen)
 
 
 def read_scan_fields(path: Path) -> ScanFields:
@@ -292,17 +305,40 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
     mod = _module_for(path)
     if mod is None:
         raise UnsupportedFormatError(f"no audio module handles {path.suffix}")
+    if unstated(tagset):
+        # Only for a release that could not answer, so the extra read is rare.
+        tagset = settled(tagset, mod.read_owned(path))
     before: dict[str, Any] = mod.write_tags(path, tagset, cover)
     return before
 
 
+def unstated(tagset: TagSet) -> frozenset[owned.Owned]:
+    """The relationship credits `tagset` holds no answer for (#680)."""
+    return frozenset(f for f in owned.RELATIONSHIP_CREDITS if getattr(tagset, f.value) is None)
+
+
+def settled(tagset: TagSet, before: Mapping[str, Any]) -> TagSet:
+    """`tagset`, with each credit MusicBrainz did not answer for kept as the
+    file has it (#680).
+
+    A backend writes `None` as absence, and absence is a removal. So every write
+    passes through here, and so does every diff a tagging plans: the record of
+    what changed and the write itself must agree that an unanswered credit was
+    left alone.
+    """
+    keep: dict[str, Any] = {f.value: list(before.get(f.value) or []) for f in unstated(tagset)}
+    return replace(tagset, **keep) if keep else tagset
+
+
 __all__ = [
+    "LOSSLESS_CODECS",
     "EmbeddedArt",
     "ProvenanceTags",
     "ScanFields",
     "TagSet",
     "TrackTags",
     "UnsupportedFormatError",
+    "all_lossless",
     "describe",
     "has_superseded_tags",
     "is_supported",
@@ -316,7 +352,9 @@ __all__ = [
     "read_scan_fields",
     "read_tags",
     "read_track_title",
+    "settled",
     "supported_extensions",
+    "unstated",
     "write_cover",
     "write_owned",
     "write_tags",

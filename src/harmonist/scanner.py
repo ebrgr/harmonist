@@ -186,6 +186,13 @@ def read_dir(album_dir: Path, names: Sequence[str] | None = None) -> DirContents
     return DirContents([e[0] for e in audio], [e[0] for e in video], signature)
 
 
+def _audio_bytes(signature: AlbumSignature, audio_files: list[Path]) -> int:
+    """The audio files' combined size, from the sizes the walk has already
+    stat'ed. The signature holds the video files too, so it's summed by name."""
+    names = {f.name for f in audio_files}
+    return sum(size for name, _, size in signature[0] if name in names)
+
+
 def _written_at(signature: AlbumSignature) -> datetime | None:
     """When this album's files were last written, from the mtimes the walk has
     already stat'ed. None for an album with no files.
@@ -271,7 +278,13 @@ def resolve_dir(
     # re-read below.
     reuse = cached[2].fields if (cached is not None and cached[0][0] == signature[0]) else None
     try:
-        io = read_album_io(album_dir, audio_files, video_files, reuse)
+        io = read_album_io(
+            album_dir,
+            audio_files,
+            video_files,
+            reuse,
+            audio_bytes=_audio_bytes(signature, audio_files),
+        )
         album = build_album(album_dir, audio_files, io, _written_at(signature))
         contributions.warm(album)
     except (InvalidSidecarError, UnsupportedSchemaVersionError) as e:
@@ -283,6 +296,12 @@ def resolve_dir(
     if album_cache is not None:
         album_cache[album_dir] = (signature, album, io)
     return ScannedDir(album, audio_files, io)
+
+
+def _merged_audio_bytes(parts: list[artwork_updates.LocalArtwork | None]) -> int | None:
+    """One album's size from its folders' sizes. Unknown if any part's is."""
+    sizes = [p.audio_bytes if p is not None else None for p in parts]
+    return None if any(s is None for s in sizes) else sum(s for s in sizes if s is not None)
 
 
 def merge_by_identity(scanned: list[ScannedDir]) -> list[Album]:
@@ -465,6 +484,8 @@ def _combine(mbid: str | None, group: list[ScannedDir]) -> Album:
                 None,
             ),
             any(e.io.artwork_local.unreadable for e in ordered if e.io.artwork_local),
+            all(e.io.artwork_local is not None and e.io.artwork_local.lossless for e in ordered),
+            _merged_audio_bytes([e.io.artwork_local for e in ordered]),
         ),
     )
     written = [e.album.files_written_at for e in group if e.album.files_written_at]
@@ -619,6 +640,8 @@ def read_album_io(
     audio_files: list[Path],
     video_files: list[Path] | None = None,
     reuse_fields: list[formats.ScanFields] | None = None,
+    *,
+    audio_bytes: int | None,
 ) -> AlbumIO:
     """Do an album's blocking reads in one place: the sidecar, each track's tags
     (one open per file), and the cover lookup. Touches no shared state, so the
@@ -627,6 +650,8 @@ def read_album_io(
     `reuse_fields`: when the audio files are unchanged since the last scan, the
     caller passes the previously-read tag fields so we SKIP the per-track mutagen
     reads (the expensive part) and only re-read the cheap sidecar + cover.
+
+    `audio_bytes`: the audio files' combined size, which the walk already has.
     """
     fields = (
         reuse_fields
@@ -638,7 +663,7 @@ def read_album_io(
         sidecar=read_sidecar(album_dir),
         fields=fields,
         cover_path=cover_path,
-        artwork_local=artwork_updates.read_local(audio_files, fields, cover_path),
+        artwork_local=artwork_updates.read_local(audio_files, fields, cover_path, audio_bytes),
         video_fields=tuple(formats.read_video_scan_fields(f) for f in (video_files or [])),
     )
 

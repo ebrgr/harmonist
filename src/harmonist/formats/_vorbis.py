@@ -60,6 +60,15 @@ KEY_ASIN = "ASIN"
 KEY_MEDIA = "MEDIA"
 #: Picard's `discsubtitle` — the medium's own name (#218).
 KEY_DISC_SUBTITLE = "DISCSUBTITLE"
+#: Picard's `work` and `musicbrainz_workid` (#680), written under their own
+#: names upper-cased, as Picard writes any Vorbis comment.
+KEY_WORK = "WORK"
+KEY_WORK_ID = "MUSICBRAINZ_WORKID"
+KEY_COMPOSER = "COMPOSER"
+KEY_COMPOSER_SORT = "COMPOSERSORT"
+KEY_COMPOSER_ID = "MUSICBRAINZ_COMPOSERID"
+KEY_LYRICIST = "LYRICIST"
+KEY_WRITER = "WRITER"
 KEY_COMMENT = "COMMENT"
 KEY_DESCRIPTION = "DESCRIPTION"
 
@@ -101,6 +110,13 @@ OWNED_KEYS: dict[Owned, tuple[str, ...]] = {
     Owned.MB_RELEASE_TRACK_ID: (KEY_RELEASE_TRACK_ID,),
     Owned.MB_ARTIST_IDS: (KEY_ARTIST_ID,),
     Owned.ISRCS: (KEY_ISRC,),
+    Owned.WORKS: (KEY_WORK,),
+    Owned.MB_WORK_IDS: (KEY_WORK_ID,),
+    Owned.COMPOSERS: (KEY_COMPOSER,),
+    Owned.COMPOSER_SORT: (KEY_COMPOSER_SORT,),
+    Owned.MB_COMPOSER_IDS: (KEY_COMPOSER_ID,),
+    Owned.LYRICISTS: (KEY_LYRICIST,),
+    Owned.WRITERS: (KEY_WRITER,),
 }
 
 #: Keys a write CLEARS and never writes back — see `m4a.SUPERSEDED_ATOMS`.
@@ -149,6 +165,13 @@ _LIST_KEYS: dict[Owned, str] = {
     Owned.ARTISTS: KEY_ARTISTS,
     Owned.MB_ARTIST_IDS: KEY_ARTIST_ID,
     Owned.ISRCS: KEY_ISRC,
+    Owned.WORKS: KEY_WORK,
+    Owned.MB_WORK_IDS: KEY_WORK_ID,
+    Owned.COMPOSERS: KEY_COMPOSER,
+    Owned.COMPOSER_SORT: KEY_COMPOSER_SORT,
+    Owned.MB_COMPOSER_IDS: KEY_COMPOSER_ID,
+    Owned.LYRICISTS: KEY_LYRICIST,
+    Owned.WRITERS: KEY_WRITER,
 }
 
 
@@ -436,6 +459,13 @@ class VorbisTagger:
             Owned.MB_RELEASE_TRACK_ID: one(KEY_RELEASE_TRACK_ID),
             Owned.MB_ARTIST_IDS: many(KEY_ARTIST_ID),
             Owned.ISRCS: many(KEY_ISRC),
+            Owned.WORKS: many(KEY_WORK),
+            Owned.MB_WORK_IDS: many(KEY_WORK_ID),
+            Owned.COMPOSERS: many(KEY_COMPOSER),
+            Owned.COMPOSER_SORT: many(KEY_COMPOSER_SORT),
+            Owned.MB_COMPOSER_IDS: many(KEY_COMPOSER_ID),
+            Owned.LYRICISTS: many(KEY_LYRICIST),
+            Owned.WRITERS: many(KEY_WRITER),
         }
 
     def write_cover(self, path: Path, cover: bytes) -> None:
@@ -556,6 +586,20 @@ class VorbisTagger:
             tags[KEY_MEDIA] = [tagset.media]
         if tagset.disc_subtitle:
             tags[KEY_DISC_SUBTITLE] = [tagset.disc_subtitle]
+        if tagset.works:
+            tags[KEY_WORK] = list(tagset.works)
+        if tagset.mb_work_ids:
+            tags[KEY_WORK_ID] = list(tagset.mb_work_ids)
+        if tagset.composers:
+            tags[KEY_COMPOSER] = list(tagset.composers)
+        if tagset.composer_sort:
+            tags[KEY_COMPOSER_SORT] = list(tagset.composer_sort)
+        if tagset.mb_composer_ids:
+            tags[KEY_COMPOSER_ID] = list(tagset.mb_composer_ids)
+        if tagset.lyricists:
+            tags[KEY_LYRICIST] = list(tagset.lyricists)
+        if tagset.writers:
+            tags[KEY_WRITER] = list(tagset.writers)
 
         if cover is not None:
             self._set_cover(audio, cover)

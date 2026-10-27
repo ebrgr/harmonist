@@ -147,6 +147,7 @@ def _release(
     track_artists: list[str] | None = None,
     countries: tuple[str, ...] = ("US",),
     credited_as: str | None = None,
+    works: list[dict[str, Any]] | None = None,
 ) -> Release:
     """One MusicBrainz release, as the demo's stubbed client returns it.
 
@@ -165,6 +166,11 @@ def _release(
     tag holds, so the album page annotates its Country row only for a release
     with several (#329). Most demo albums have one, because most releases do;
     two have three, or the annotation is unreachable in the mode people meet it.
+
+    `works` gives each track a work it performs, with the people credited on it
+    (#680): `{"title": …, "composer": [names], "lyricist": […], "writer": […]}`
+    per track. Without it no demo album has a credit, and the album page's
+    credit columns (#863) are unreachable in demo mode.
     """
     if lengths_ms is None:
         lengths_ms = [1000] * len(tracks)
@@ -229,6 +235,7 @@ def _release(
                             "id": _demo_mbid("rec", mbid, i),
                             "title": title,
                             "length": str(length),
+                            "work-relation-list": _work_relations(mbid, i, works),
                         },
                     }
                     for i, (title, length, credit) in enumerate(
@@ -238,6 +245,39 @@ def _release(
             }
         ],
     }
+
+
+def _work_relations(mbid: str, i: int, works: list[dict[str, Any]] | None) -> list[Any]:
+    """The work track `i` performs, as a recording's relationships carry it.
+
+    Each credited person gets the same id wherever they are credited, as an
+    artist credit's artist does (`_demo_mbid` keyed by name), so a composer who
+    writes two of the tracks is one person on the page.
+    """
+    if not works:
+        return []
+    work = works[i - 1]
+    return [
+        {
+            "type": "performance",
+            "work": {
+                "id": _demo_mbid("work", mbid, i),
+                "title": work["title"],
+                "artist-relation-list": [
+                    {
+                        "type": kind,
+                        "artist": {
+                            "id": _demo_mbid("art", name),
+                            "name": name,
+                            "sort-name": ", ".join(reversed(name.split(" ", 1))),
+                        },
+                    }
+                    for kind in ("composer", "lyricist", "writer")
+                    for name in work.get(kind, [])
+                ],
+            },
+        }
+    ]
 
 
 # A small collection accumulated across downloads and CD rips. Each difference
@@ -309,6 +349,33 @@ LIBRARY: list[dict[str, Any]] = [
         "cover": "dingoes.png",
         "fmt": "alac",
         "art": "gaps",
+        # Each song written by different members, and the files tagged before
+        # Harmonist wrote credits (#680): every credit arrives on a re-tag, so
+        # the album page draws one linked column per credit, and the writer that
+        # doesn't fit on a line under its track (#863).
+        "works": [
+            {"title": "Pavlov's Bell", "composer": ["Devon MacLeish"], "lyricist": ["Oz Osbourne"]},
+            {
+                "title": "Hellmouth Lullaby",
+                "composer": ["Oz Osbourne", "Devon MacLeish"],
+                "lyricist": ["Willow Rosenberg"],
+            },
+            {
+                "title": "Cordelia's Theme",
+                "composer": ["Giles Rupert"],
+                "lyricist": ["Xander Harris"],
+                "writer": ["Cordelia Chase"],
+            },
+        ],
+        "tags": {
+            "works": None,
+            "mb_work_ids": None,
+            "composers": None,
+            "composer_sort": None,
+            "mb_composer_ids": None,
+            "lyricists": None,
+            "writers": None,
+        },
         "store": "https://dingoes.bandcamp.com/album/little-bit-o-hoot",
         "item_id": 1004,
     },
@@ -409,6 +476,31 @@ LIBRARY: list[dict[str, Any]] = [
         # A Qobuz purchase: its per-track id (#634).
         "provenance": {"QBZ:TID": "7917370{n}"},
     },
+    {
+        "artist": "Sextina Aquafina",
+        "album": "Aquafina After Dark (The Remixes)",
+        "tracks": [
+            "Hollywoo Nights (Club Mix)",
+            "Horsin' Around (Sitcom Theme Remix)",
+            "Kyle and the Kids (Saturday Morning Mix)",
+            "Secretariat (Final Furlong Edit)",
+            "Mr. Peanutbutter's House (Late Night Mix)",
+            "I Will Always Think of You (Ballad Rework)",
+            "The Hollywoo Sign (Missing D Remix)",
+            "Last Call (Sunrise Version)",
+        ],
+        "mbid": "demo-rel-sextina",
+        "fmt": "flac",
+        # Ripped a disc at a time into folders of their own, with no disc
+        # numbers in the tags, so the scan adopts two albums. The first has the
+        # release as a suggestion, and the second is the one folder that fills
+        # its missing disc (#876): no other unmatched album has four tracks.
+        "discs": True,
+        "split": True,
+        "unmatched": True,
+        "candidate": True,
+        "lengths_ms": [1000] * 8,
+    },
 ]
 
 PENDING_PURCHASES: list[dict[str, Any]] = [
@@ -458,13 +550,16 @@ def _catalogue() -> dict[str, Release]:
             spec["artist"],
             spec["album"],
             spec["tracks"],
-            lengths_ms=[6000, 7000, 5500] if spec.get("candidate") else spec.get("lengths_ms"),
+            lengths_ms=spec.get("lengths_ms")
+            or ([6000, 7000, 5500] if spec.get("candidate") else None),
             disambiguation=spec.get("disambiguation", ""),
             track_artists=spec.get("credits"),
             credited_as=spec.get("credited_as"),
+            works=spec.get("works"),
         )
         if spec.get("discs"):
             tracks = release["medium-list"][0]["track-list"]
+            half = len(tracks) // 2 if spec.get("split") else 2
             release["medium-list"] = [
                 {
                     "position": str(disc),
@@ -473,7 +568,7 @@ def _catalogue() -> dict[str, Release]:
                         {**track, "position": str(i)} for i, track in enumerate(part, 1)
                     ],
                 }
-                for disc, part in enumerate((tracks[:2], tracks[2:]), 1)
+                for disc, part in enumerate((tracks[:half], tracks[half:]), 1)
             ]
         # What MusicBrainz says about each release's artwork, as a browse
         # carries it: the picker skips a release that has none (#659).
@@ -969,7 +1064,7 @@ def browse_release_group_editions(release_group_mbid: str) -> tuple[list[Release
     return releases[:100], len(releases)
 
 
-def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, Any]]:
+def search_releases(artist: str, title: str, limit: int = 10) -> tuple[list[dict[str, Any]], int]:
     a = (artist or "").strip().lower()
     t = (title or "").strip().lower()
     results: list[dict[str, Any]] = []
@@ -996,9 +1091,7 @@ def search_releases(artist: str, title: str, limit: int = 10) -> list[dict[str, 
                     "catalog_number": "DEMO-001",
                 }
             )
-        if len(results) >= limit:
-            break
-    return results
+    return results[:limit], len(results)
 
 
 def _archive_asset(release_mbid: str) -> Path | None:
@@ -1297,7 +1390,11 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
     fixture = ASSETS_DIR / AUDIO_ASSETS[spec.get("fmt", "alac")]
     folders: set[Path] = set()
     for i, tags in enumerate(baseline, 1):
-        folder = album_dir / f"CD{tags.disc_num}" if spec.get("discs") else album_dir
+        folder = (
+            album_dir / f"{'Disc ' if spec.get('split') else 'CD'}{tags.disc_num}"
+            if spec.get("discs")
+            else album_dir
+        )
         folder.mkdir(parents=True, exist_ok=True)
         folders.add(folder)
         target = folder / f"{tags.track_num:02d} {_safe(tags.title)}{fixture.suffix}"
@@ -1319,6 +1416,14 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
             )
             tags = replace(tags, **spec.get("track_tags", {}).get(i, {}))
         formats.write_tags(target, tags, None)
+        if spec.get("split"):
+            # A TagSet always has a disc; a rip a disc at a time often doesn't.
+            flac = FLAC(target)
+            assert flac.tags is not None, "the split album is FLAC, just tagged"
+            for key in ("discnumber", "totaldiscs"):
+                if key in flac.tags:
+                    del flac.tags[key]
+            flac.save()
         if spec.get("personal") or spec.get("store"):
             _personal_tags(target, spec.get("store", "Collected over the years; keep my notes."))
         if provenance := spec.get("provenance"):
@@ -1329,6 +1434,8 @@ def _materialise(music_dir: Path, spec: dict[str, Any]) -> None:
         if cover_name:
             shutil.copy(ASSETS_DIR / cover_name, folder / f"cover{Path(cover_name).suffix}")
         _embed_art(folder, spec, cover_name)
+        if spec.get("split") and folder != min(folders):
+            continue  # adopted on its own: nothing has been decided about it
         if (sc_spec := spec.get("sidecar")) is not None:
             sidecar_mod.write(folder, _build_sidecar(sc_spec, spec))
 

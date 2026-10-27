@@ -15,6 +15,8 @@ import re
 import sys
 import threading
 import unicodedata
+import zoneinfo
+from collections import Counter
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
@@ -63,6 +65,7 @@ from harmonist import (
     compare,
     contributions,
     cover_art,
+    disc_fill,
     formats,
     gardener,
     id_registry,
@@ -547,6 +550,7 @@ def _validate_runtime_paths(cfg: config_mod.Config) -> None:
     if hasattr(os, "getuid"):
         ids = f"uid={os.getuid()} gid={os.getgid()} groups={sorted(os.getgroups())}"
     log.info("Harmonist starting (%s)", ids or "user id unavailable on this platform")
+    _check_timezone()
     for label, d in (("music", cfg.paths.music_dir), ("config", cfg.paths.config_dir)):
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -853,6 +857,8 @@ def create_app(
     templates.env.globals["rel_path"] = _rel_path
     templates.env.globals["ago"] = _ago
     templates.env.globals["until"] = _until
+    templates.env.globals["local_time"] = _local_time
+    templates.env.globals["local_stamp"] = _local_stamp
     templates.env.globals["missing_discs"] = _missing_discs
     # The one MusicBrainz note's legend (#328), composed from BOTH comparisons.
     # A global rather than a context key because the two partials that render
@@ -1495,6 +1501,46 @@ def _until(when: datetime) -> str:
     return f"in {n} minute{'s' if n != 1 else ''}"
 
 
+def _check_timezone() -> None:
+    """Say which zone times are shown in, and warn about a `TZ` the system does
+    not know (#865): libc quietly falls back to UTC for one, which would show
+    every time an offset away from where the user set it, with no other sign."""
+    zone = datetime.now().astimezone().tzname()
+    tz = os.environ.get("TZ")
+    if tz:
+        try:
+            zoneinfo.ZoneInfo(tz.removeprefix(":"))
+        except zoneinfo.ZoneInfoNotFoundError, ValueError:
+            log.warning(
+                "TZ=%s is not a timezone this system knows; times are shown in %s", tz, zone
+            )
+            return
+    log.info("times are shown in %s", zone)
+
+
+def _local_time(when: datetime) -> str:
+    """A stored UTC time as a short local date and time — "Oct 26 07:15" (#865).
+
+    Local means the process's zone: `TZ` in a container, as other self-hosted
+    images read it, and the system's zone elsewhere. Stored times stay UTC; only
+    what the reader sees moves, so changing `TZ` re-renders every row at once.
+
+    A single-digit day is padded with a figure space, one digit wide, so the
+    feed's column of times stays aligned without a leading zero."""
+    local = when.astimezone()
+    return f"{local:%b} {local.day:\N{FIGURE SPACE}>2} {local:%H:%M}"
+
+
+def _local_stamp(when: datetime) -> str:
+    """The exact time for a tooltip, with its zone, and the UTC time beside it
+    when they differ, since that is how `docker logs -t` stamps the log."""
+    local = when.astimezone()
+    exact = f"{local:%Y-%m-%d %H:%M:%S} {local.tzname()}"
+    if local.utcoffset():
+        return f"{exact} ({when.astimezone(UTC):%H:%M:%S} UTC)"
+    return exact
+
+
 # Libraries Harmonist builds on, for the About page. (name, pip distribution or
 # None for non-Python deps, homepage, licence). Versions are filled in live.
 _CREDITS: list[tuple[str, str | None, str, str]] = [
@@ -1805,6 +1851,22 @@ def _library_index_url(page: int, limit: int, filter_: str | None, q: str | None
     return url
 
 
+def _artist_library_origin(request: Request) -> artists.LibraryOrigin | None:
+    """Read bounded navigation hints; never accept a user-supplied return URL."""
+    raw_page = request.query_params.get("library_page", "")
+    if not re.fullmatch(r"[0-9]{1,9}", raw_page):
+        # Absent/malformed hints mean a normal visit from the Artists view.
+        return None
+    raw_limit = request.query_params.get("library_limit", "")
+    limit = int(raw_limit) if re.fullmatch(r"[0-9]{1,9}", raw_limit) else None
+    return artists.LibraryOrigin(
+        max(1, int(raw_page)),
+        _library_limit(request, limit),
+        _library_filter(request.query_params.get("library_filter")),
+        _library_search(request.query_params.get("library_q")),
+    )
+
+
 def _library_page_vars(
     albums: list[Album],
     page: int,
@@ -1915,6 +1977,14 @@ def _library_page_vars(
     rows = done[start : start + limit]
     return {
         "rows": rows,
+        "album_artist_links": {
+            album.id: [
+                (credit.name, artists.detail_url(key))
+                for key, credit in artists.keyed_credits(album)
+            ]
+            for album in rows
+        },
+        "library_artist_query": urlencode(artists.LibraryOrigin(page, limit, filter_, q).params()),
         "new_album_ids": new_album_ids,
         "artwork_operations": artwork_operations,
         "page": page,
@@ -2876,6 +2946,10 @@ def _widest(view: artwork.ArtworkView) -> int | None:
         tuple((Path(t.name), r.image) for r in view.rows for t in r.tracks),
         view.cover,
         bool(view.unreadable or view.cover_unreadable),
+        # Without these, an album whose tracks a larger front could embiggen
+        # (#872) downloaded nothing, so the page never proposed it.
+        view.lossless,
+        view.audio_bytes,
     )
     return artwork_updates.download_threshold(local, frozenset(view.borrowed))
 
@@ -3978,9 +4052,12 @@ def _link_pending_to_album(album: Album, p: pending_downloads.PendingPurchase) -
         live_counts.move(album.state, AlbumState.COMPLETE)
 
 
-def _inbox_albums(albums: list[Album]) -> list[Album]:
-    """Albums that warrant attention in the inbox (terminal states excluded)."""
-    return [a for a in albums if a.state not in _TERMINAL_STATES]
+def _inbox_albums(albums: list[Album], *, joined: set[str]) -> list[Album]:
+    """Albums that warrant attention in the inbox (terminal states excluded).
+
+    `joined` are those shown as a disc of another album's suggestion (#876).
+    """
+    return [a for a in albums if a.state not in _TERMINAL_STATES and a.id not in joined]
 
 
 def _levels(values: Sequence[str]) -> list[owned.Significance]:
@@ -4463,9 +4540,12 @@ def _register_routes(app: FastAPI) -> None:
                 )
             except HTTPException:
                 deep_link_missing = True
+        cfg = request.app.state.cfg
+        visible_tabs = [t for t in _INDEX_TABS if t != "artists" or cfg.ui.show_artists]
         ctx = _ctx(
             request,
-            albums=_inbox_albums(albums),
+            cfg=cfg,
+            albums=_inbox_albums(albums, joined=_auto_filled(request, albums)),
             updates=_review_updates(request, albums),
             artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
@@ -4475,10 +4555,13 @@ def _register_routes(app: FastAPI) -> None:
             # (#139): the Library pager pushes them, and the album page's Back link
             # carries them. Unrecognised tab → None, and the script falls back to
             # the remembered one, so a mangled link still lands somewhere sane.
-            initial_tab=tab if tab in _INDEX_TABS else None,
+            initial_tab=(tab if tab in visible_tabs else "library") if tab in _INDEX_TABS else None,
+            index_tabs=visible_tabs,
             artists_view=artists.page_vars(
                 [a for a in albums if a.state in _TERMINAL_STATES], artist_page, artist_q
-            ),
+            )
+            if cfg.ui.show_artists
+            else None,
             # The Library grid renders inline, so `?page=` / `?limit=` / `?filter=` /
             # `?q=` are honoured by the HTML itself rather than by a follow-up fetch
             # that would have to be told which page it's on.
@@ -4536,6 +4619,8 @@ def _register_routes(app: FastAPI) -> None:
                     result.candidates,
                 )
         grid = _library_page_vars(list(artist.albums), page, _library_limit(request, None))
+        library_origin = _artist_library_origin(request)
+        grid["library_artist_query"] = urlencode(library_origin.params()) if library_origin else ""
         # The same tiles retain the return context for this artist and album page.
         query = {
             "from_artist": artist.key,
@@ -4545,6 +4630,8 @@ def _register_routes(app: FastAPI) -> None:
         }
         if nfo:
             query["from_nfo"] = nfo
+        if library_origin:
+            query.update(library_origin.params())
 
         def location(number: int, selected_nfo: str | None = nfo) -> str:
             return artists.detail_url(
@@ -4553,6 +4640,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist_page=max(1, artist_page),
                 artist_q=artist_q[:100],
                 nfo=selected_nfo,
+                library=library_origin,
             )
 
         history: list[activity_store.StoredEvent] = []
@@ -4581,6 +4669,7 @@ def _register_routes(app: FastAPI) -> None:
             _ctx(
                 request,
                 **grid,
+                cfg=cfg,
                 artist=artist,
                 history=history,
                 history_unavailable=history_unavailable,
@@ -4610,7 +4699,21 @@ def _register_routes(app: FastAPI) -> None:
                 artist_image=image is not None,
                 artist_image_url=f"/artist/{artist.key}/image"
                 + ("?" + urlencode({"nfo": nfo}) if nfo else ""),
-                artist_back_url=artists.index_url(max(1, artist_page), artist_q[:100]),
+                artist_back_url=(
+                    _library_index_url(
+                        library_origin.page,
+                        library_origin.limit,
+                        library_origin.filter,
+                        library_origin.q,
+                    )
+                    if library_origin
+                    else artists.index_url(max(1, artist_page), artist_q[:100])
+                    if cfg.ui.show_artists
+                    else _library_index_url(1, _library_limit(request, None), None, None)
+                ),
+                artist_back_label="Back to library"
+                if library_origin or not cfg.ui.show_artists
+                else "Back to artists",
                 artist_album_query=urlencode(query),
                 artist_previous=location(grid["prev_page"]) if grid["prev_page"] else None,
                 artist_next=location(grid["next_page"]) if grid["next_page"] else None,
@@ -4621,10 +4724,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist_import_url=location(grid["page"]).replace(
                     f"/artist/{artist.key}?", f"/artist/{artist.key}/import?", 1
                 ),
-                artist_can_edit=bool(
-                    artist.mbid
-                    and (result.profile or (cfg.paths.artist_info_dir and not result.candidates))
-                ),
+                artist_can_edit=bool(artist.mbid and (result.profile or not result.candidates)),
                 nfo_choices=[
                     (str(p), location(grid["page"], artist_nfo.selection_key(p)))
                     for p in result.candidates
@@ -4648,6 +4748,7 @@ def _register_routes(app: FastAPI) -> None:
         query: str = "",
         fields: Sequence[str] | None = None,
         albums: Sequence[str] | None = None,
+        destination: str | None = None,
     ) -> Response:
         if review is not None and fields is not None:
             available = dict(review.get("picked_albums", {})) | {
@@ -4664,6 +4765,9 @@ def _register_routes(app: FastAPI) -> None:
                 request,
                 artist=artist,
                 import_review=review,
+                nfo_destinations=review.get("destinations", []) if review else [],
+                nfo_destination=destination or (review.get("destination", "") if review else ""),
+                nfo_destination_reasons=review.get("destination_reasons", []) if review else [],
                 import_candidates=candidates,
                 import_error=error,
                 import_language=language,
@@ -4726,6 +4830,8 @@ def _register_routes(app: FastAPI) -> None:
                 request.query_params.get("nfo"),
                 cfg.musicbrainz.user_agent,
                 refresh=refresh_online,
+                library_albums=_albums(request),
+                preference=cfg.artist_nfo.location,
             )
             return _import_panel(request, artist, review=review, language=language)
         except (
@@ -4755,6 +4861,7 @@ def _register_routes(app: FastAPI) -> None:
         refresh_online: Annotated[bool, Form()] = False,
         fields: Annotated[list[str] | None, Form()] = None,
         albums: Annotated[list[str] | None, Form()] = None,
+        destination: Annotated[str | None, Form()] = None,
     ) -> Response:
         artist = _artist_for(request, artist_key)
         snapshot = None
@@ -4767,6 +4874,7 @@ def _register_routes(app: FastAPI) -> None:
                 refresh=refresh_online,
                 fields=fields or [],
                 albums=albums or [],
+                destination=destination,
             )
             return _import_panel(request, artist, review=extended, language=extended["language"])
         except (
@@ -4776,7 +4884,13 @@ def _register_routes(app: FastAPI) -> None:
         ) as exc:
             log.exception("Could not load artist discography")
             return _import_panel(
-                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+                request,
+                artist,
+                review=snapshot,
+                error=str(exc),
+                fields=fields or [],
+                albums=albums,
+                destination=destination,
             )
 
     @app.post("/artist/{artist_key}/import/apply", response_class=HTMLResponse)
@@ -4786,6 +4900,7 @@ def _register_routes(app: FastAPI) -> None:
         review: Annotated[str, Form()],
         fields: Annotated[list[str] | None, Form()] = None,
         albums: Annotated[list[str] | None, Form()] = None,
+        destination: Annotated[str | None, Form()] = None,
         page: int = 1,
         artist_page: int = 1,
         artist_q: str = "",
@@ -4804,11 +4919,19 @@ def _register_routes(app: FastAPI) -> None:
                 cfg.paths.music_dir,
                 cfg.paths.artist_info_dir,
                 cfg.paths.config_dir / "nfoartists",
+                library_albums=_albums(request),
+                destination=destination,
             )
         except (artist_nfo.NfoError, activity_store.StoreUnavailableError) as exc:
             log.exception("Could not apply artist metadata review")
             return _import_panel(
-                request, artist, review=snapshot, error=str(exc), fields=fields or [], albums=albums
+                request,
+                artist,
+                review=snapshot,
+                error=str(exc),
+                fields=fields or [],
+                albums=albums,
+                destination=destination,
             )
         except OSError:
             log.exception("Could not save imported artist metadata")
@@ -4819,6 +4942,7 @@ def _register_routes(app: FastAPI) -> None:
                 error="Could not save the artist NFO. Check folder permissions and try again.",
                 fields=fields or [],
                 albums=albums,
+                destination=destination,
             )
         response = _flash_response(
             "Artist metadata imported" if saved.changed else "Artist NFO unchanged",
@@ -4833,6 +4957,7 @@ def _register_routes(app: FastAPI) -> None:
             page=max(1, page),
             artist_page=max(1, artist_page),
             nfo=artist_nfo.selection_key(saved.path),
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -4847,6 +4972,7 @@ def _register_routes(app: FastAPI) -> None:
         draft: dict[str, str] | None = None,
         error: str | None = None,
         expected: str | None = None,
+        destination: str | None = None,
     ) -> Response:
         cfg = request.app.state.cfg
         result = artist_nfo.for_artist(
@@ -4855,19 +4981,32 @@ def _register_routes(app: FastAPI) -> None:
         profile = result.profile
         values = dict(profile.edit_values) if profile else {"name": artist.name}
         values.update(draft or {})
-        path = None
+        plan = artist_nfo_edit.Destinations((), None)
         try:
-            if profile is None and result.candidates:
+            if not artist.mbid:
+                raise artist_nfo.NfoError("Identify the artist before editing an NFO.")
+            if profile is None and (result.candidates or nfo):
                 raise artist_nfo.NfoError("Choose an NFO source on the artist page first.")
-            path = artist_nfo_edit.target(artist, profile, cfg.paths.artist_info_dir)
+            plan = artist_nfo_edit.destinations(
+                artist,
+                profile,
+                cfg.paths.music_dir,
+                cfg.paths.artist_info_dir,
+                _albums(request),
+                cfg.artist_nfo.location,
+            )
         except artist_nfo.NfoError as exc:
             error = error or str(exc)
+        except OSError:
+            log.exception("Could not inspect NFO destinations")
+            error = error or "Could not inspect the NFO destinations. Check folder permissions."
         location = artists.detail_url(
             artist.key,
             page=max(1, page),
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=nfo,
+            library=_artist_library_origin(request),
         )
         return _templates(request).TemplateResponse(
             request,
@@ -4875,7 +5014,11 @@ def _register_routes(app: FastAPI) -> None:
             _ctx(
                 request,
                 artist=artist,
-                edit_target=path,
+                nfo_destinations=plan.options,
+                nfo_destination=destination
+                if destination is not None
+                else (plan.default.key if plan.default else ""),
+                nfo_destination_reasons=plan.reasons,
                 nfo_values=values,
                 nfo_fields=artist_nfo.EDIT_FIELDS,
                 nfo_expected=expected
@@ -4929,6 +5072,9 @@ def _register_routes(app: FastAPI) -> None:
         expected = form.get("expected", "")
         if not isinstance(expected, str):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid NFO fingerprint")
+        destination = form.get("destination", "")
+        if not isinstance(destination, str):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid NFO destination")
         return await run_in_threadpool(
             _save_artist_nfo,
             request,
@@ -4939,6 +5085,7 @@ def _register_routes(app: FastAPI) -> None:
             nfo,
             values,
             expected,
+            destination,
         )
 
     def _save_artist_nfo(
@@ -4950,6 +5097,7 @@ def _register_routes(app: FastAPI) -> None:
         nfo: str | None,
         values: dict[str, str],
         expected: str,
+        destination: str,
     ) -> Response:
         request.state.skip_rescan = True
         artist = _artist_for(request, artist_key)
@@ -4963,6 +5111,8 @@ def _register_routes(app: FastAPI) -> None:
                 values,
                 expected,
                 nfo,
+                albums=_albums(request),
+                destination=destination,
             )
         except artist_nfo.NfoError as exc:
             return _nfo_editor(
@@ -4975,6 +5125,7 @@ def _register_routes(app: FastAPI) -> None:
                 draft=values,
                 error=str(exc),
                 expected=expected,
+                destination=destination,
             )
         except OSError:
             log.exception("Could not save artist NFO")
@@ -4988,6 +5139,7 @@ def _register_routes(app: FastAPI) -> None:
                 draft=values,
                 error="Could not save the artist NFO. Check folder permissions and try again.",
                 expected=expected,
+                destination=destination,
             )
         response = _flash_response(
             "Artist NFO created"
@@ -5006,6 +5158,7 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=artist_nfo.selection_key(saved.path),
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -5062,6 +5215,7 @@ def _register_routes(app: FastAPI) -> None:
             artist_page=max(1, artist_page),
             artist_q=artist_q[:100],
             nfo=artist_nfo.selection_key(saved.path) if saved.path.exists() else None,
+            library=_artist_library_origin(request),
         )
         return response
 
@@ -5119,7 +5273,7 @@ def _register_routes(app: FastAPI) -> None:
         )
         ctx = _ctx(
             request,
-            albums=_inbox_albums(albums),
+            albums=_inbox_albums(albums, joined=_auto_filled(request, albums)),
             updates=_review_updates(request, albums),
             artwork_cards=_artwork_cards(request, albums),
             total_albums=len(albums),
@@ -5398,6 +5552,9 @@ def _register_routes(app: FastAPI) -> None:
         # A checkbox, so an unticked one sends nothing and the default is "off".
         always_standardize_multivalue_artist: bool = Form(default=False),
         log_level: str = Form(...),
+        artist_nfo_location: str | None = Form(None),
+        ui_settings: str | None = Form(None),
+        show_artists: bool = Form(False),
     ) -> Response:
         cfg: config_mod.Config = request.app.state.cfg
         # Re-validate by constructing fresh sub-models (model_copy does NOT
@@ -5412,6 +5569,12 @@ def _register_routes(app: FastAPI) -> None:
                 }
             )
             new_mb = config_mod.MusicBrainzConfig(user_agent=user_agent.strip())
+            new_artist_nfo = config_mod.ArtistNfoConfig.model_validate(
+                {"location": artist_nfo_location or cfg.artist_nfo.location}
+            )
+            new_ui = config_mod.UiConfig(
+                show_artists=show_artists if ui_settings is not None else cfg.ui.show_artists
+            )
             # model_validate (vs the constructor) keeps mypy happy about the
             # str→Literal narrowing while still validating the value at runtime.
             routing: dict[str, object] = {
@@ -5446,6 +5609,8 @@ def _register_routes(app: FastAPI) -> None:
                     "gardener": new_gardener,
                     "tagging": new_tagging,
                     "log_level": log_level.strip().lower(),
+                    "artist_nfo": new_artist_nfo,
+                    "ui": new_ui,
                 }
             )
         except (PydanticValidationError, ValueError) as e:
@@ -5481,6 +5646,8 @@ def _register_routes(app: FastAPI) -> None:
                     new_tagging.always_standardize_multivalue_artist
                 ),
                 "log_level": new_cfg.log_level,
+                "artist_nfo.location": new_artist_nfo.location,
+                "ui.show_artists": new_ui.show_artists,
             },
         )
         # Apply live — code reads these from app.state.cfg at use-time. The
@@ -5515,7 +5682,10 @@ def _register_routes(app: FastAPI) -> None:
         activity.info("Settings updated")
 
         return _templates(request).TemplateResponse(
-            request, "settings.html", _settings_ctx(request, new_cfg, saved=True)
+            request,
+            "settings.html",
+            _settings_ctx(request, new_cfg, saved=True),
+            headers={"HX-Refresh": "true"} if new_ui != cfg.ui else None,
         )
 
     @app.get("/settings/update-check", response_class=HTMLResponse)
@@ -5560,6 +5730,13 @@ def _register_routes(app: FastAPI) -> None:
         # And the artwork updates routed to it (#852), each its own card: an
         # album with both a tag and an artwork update has two things to look at.
         counts["inbox"] += len(_review_artwork(request, albums))
+        # Less the folders shown only as a disc of another album's suggestion
+        # (#876), which the Inbox doesn't list either.
+        joined = _auto_filled(request, albums)
+        for album in albums:
+            if album.id in joined:
+                counts["inbox"] -= 1
+                counts[album.state.value] -= 1
         return JSONResponse(
             {
                 "sync": state.sync_runner.status(),
@@ -5572,6 +5749,7 @@ def _register_routes(app: FastAPI) -> None:
                 # link-only sync). They need attention, so they count toward inbox.
                 "pending": pending_downloads.count(),
                 "artwork_revision": artwork_updates.revision(),
+                "ui": {"show_artists": state.cfg.ui.show_artists},
                 # Bulk background work and the last one's closing line (#757).
                 "progress": progress.status(),
             }
@@ -5908,6 +6086,7 @@ def _register_routes(app: FastAPI) -> None:
                     artist_page=max(1, artist_page),
                     artist_q=artist_q[:100],
                     nfo=from_nfo,
+                    library=_artist_library_origin(request),
                 )
                 if from_artist
                 and (artists.mbid(from_artist) or re.fullmatch(r"local-[0-9a-f]{24}", from_artist))
@@ -6504,38 +6683,11 @@ def _register_routes(app: FastAPI) -> None:
             # badge already links it, and a second copy in the context is a
             # second thing to keep true.
             merged_to=release["id"] if release["id"] != mbid else None,
-            # What a re-tag would change in the fields nothing else on this page
-            # shows (#291, narrowed by #297, narrowed again by #309). Free:
-            # `refresh_flag` just built this plan to set the flag, so rendering
-            # it costs no further reads.
-            #
-            # Scoped rather than complete, and that is the whole point. The box
-            # was written when the panel compared nine album fields out of the
-            # thirty the plan covers; #295 widened the panel to all of them, and
-            # #309 gave the tracklist columns for the per-track ones that
-            # actually differ. What is left is the overflow — the fields that
-            # earned a column but did not fit the cap — which has nowhere else
-            # on this page to appear.
-            #
-            # The two halves of the scope come from the two surfaces themselves:
-            # the panel's rows are a module constant because they are the same
-            # for every album, and the tracklist's are a property of THIS
-            # comparison because its columns are earned. Union, not either — a
-            # field the box may show is one neither surface did.
-            update_changes=(
-                tag_history.named(
-                    [
-                        c
-                        for c in tag_history.from_plan(
-                            plan, album.path, album_files.for_paths(album.folders)
-                        )
-                        if c.field not in compare.PANEL_FIELDS | tracks.shown_fields
-                    ],
-                    tagger_mod.change_names(release),
-                )
-                if plan is not None and plan.changes
-                else ()
-            ),
+            # The re-tag box went in #863. It listed what a re-tag would change
+            # in fields nothing else on this page showed (#291), and #295, #309,
+            # #360 and #361 each gave one of those a place of its own. The last
+            # was a per-track tag over the column cap, which is now stated under
+            # each track it changes on.
         )
         return _templates(request).TemplateResponse(request, "partials/library_compare.html", ctx)
 
@@ -7982,10 +8134,117 @@ def _register_routes(app: FastAPI) -> None:
             )
         return None
 
+    def _review_fill(request: Request, album: Album, fill: Sequence[str]) -> dict[int, Album]:
+        """The folders a review has added to `album`, by the disc each fills (#876).
+
+        Posted as `disc:album_id`, and resolved against the library as it is
+        now: an added album that has since been matched, or has gone, can't be
+        taken into this release, so the review has to be looked at again.
+        """
+        pool = {
+            a.id: a for a in disc_fill.eligible(album, _albums(request), exclude=set(album.folders))
+        }
+        added: dict[int, Album] = {}
+        for value in fill:
+            disc, _, album_id = value.partition(":")
+            if not disc.isdecimal() or int(disc) in added or album_id not in pool:
+                raise track_assignment.AssignmentChanged(
+                    "A folder added to this review has changed. Review the assignments again."
+                )
+            added[int(disc)] = pool[album_id]
+        if len({a.id for a in added.values()}) != len(added):
+            raise track_assignment.AssignmentChanged("A folder can fill only one disc.")
+        return added
+
+    def _fill_changed(fill: Sequence[str], add: str, remove: str) -> list[str]:
+        """The review's added folders after one add (`disc:album_id`) or remove (`disc`)."""
+        changed = [v for v in fill if v.partition(":")[0] not in {remove, add.partition(":")[0]}]
+        return [*changed, add] if add else changed
+
+    def _folder_lengths(request: Request, album: Album) -> list[int | None]:
+        """Each file's length, from what the scan already read where it can."""
+        runner: ScanRunner = request.app.state.scan_runner
+        lengths: list[int | None] = []
+        for folder in sorted(album.folders):
+            fields = runner.scanned_fields(folder)
+            if fields is None:
+                fields = [formats.read_scan_fields(f) for f in album_files.audio_files(folder)]
+            lengths.extend(f.duration_ms for f in fields)
+        return lengths
+
+    def _fill_choices(
+        request: Request,
+        album: Album,
+        panel: track_assignment.Panel,
+        release: Release,
+        added: Mapping[int, Album],
+    ) -> dict[int, list[disc_fill.Candidate]]:
+        """For each disc with nothing on disk, the unmatched albums that could fill it."""
+        exclude = set(album.folders).union(*(a.folders for a in added.values()))
+        pool = disc_fill.eligible(album, _albums(request), exclude=exclude)
+        return {
+            gap.disc: disc_fill.candidates(gap, pool, lambda a: _folder_lengths(request, a))
+            for gap in disc_fill.gaps(panel, release)
+        }
+
+    def _auto_filled(request: Request, albums: list[Album]) -> set[str]:
+        """The albums a suggestion's review fills a missing disc with on its own.
+
+        The Inbox leaves them out (#876): each is shown as a disc of the album
+        it fills, and listing it again as an album to identify asks for the same
+        decision twice. Derived on each render, from the same rule the review
+        uses, so the two can't disagree; nothing about the join is stored.
+        The status poll asks too, so it has to be cheap: only a suggestion with
+        fewer files than its release loads the release (cached, never fetched),
+        and only when some unmatched album is the size of one of its discs does
+        anything get read from disk.
+        """
+        sizes = {
+            a.track_count
+            for a in albums
+            if a.state in {AlbumState.NEW, AlbumState.NEEDS_MBID} and not a.has_tag_mbid
+        }
+        out: set[str] = set()
+        for album in albums:
+            candidate = album.sidecar.mb_match_candidate if album.sidecar else None
+            if (
+                album.state != AlbumState.NEEDS_MBID
+                or candidate is None
+                or album.track_count >= candidate.track_count
+            ):
+                continue  # nothing missing, so no disc to fill
+            release = mb_cache.stored_release(candidate.mb_release_id)
+            if release is None:
+                continue  # the review can't fill anything without it either
+            discs = Counter(t.disc_num for t in tagsets_for(release, NO_CHOICES))
+            if album.track_count >= sum(discs.values()) or not sizes.intersection(discs.values()):
+                continue
+            try:
+                panel = track_assignment.panel(
+                    album_files.for_paths(album.folders),
+                    release,
+                    confirmed=bool(
+                        album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
+                    ),
+                    included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
+                )
+            except (OSError, ValueError) as e:
+                # The review reports this when opened; here it only means the
+                # disc's folder stays listed as an album of its own.
+                log.warning(
+                    "could not check %s for a missing disc: %s", album.path, e, extra=_LOG_ONLY
+                )
+                continue
+            filled = disc_fill.automatic(_fill_choices(request, album, panel, release, {}))
+            out.update(a.id for a in filled.values())
+        return out
+
     def _assignment_editor(
         request: Request,
         album_id: str,
         *,
+        fill: Sequence[str] = (),
+        fill_decided: bool = False,
         draft: track_assignment.Draft | None = None,
         review_draft: track_assignment.Draft | None = None,
         release_fingerprint: str = "",
@@ -8007,6 +8266,8 @@ def _register_routes(app: FastAPI) -> None:
         checked_at = None
         assignment_changes = None
         assignment_error = None
+        added: dict[int, Album] = {}
+        fill_choices: dict[int, list[disc_fill.Candidate]] = {}
         tagging = _tagging(request, album)
         # Opening the inbox may display many candidates. Only an explicit
         # refresh (or entering an uncached editor) may spend an MB request.
@@ -8027,18 +8288,35 @@ def _register_routes(app: FastAPI) -> None:
                     raise track_assignment.AssignmentChanged(
                         "MusicBrainz changed. Reset assignments to review the current release."
                     )
-                panel = track_assignment.panel(
-                    album_files.for_paths(album.folders),
-                    release,
-                    draft,
-                    # A merged release still reviews the confirmed album; its
-                    # returned ID differs, but that cannot permit positional
-                    # guesses for the old track identities.
-                    confirmed=bool(
-                        album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
-                    ),
-                    included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
-                )
+                added = _review_fill(request, album, fill)
+
+                def build(added: Mapping[int, Album]) -> track_assignment.Panel:
+                    assert release is not None
+                    return track_assignment.panel(
+                        album_files.for_paths(
+                            [*album.folders, *(f for a in added.values() for f in a.folders)]
+                        ),
+                        release,
+                        draft,
+                        # A merged release still reviews the confirmed album; its
+                        # returned ID differs, but that cannot permit positional
+                        # guesses for the old track identities.
+                        confirmed=bool(
+                            album.sidecar and album.sidecar.mb_release_id == candidate.mb_release_id
+                        ),
+                        included_pregaps=album.sidecar.included_pregaps if album.sidecar else (),
+                        fill={d: album_files.for_paths(a.folders) for d, a in added.items()},
+                    )
+
+                panel = build(added)
+                fill_choices = _fill_choices(request, album, panel, release, added)
+                if not fill_decided and draft is None and not added:
+                    # The one folder that fits a missing disc is filled in on
+                    # first sight; the user can still take it out (#876).
+                    added = disc_fill.automatic(fill_choices)
+                    if added:
+                        panel = build(added)
+                        fill_choices = _fill_choices(request, album, panel, release, added)
                 release_fingerprint = current
                 if move:
                     panel.move(move)
@@ -8089,6 +8367,8 @@ def _register_routes(app: FastAPI) -> None:
                 assignment_changes=assignment_changes,
                 assignment_error=assignment_error,
                 review_draft=review_draft,
+                added=added,
+                fill_choices=fill_choices,
                 artwork=(
                     _artwork_view(album, folder_cover=_folder_cover_policy(request))
                     if panel is not None and not album_tracks
@@ -8133,8 +8413,26 @@ def _register_routes(app: FastAPI) -> None:
         on_album_page: bool = Form(False),
         album_tracks: bool = Form(False),
         included_pregaps: list[str] = Form([]),
+        fill: list[str] = Form([]),
+        fill_add: list[str] = Form([]),
+        fill_remove: str = Form(""),
+        view: bool = Form(False),
     ) -> Response:
         request.state.skip_rescan = True  # page-local draft; no library mutation
+        # One picker per missing disc, and only the one just changed has a value.
+        add = next((v for v in fill_add if v), "")
+        if add or fill_remove:
+            # Different files make a different review: pair them afresh, and
+            # stay on whichever view the folder was chosen from.
+            return _assignment_editor(
+                request,
+                album_id,
+                fill=_fill_changed(fill, add, fill_remove),
+                fill_decided=True,
+                cancel=view,
+                on_album_page=on_album_page,
+                album_tracks=album_tracks,
+            )
         draft = track_assignment.Draft(
             disk_order, mb_order, disk_fingerprint, tuple(included_pregaps)
         )
@@ -8153,6 +8451,8 @@ def _register_routes(app: FastAPI) -> None:
         return _assignment_editor(
             request,
             album_id,
+            fill=fill,
+            fill_decided=True,
             draft=editor_draft,
             review_draft=None if assignment_action in {"review", "cancel"} else baseline,
             cancel=assignment_action in {"review", "cancel"},
@@ -8275,6 +8575,7 @@ def _register_routes(app: FastAPI) -> None:
         disk_fingerprint: str = Form(""),
         incomplete: bool = Form(False),
         included_pregaps: list[str] = Form([]),
+        fill: list[str] = Form([]),
     ) -> Response:
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         sc = album.sidecar
@@ -8295,7 +8596,13 @@ def _register_routes(app: FastAPI) -> None:
             )
         if request.url.path.endswith("/accept") and draft is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "review assignments before applying")
+        if fill and draft is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "review the added folders first")
         try:
+            # The folders the review added are tagged with the album's own, and
+            # the draft's fingerprint holds them to the files that were shown.
+            added = _review_fill(request, album, fill)
+            folders = [*album.folders, *(f for a in added.values() for f in a.folders)]
             if candidate_mbid and candidate_mbid != candidate.mb_release_id:
                 raise retag_mod.ConfirmationChanged(
                     "The selected release changed. Review the new suggestion."
@@ -8323,7 +8630,7 @@ def _register_routes(app: FastAPI) -> None:
                 request.app.state.tagger,
                 incomplete=incomplete,
                 store_url_override=candidate.mistag_owned_url,
-                paths=album.folders,
+                paths=folders,
                 expected_release=release_fingerprint or None,
                 expected_artwork=art_plan or None,
                 artwork_included=include_artwork and bool(release_fingerprint and art_plan),
@@ -8381,10 +8688,13 @@ def _register_routes(app: FastAPI) -> None:
         # visible before the page refreshes or redirects to its new album URL.
         runner = request.app.state.scan_runner
         if runner.is_engaged():
-            request.state.skip_rescan = runner.refresh_album(album.folders, notify=True)
+            request.state.skip_rescan = runner.refresh_album(folders, notify=True)
         current = next(a for a in _albums(request) if album.path in a.folders)
         if current.id != sidecar_mod.album_id_for(album.path):
             activity_store.record_alias(album.id, current.id)
+        for part in added.values():
+            # A link to the folder's own album now leads to the one it joined.
+            activity_store.record_alias(part.id, current.id)
         response = _flash_response(
             "Matched as incomplete" if current.state == AlbumState.INCOMPLETE else "Matched",
             "; ".join(details),
@@ -8695,9 +9005,11 @@ def _register_routes(app: FastAPI) -> None:
         # Validate album exists; a 404 is the right signal for a stale UI.
         album = _find_album(request, album_id)
         try:
-            # Cap to a handful — beyond this, MB's own search is the better
-            # tool. Each row links out to the release for closer inspection.
-            results = mb_search.search_releases(artist, title, limit=5)
+            # Cap to what a scrolled list can sensibly offer (#878) — beyond
+            # this, MB's own search is the better tool, and the list ends with
+            # a link to it. Each row links out to the release for closer
+            # inspection.
+            results, total = mb_search.search_releases(artist, title, limit=15)
         except mb_search.MBSearchError as e:
             return _flash_response(
                 "MB search failed",
@@ -8710,10 +9022,10 @@ def _register_routes(app: FastAPI) -> None:
             request,
             album,
             results,
-            len(results),
+            total,
             heading="MusicBrainz search results",
             on_album_page=on_album_page,
-            review_only=True,
+            mb_query=mb_search.release_query(artist, title),
         )
 
     @app.post("/manual/{album_id}/barcode", response_class=HTMLResponse)
@@ -8802,7 +9114,6 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading=None,
             on_album_page=on_album_page,
-            review_only=True,
             retarget=True,
             barcode=evidence.barcode,
         )
@@ -8844,7 +9155,6 @@ def _register_routes(app: FastAPI) -> None:
             total,
             heading=None,
             on_album_page=on_album_page,
-            review_only=True,
             retarget=True,
             store_url=sc.store_url,
         )
@@ -8900,7 +9210,6 @@ def _register_routes(app: FastAPI) -> None:
                 local_track_count=album.track_count,
                 local_artist=album.artist,
                 on_album_page=on_album_page,
-                review_only=True,
                 found_by=FoundBy.RELEASE_GROUP,
             ),
         )
@@ -8915,11 +9224,13 @@ def _register_routes(app: FastAPI) -> None:
         request: Request,
         album_id: str,
         mbid: str = Form(...),
-        review_only: bool = Form(False),
         on_album_page: bool = Form(False),
         # Which picker the release came from (#639); the paste box sends none.
         found_by: FoundBy = Form(FoundBy.MBID),
     ) -> Response:
+        """Suggest the release the user chose — a picker's Use or a pasted
+        MBID — for review. A choice is never tagged unreviewed, however well
+        it fits (#848, #880): only a first, exact, unique match is."""
         album = _refreshed_from_disk(request, _find_album(request, album_id))
         extracted = _extract_mbid(mbid)
         if not extracted:
@@ -8964,13 +9275,13 @@ def _register_routes(app: FastAPI) -> None:
                 if on_album_page:
                     response.headers["HX-Redirect"] = _album_location(request, album.id)
                 return response
-            status_str, msg = _apply_best_match(
+            _, msg = _apply_best_match(
                 album.path,
                 [extracted],
                 request.app.state.cfg,
                 request.app.state.tagger,
                 found_by=found_by,
-                review_only=review_only,
+                review_only=True,
             )
         except mb_lookup.MBError as e:
             return _flash_response(
@@ -8989,14 +9300,9 @@ def _register_routes(app: FastAPI) -> None:
                 tasks_changed=False,
                 album=album,
             )
-        if status_str == "tagged":
-            # An exact fit tags at once, so this IS the decision (#639).
-            response = _flash_response(
-                "Matched", _matched_detail(extracted, _FOUND_BY[found_by]), album=album
-            )
-        else:
-            # A suggestion to review, or nothing to act on: flashed, not recorded.
-            response = _flash_response("Needs review", msg, album=album, record_activity=False)
+        # A suggestion to review, or nothing to act on: flashed, not recorded.
+        # The decision is the confirm, which records how the release was found.
+        response = _flash_response("Needs review", msg, album=album, record_activity=False)
         if on_album_page:
             # Publish the new identity before the redirected GET can arrive
             # (#798). Use the scanned id so duplicate copies remain distinct.
@@ -9211,9 +9517,9 @@ def _render_release_picker(
     heading: str | None,
     retarget: bool = False,
     on_album_page: bool = False,
-    review_only: bool = False,
     barcode: str | None = None,
     store_url: str | None = None,
+    mb_query: str | None = None,
 ) -> Response:
     """Render the shared candidate-release list (store-URL picker or name
     search). `retarget` rewrites the swap to the card's preserved results box, and
@@ -9223,16 +9529,16 @@ def _render_release_picker(
     `on_album_page` is what the *rows* need (#150). Every other action block is
     an include, so it inherits that flag from the template around it; this one
     is a response, rendered with no such surroundings, and its **Use** button
-    assigns a release exactly as the paste box does. Without the flag travelling
+    suggests a release exactly as the paste box does. Without the flag travelling
     with the request, picking a release from a search made on the album page
-    would tag the album and leave the page describing the album it used to be.
+    would leave the page describing the album as it was before the choice.
     """
     headers: dict[str, str] = {}
     if retarget:
         headers["HX-Retarget"] = f"#mbid-results-{album.id}"
         # Barcode choices must be initialized before their visible Use buttons
         # can submit; the default settle delay leaves a native-GET race.
-        headers["HX-Reswap"] = "innerHTML settle:0ms" if review_only else "innerHTML"
+        headers["HX-Reswap"] = "innerHTML settle:0ms"
     return _templates(request).TemplateResponse(
         request,
         "partials/manual_search_results.html",
@@ -9246,9 +9552,10 @@ def _render_release_picker(
             "local_track_count": album.track_count,
             "local_artist": album.artist,
             "on_album_page": on_album_page,
-            "review_only": review_only,
             "barcode": barcode,
             "store_url": store_url,
+            # The search a truncated list hands over to musicbrainz.org (#878).
+            "mb_query": mb_query,
             # How a row's release was found, carried by its Use (#639).
             "found_by": (
                 FoundBy.BARCODE

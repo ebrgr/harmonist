@@ -43,6 +43,29 @@ a high-resolution cover. A bigger folder cover therefore proposes nothing for th
 tracks (#479). Tracks with *no* art are still filled, and from the album's own
 image where it has one, so the filled track matches its neighbours.
 
+**Except where neither reason holds: an album with no folder cover, where
+embedding costs little** (#872). With no `cover.*` there is no high-resolution
+file beside the tracks for anyone to have chosen. The album just has a small
+image. So there, the archive's front replaces the tracks' image when it is larger
+by the size rule and cheap to embed. It's a replacement like any other: nothing
+writes it unattended, and it's backed up first.
+
+What counts as cheap depends on the audio. Beside lossless audio, a larger
+embedded image is a rounding error: a 1200px front in every track of an ALAC
+album adds about 2%. So a lossless album takes it whatever it weighs. On lossy
+audio the cost is real but measurable, and the front goes in while it grows the
+album's files by at most 10%: about 800 KB per four-minute track at 256 kbps,
+enough for a typical 1200px front and not for most 3000px scans. The cap is
+measured against the files' size on disk, which the scan already has, rather
+than against the audio stream alone, which would mean reading every file. An
+album whose size isn't known isn't shown to grow little. The archive's byte size
+is known only once the original is fetched, so the background check fetches any
+larger front such an album could take, and the plan weighs the bytes.
+
+A lossless album that has a folder cover keeps #479's layout, since that is the
+reason left standing there. A setting was rejected for #479's reason, a rule a
+user can hold in their head.
+
 **Different images on different tracks are never replaced by the size rule.**
 That's what a compilation correctly looks like.
 
@@ -144,12 +167,13 @@ time budget; failed attempts back off without replacing the last observation.
 
 A failure delays the worker across releases, because a delay for one release
 alone merely sends an outage to the next album. Successful checks restore the
-normal pace. Activity summarises failures at most once per six hours, with the
-latest reason and a count, and records the first success after each notice.
-Success does not reset that reporting window: intermittent failures would
-otherwise fill the feed just as surely as a continuous outage. Every attempted
-failure retains its traceback in the container log. Backoff belongs to this
-worker, so an explicit check on the album page remains available.
+normal pace. Failures and the recovery that follows them go to the container
+log, with every attempt's traceback, and never to Activity. Nothing is lost,
+the worker never gives up, and an archive outage offers the user nothing to do.
+Summarising failures in the feed was tried: under an archive that failed
+intermittently for days, the summaries crowded out everything else there.
+Backoff belongs to this worker, so an explicit check on the album page remains
+available.
 
 The scan keeps compact descriptions of every audio track's image and the folder
 cover, never their bytes. The Library applies the shared plan to those facts and
@@ -161,7 +185,9 @@ the plan is judged. There is no persisted artwork status to invalidate.
 One CAA check serves every local copy of a release, but each copy has its own
 plan. The download threshold considers every copy's folder cover, rather than
 the largest embedded image: a large embedded image must not hide a candidate
-that could improve a smaller folder cover. Stand-ins and empty albums can use
+that could improve a smaller folder cover. Embedded art counts only on an album
+with no folder cover, the one album whose tracks a larger front can replace.
+Stand-ins and empty albums can use
 any image, including one whose dimensions cannot be read.
 
 The Library separates local observations from proposed writes, so a fact about

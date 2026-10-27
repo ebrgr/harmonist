@@ -245,7 +245,9 @@ def test_files_changed_since_the_scan_are_judged_as_they_are_now(tmp_path):
     _archive()
     routing = _routing()
     bare = _library(tmp_path, routing, Bare=None)["Bare"]
-    mine = png_bytes(300, 300)
+    # Larger than the archive's: a smaller one would now be a replacement on
+    # this lossless album (#872), and held as one.
+    mine = png_bytes(700, 700)
     formats.write_cover(_track(bare), mine)  # after the scan that routed it
 
     assert _pass(tmp_path, routing, [bare]).artwork == 0

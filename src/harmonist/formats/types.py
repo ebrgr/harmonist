@@ -239,6 +239,25 @@ class TagSet:
     asin: str | None = None
     media: str | None = None
 
+    #: The works this track performs, and their ids, from MusicBrainz's
+    #: relationships (#680) — Picard's `work` and `musicbrainz_workid`, several
+    #: on a medley. `None` is NOT absence here: it means the release could not
+    #: answer (`owned.RELATIONSHIP_CREDITS`), so the file's values are kept. The
+    #: default is `None` so a TagSet built without the relationships in hand
+    #: keeps a file's credits rather than clearing them.
+    works: list[str] | None = None
+    mb_work_ids: list[str] | None = None
+    #: Picard's `composer`, `composersort` and `musicbrainz_composerid`: three
+    #: lists that pair up by position, one entry per person (`credits`). `None`
+    #: as for the works.
+    composers: list[str] | None = None
+    composer_sort: list[str] | None = None
+    mb_composer_ids: list[str] | None = None
+    #: Picard's `lyricist` and `writer`, names only: Picard writes neither a
+    #: sort name nor an id for them. `None` as for the works.
+    lyricists: list[str] | None = None
+    writers: list[str] | None = None
+
 
 @dataclass(frozen=True)
 class EmbeddedArt:

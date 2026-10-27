@@ -299,7 +299,8 @@ def test_editor_keeps_disc_context_and_number_changes_with_entries(client, cfg, 
     note = cells[0].select_one('[aria-label^="Track numbering changes"]')
     assert note is not None
     assert note["aria-label"] == f"Track numbering changes from {disc}.2 to {disc}.1"
-    assert note.get_text(strip=True) == ("2.2 → 2.1" if disc == 2 else "2 → 1")
+    # Written as the columns write it, so the note reads as the same numbers.
+    assert note.get_text(strip=True) == ("2-2 → 2-1" if disc == 2 else "2 → 1")
     assert "bg-amber-50" in rows[0]["class"]
 
 

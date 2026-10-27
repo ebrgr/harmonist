@@ -72,6 +72,9 @@ separate collaborators. MusicBrainz artist IDs keep different people with the
 same name apart and let one collaborative album appear under each artist. A name
 without a usable ID stays an unidentified credit scoped to its album; it does
 not silently become the same person as another credit with that spelling.
+Album cards link each credited artist to this same local profile. Navigation
+from Library retains its page size, page, search and filters through artist and
+album views; artist metadata remains independent of that navigation context.
 
 When only some tracks lack artist IDs, consistent artist credits on the other
 tracks can identify the album's artist if all tracks name the same release.
@@ -145,14 +148,15 @@ what they need, and each group says what will clear it.
 
 ![The Inbox, "5 need attention", in three groups. "New · 1": "These albums need
 a MusicBrainz release — search by name to locate it, or paste an MBID", above an
-album card with search fields. "Needs MBID · 1": "No confirmed MusicBrainz
+album card with search fields. "Needs MBID · 3": "No confirmed MusicBrainz
 release yet. Where a suggestion was found, review the side-by-side and confirm;
 otherwise search by name, barcode or store URL, paste an MBID, or seed a missing
-release via Harmony and search again", above a card offering search by Name,
-Barcode or Store URL. "Needs Linking · 3": "Sync Bandcamp to link these albums.
-While any remain, that sync links your existing albums and downloads nothing
-new; new purchases download on the next run", above a card with MusicBrainz and
-Bandcamp badges and a × button.](images/inbox.png)
+release via Harmony and search again", above three cards that each offer "Find
+release:" By name, By barcode and By MBID, one also by Store URL with the
+release it found listed below. "Needs Linking · 1": "Sync Bandcamp to link
+these albums. While any remain, that sync links your existing albums and
+downloads nothing new; new purchases download on the next run", above a card
+with MusicBrainz and Bandcamp badges and a × button.](images/inbox.png)
 
 | Inbox group | What it means | What clears it |
 |---|---|---|
@@ -342,7 +346,12 @@ both.
 Harmonist's rules:
 
 - A track with **no** embedded artwork gets the album's image when it's tagged.
-- Existing embedded artwork is **not** replaced unless you choose to replace it.
+- Existing embedded artwork is **not** replaced unless you choose to replace it,
+  with one exception. On an album with no `cover.jpg`, a larger image from the
+  Cover Art Archive is offered for the tracks when embedding it costs little:
+  on lossless audio (ALAC or FLAC) always, and on lossy audio while it adds at
+  most 10% to the album's size. Like any replacement, it's never applied
+  without someone reviewing it.
 - For `cover.jpg`, the largest image wins, whether it comes from your files or
   the [Cover Art Archive](https://coverartarchive.org) (MusicBrainz's image
   library). When there's a bigger one, the album's page offers it. A missing
@@ -395,8 +404,11 @@ no marks, or they disagree (a rip's and a store's, or two stores'), the origin
 is Unknown. An album Harmonist downloaded from Bandcamp itself is detected as
 Bandcamp.
 
-The origin describes the files, not the purchase: a CD bought on Bandcamp and
-then ripped is a CD.
+An album linked to a Bandcamp purchase counts as Bandcamp too, even when a
+conversion or another tagger has dropped the comment, and its Origin links to
+the purchase's page. The link is evidence alongside the tags, not instead of
+them: the origin describes the files, not the purchase, so a CD bought on
+Bandcamp and ripped with AccurateRip verification is Unknown until you choose.
 
 For Qobuz albums with several barcode matches, a single release linked to Qobuz
 can become the suggested match when its digital format and track count agree

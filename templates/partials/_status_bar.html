@@ -152,6 +152,14 @@
         let data;
         try { data = JSON.parse(evt.detail.target.textContent); }
         catch (e) { return; }
+        // History snapshots can predate a UI preference change. Use the live
+        // consolidated poll rather than trusting configuration in a cached head.
+        const index = document.querySelector('[data-artists-tab]');
+        if (index && typeof data.ui?.show_artists === 'boolean'
+                && index.dataset.artistsTab !== String(data.ui.show_artists)) {
+            window.location.reload();
+            return;
+        }
         const el = evt.detail.target;
         const sync = data.sync, reconcile = data.reconcile, scan = data.scan;
         el.dataset.sync = sync.state;

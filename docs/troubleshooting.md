@@ -28,6 +28,7 @@ what to do. For the ideas behind the answers, see
   [release has more tracks](#applying-an-update-says-the-release-has-more-tracks-than-my-files) ·
   [unwanted update](#i-dont-want-an-update-harmonist-is-offering) ·
   [everything has an update](#almost-every-album-shows-update-available) ·
+  [composer disappeared](#a-composer-disappeared-after-an-update) ·
   [artwork in Plex/Navidrome](#plex-or-navidrome-shows-no-cover-or-the-wrong-one) ·
   [track lengths](#track-lengths-dont-match-musicbrainz) ·
   [Mixed formats](#an-album-is-listed-under-mixed-formats-only)
@@ -110,16 +111,16 @@ Harmonist couldn't find the release on its own. On the album's card:
 
 1. **Search** by **Name**, **Barcode** or **Store URL**. Barcode and Store URL
    can only be used when your files carry one.
-2. If you know the release, find it on [MusicBrainz](https://musicbrainz.org)
-   and paste its URL or MBID into **Or paste a MusicBrainz ID**.
+2. If you know the release, find it on [MusicBrainz](https://musicbrainz.org),
+   choose **By MBID** and paste its URL or MBID.
 3. If a search finds nothing, **Open in Harmony** appears. It helps you add the
    release to MusicBrainz from its store page. Once it's saved there, press
    **Search** again.
 
-![An album card with "Search MusicBrainz by" options Name, Barcode (greyed
-out) and Store URL (selected), showing the album's Bandcamp URL and a Search
-button. Below, "Or paste a MusicBrainz ID" with an Assign & Tag
-button.](images/release-search.png)
+![An album card with "Find release:" options By name, By barcode (greyed out),
+Store URL (selected) and By MBID, showing the album's Bandcamp URL and a Search
+button. Below, the release the store URL is linked from, marked "Store URL
+matches", with a Use button.](images/release-search.png)
 
 ### Harmonist suggested a release but didn't tag it
 
@@ -129,6 +130,17 @@ track count doesn't match.
 
 Check the side-by-side tracklist and **Tag changes**, then **Confirm
 suggestion**, or **Dismiss suggestion** to search for another release.
+
+### An album's discs show up as separate albums
+
+Folders that carry no MusicBrainz tags can't be told apart from two copies of the
+same disc, so each is adopted on its own until a release joins them.
+
+Find the release for one disc. In its review, the other disc's rows read
+**Missing on disk**: choose the other folder from **Fill disc N from another
+folder**, check the tracklist, then **Confirm suggestion**. If exactly one
+unmatched folder fits the missing disc, it's filled in already, and the Inbox
+shows it only there. Once both folders are tagged they're one album.
 
 ### An album is marked Inconsistent
 
@@ -252,6 +264,17 @@ not while a sync is running.
 
 ## Library
 
+### No location is available for a new artist NFO
+
+The artist NFO editor only offers directories supported by the complete local
+album snapshot. Shared artists, unresolved credits, unscanned tracks and a flat
+layout can prevent an audio-folder suggestion. A separate Artist Information
+Folder configured through `HARMONIST_ARTIST_INFO_DIR` provides an alternative.
+Single-album and split layouts require an explicit selection. Permission errors
+need to be resolved at the displayed destination; Save never switches paths
+after confirmation. If a folder or its files changed after opening the editor,
+read again and review the destination before saving the preserved draft.
+
 ### An album's Origin is wrong
 
 Tags can outlive the audio they described. A CD rip may carry an Amazon purchase
@@ -316,6 +339,30 @@ names** at its default, a single credited to *Florence and the Machine* is
 offered *Florence + the Machine*. To keep the other spelling, change the setting; the update disappears
 from every album it affects.
 
+### Almost every album shows Update available
+
+This follows an upgrade that adds tags Harmonist writes, such as the composer
+and work credits. Every album whose release has them is offered them, as an
+**Enrichment** update. To take them:
+
+- one album at a time, with **Apply updates** on its page;
+- several at once, by including **Enrichment** in the **Inbox** column of
+  **When a tag update is found** under Settings, then selecting them in the
+  Inbox;
+- or in the background, by setting the **Apply** column to **Enrichment**.
+
+The upgrade also fetches every release again, so the list grows over the
+following days rather than appearing at once.
+
+### A composer disappeared after an update
+
+The composer came from somewhere other than MusicBrainz, such as a store
+download or a CD-rip database. MusicBrainz credits composers on *works*, and
+the recording isn't linked to one, so there's no composer to write. Linking the
+recording to its work on MusicBrainz brings the composer back, for every
+library. Meanwhile, [Undo](#undo-a-change) restores the old one, and
+**Ignore until MusicBrainz changes** keeps the update off the list.
+
 ### An artist's former name is replaced although the setting keeps former names
 
 Harmonist recognizes a former name by the end date on the artist's alias in
@@ -330,18 +377,18 @@ without a `cover.jpg` and with artwork available count as having an artwork upda
 **Settings → Tagging**. Plex and Navidrome use the artwork embedded in your
 files, so most albums don't need the file.
 
-### Activity says background artwork checks are delayed
+### The log says a background artwork check failed
 
-The message includes the latest error. An HTTP 500 response means the artwork
-request received a server error; it does not mean the release has no artwork.
-These checks discover updates and do not change your music files.
+Each warning carries the error and its traceback. An HTTP 500 response means the
+Cover Art Archive returned a server error; it does not mean the release has no
+artwork. These checks discover updates and do not change your music files, so
+the failures stay out of Activity.
 
 Harmonist retries automatically, increasing the delay between failed attempts
-up to an hour. Activity summarises recurring failures at most once per six
-hours, and records the first successful check after a notice. Full tracebacks
-remain in the container log. For a persistent failure, include the Activity
-message and its matching traceback when reporting the problem. The album's
-Artwork refresh remains available during background retry delays.
+up to an hour, and logs the first successful check afterwards. Artwork updates
+are found later than usual while it waits. An album's Artwork section shows when
+the archive was last asked, and a failed check leaves that time unchanged. For a
+failure that persists, include the traceback when reporting the problem.
 
 ### Plex or Navidrome shows no cover, or the wrong one
 
