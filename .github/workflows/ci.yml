@@ -243,7 +243,7 @@ jobs:
             # The fork owner approved this one reconciliation of published
             # histories. Pin its object ID; every other merge stays forbidden.
             if [ "$GITHUB_REPOSITORY" = "ebrgr/harmonist" ] &&
-               [ "$merge" = "77cde542c4157222b72346645f6ca89348497576" ]; then
+               [ "$merge" = "b3fa706d8abe31c66111cc5cadf5dc118604ab39" ]; then
               echo "Approved fork synchronization merge: $merge"
               continue
             fi
