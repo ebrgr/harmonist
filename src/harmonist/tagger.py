@@ -862,6 +862,8 @@ def decide_artwork(
         # it would plan to keep tracks the other embiggens (#872).
         lossless=formats.all_lossless(formats.describe(f) for f in files),
         audio_bytes=album_files.total_bytes(files),
+        # A copy squished to fit holds its original (#888), as on the page.
+        originals=derived.originals(),
         chosen=chosen,
         choices=choices,
         picks={
@@ -1736,7 +1738,9 @@ class ArtworkOutcome:
     #: Targets that could not be read or written, already logged.
     failed: tuple[str, ...] = ()
     #: The images actually written, by digest, once each — what a stand-in
-    #: record is made from (#663), since only a written image can be one.
+    #: record is made from (#663), since only a written image can be one. A
+    #: squished copy's own digest (#888), since a stand-in record names the
+    #: image as the album carries it.
     written: tuple[str, ...] = ()
 
 
@@ -1852,7 +1856,7 @@ def apply_artwork(
                 failed.append(name)
                 continue
             changed += 1
-            written.append(change.after)
+            written.append(holds[change.after])
             # Recorded in the shape a tagged file's artwork change takes, which is
             # what puts an Undo on it: `tag_history.artwork_revert_plan` reads that
             # pair and `restore_artwork` writes it back.
@@ -1875,7 +1879,7 @@ def apply_artwork(
             )
             if wrote is _Wrote.WRITTEN:
                 changed += 1
-                written.append(cover.after)
+                written.append(holds[cover.after])
             elif wrote is _Wrote.STALE:
                 stale.append(cover.target.name)
             elif wrote is _Wrote.UNKEPT:
@@ -1883,9 +1887,9 @@ def apply_artwork(
             else:
                 failed.append(cover.target.name)
     # Once a copy is on disk, so it answers as its original from now on.
-    for original in dict.fromkeys(written):
-        if holds[original] != original:
-            derived.record(holds[original], original=original)
+    for original, copy in holds.items():
+        if copy != original and copy in written:
+            derived.record(copy, original=original)
     return ArtworkOutcome(
         changed=changed,
         stale=tuple(stale),

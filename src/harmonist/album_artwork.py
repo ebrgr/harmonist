@@ -26,6 +26,7 @@ from . import (
     caa_cache,
     caa_listings,
     cover_art,
+    derived,
     formats,
     images,
     timing,
@@ -190,7 +191,9 @@ def view(
     carried = [t.art for _, t in tracks if t.art is not None]
     if cover is not None:
         carried.append(cover.image)
-    superseded = artwork.superseded(caa.replaced if caa else None, carried)
+    # A copy squished to fit is the image it was made from (#888).
+    originals = derived.originals()
+    superseded = artwork.superseded(caa.replaced if caa else None, carried, originals=originals)
     proposed, proposed_images = (
         artwork_watch.proposal(sc, [(p, t.art) for p, t in tracks], cover, folder_cover)
         if not cover_unreadable and not any(t.unreadable for _, t in tracks)
@@ -214,6 +217,7 @@ def view(
         # Stat'ed here as the tagger stats them at write time, so the page's
         # plan and the write's are weighed against the same size (#872).
         audio_bytes=album_files.total_bytes(p for p, _ in tracks),
+        originals=originals,
     )
 
 

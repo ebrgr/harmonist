@@ -59,6 +59,7 @@ from harmonist import (
     compare,
     contributions,
     cover_art,
+    derived,
     disc_fill,
     formats,
     gardener,
@@ -3102,12 +3103,18 @@ def _settle_own_front(album: Album, mbid: str) -> bool:
     if front is None:
         return False
     own = images.digest(front.data)
+    # A stand-in squished to fit is recorded as the copy (#888).
+    originals = derived.originals()
     settled = False
     for folder in album.folders or [album.path]:
         sc = sidecar_mod.read(folder)
         if sc is None or sc.mb_release_id != mbid:
             continue
-        kept = tuple(b for b in sc.borrowed_artwork if not (b.release == mbid and b.digest == own))
+        kept = tuple(
+            b
+            for b in sc.borrowed_artwork
+            if not (b.release == mbid and originals.get(b.digest, b.digest) == own)
+        )
         if kept != sc.borrowed_artwork:
             sidecar_mod.write(folder, replace(sc, borrowed_artwork=kept))
             settled = True

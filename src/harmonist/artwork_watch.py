@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from . import artwork, caa_cache, cover_art, formats, mb_cache, mb_lookup, sidecar
+from . import artwork, caa_cache, cover_art, derived, formats, mb_cache, mb_lookup, sidecar
 from .models import Album, ArtworkWatch, Sidecar
 
 
@@ -72,6 +72,8 @@ def prepare(albums: Sequence[Album]) -> None:
         carried = {a.digest for _, a in local.tracks if a}
         if local.cover:
             carried.add(local.cover.image.digest)
+        # A squished copy of an image is that image (#888).
+        carried = derived.carried(carried)
         for candidate in _listed(watch.release):
             if not candidate.front or candidate.image_id in album.sidecar.artwork_rejected:
                 continue
@@ -127,6 +129,8 @@ def proposal(
     carried = {a.digest for _, a in tracks if a}
     if cover:
         carried.add(cover.image.digest)
+    # A squished copy of an image is that image (#888).
+    carried = derived.carried(carried)
     for item in _observed.get(watch.release, ()):
         image = item.image
         candidate = item.candidate

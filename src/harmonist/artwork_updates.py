@@ -27,6 +27,7 @@ from . import (
     artwork_watch,
     caa_cache,
     cover_art,
+    derived,
     formats,
     mb_cache,
     mb_lookup,
@@ -275,6 +276,8 @@ def _plan(album: Album) -> artwork.ArtworkPlan | None:
         folder_cover=_policy(),
         lossless=local.lossless,
         audio_bytes=local.audio_bytes,
+        # A copy squished to fit holds its original (#888).
+        originals=derived.originals(),
     )
 
 
@@ -289,7 +292,7 @@ def _superseded(album: Album) -> frozenset[str]:
     carried = [a for _, a in local.tracks if a is not None]
     if local.cover is not None:
         carried.append(local.cover.image)
-    return artwork.superseded(observed.answer.replaced, carried)
+    return artwork.superseded(observed.answer.replaced, carried, originals=derived.originals())
 
 
 def reviews(op: artwork.Operation, review_from: ArtworkReviewFrom) -> bool:

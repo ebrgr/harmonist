@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
-from . import artwork, caa_cache, cover_art, formats, images, mb_cache, mb_lookup
+from . import artwork, caa_cache, cover_art, derived, formats, images, mb_cache, mb_lookup
 from .models import BorrowedArtwork, Release
 
 log = logging.getLogger(__name__)
@@ -199,6 +200,9 @@ def stand_ins_after(
 
     Reads the album's images only when something was written: an action that
     wrote none changed nothing they carry.
+
+    A written image may be a squished copy of the one borrowed (#888). It's
+    found by its original, and recorded as the copy, as the album carries it.
     """
     current = tuple(b for b in recorded if b.release == mbid)
     if not written:
@@ -218,6 +222,10 @@ def stand_ins_after(
         kept = [b for b in current if b.digest in carried]
     if not _has_own_front(mbid):
         borrowable = _borrowable(mbid)
+        originals = derived.originals()
         held = {b.digest for b in kept}
-        kept += [borrowable[d] for d in written if d in borrowable and d not in held]
+        for d in written:
+            found = borrowable.get(originals.get(d, d))
+            if found is not None and d not in held:
+                kept.append(replace(found, digest=d))
     return tuple(kept)

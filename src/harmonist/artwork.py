@@ -62,6 +62,17 @@ def has_per_track_art(digests: Iterable[str | None]) -> bool:
     return len({d for d in digests if d is not None}) > 1
 
 
+def _holds(carried: str | None, wanted: str, originals: Mapping[str, str] | None) -> bool:
+    """Whether a carrier holding `carried` holds the image `wanted`: that very
+    image, or a copy squished from it to fit (#888).
+
+    `originals` maps each squished copy's digest to its original's, from
+    `derived`. Passed in rather than read, so this module stays pure."""
+    return carried is not None and (
+        carried == wanted or (originals is not None and originals.get(carried) == wanted)
+    )
+
+
 class CoverArtAnswer(Protocol):
     """What this module needs of a Cover Art Archive answer (#276).
 
@@ -110,19 +121,26 @@ class ReplacedFront(Protocol):
     def length(self) -> int | None: ...
 
 
-def superseded(replaced: ReplacedFront | None, carried: Iterable[EmbeddedArt]) -> frozenset[str]:
+def superseded(
+    replaced: ReplacedFront | None,
+    carried: Iterable[EmbeddedArt],
+    *,
+    originals: Mapping[str, str] | None = None,
+) -> frozenset[str]:
     """The digests of the `carried` images that are a front the archive has
     since replaced (#886). Each gives way to the front now, as a stand-in
     does, whatever either measures: an editor took it off the release.
 
-    By digest where the old front's bytes were held. Otherwise by byte length
-    and pixel size together, which in practice only the same file shares:
-    enough to offer a replacement, and a replacement is never written unasked.
+    By digest where the old front's bytes were held, a squished copy of it
+    included (`originals`, #888). Otherwise by byte length and pixel size
+    together, which in practice only the same file shares: enough to offer a
+    replacement, and a replacement is never written unasked.
     """
     if replaced is None:
         return frozenset()
     if replaced.digest is not None:
-        return frozenset(a.digest for a in carried if a.digest == replaced.digest)
+        wanted = replaced.digest
+        return frozenset(a.digest for a in carried if _holds(a.digest, wanted, originals))
     if replaced.length is None or replaced.width is None or replaced.height is None:
         return frozenset()
     shape = (replaced.length, Size(replaced.width, replaced.height))
@@ -461,9 +479,14 @@ def plan(
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     lossless: bool = False,
     audio_bytes: int | None = None,
+    originals: Mapping[str, str] | None = None,
 ) -> ArtworkPlan:
     """The size rule's suggestion (`_suggest`), with the user's choices made
     over it carrier by carrier (#659).
+
+    `originals` maps each squished copy to the image it was made from (#888).
+    A carrier holding a copy holds that image, so neither the size rule nor a
+    choice writes the image over its own copy.
 
     `stand_ins` are images borrowed for want of the release's own front (#663),
     and `archive` is that front now it exists. Every carrier still holding a
@@ -496,6 +519,7 @@ def plan(
         folder_cover=folder_cover,
         lossless=lossless,
         audio_bytes=audio_bytes,
+        originals=originals,
     )
     if overwrite_art or cover_unreadable:
         return suggested
@@ -512,7 +536,7 @@ def plan(
         choices = {**given, **(choices or {})}
     if not choices:
         return suggested
-    return _with_choices(suggested, cover, archive, choices, picks or {})
+    return _with_choices(suggested, cover, archive, choices, picks or {}, originals)
 
 
 def _with_choices(
@@ -521,6 +545,7 @@ def _with_choices(
     archive: EmbeddedArt | None,
     choices: Choices,
     picks: Mapping[str, EmbeddedArt],
+    originals: Mapping[str, str] | None = None,
 ) -> ArtworkPlan:
     """`suggested`, with every carrier `choices` names taken over by the choice.
 
@@ -569,10 +594,11 @@ def _with_choices(
         return image
 
     # Written only where the bytes differ: choosing the image a carrier
-    # already holds is a no-op, not a rewrite (*Far & Off*, #659).
+    # already holds is a no-op, not a rewrite (*Far & Off*, #659). Nor is
+    # choosing the image a carrier holds a squished copy of (#888).
     for path, digest in before.items():
         image = take(digest or GAP)
-        if image is not None and digest != image.digest:
+        if image is not None and not _holds(digest, image.digest, originals):
             chosen[path] = Change(target=path, before=digest, after=image.digest)
     if (image := take(COVER)) is not None:
         if cover is None:
@@ -580,7 +606,7 @@ def _with_choices(
             chosen[target] = Change(
                 target=target, before=None, after=image.digest, folder_cover=True
             )
-        elif cover.image.digest != image.digest:
+        elif not _holds(cover.image.digest, image.digest, originals):
             target = cover.path or album_dir / cover.name
             chosen[target] = Change(
                 target=target,
@@ -621,6 +647,7 @@ def _suggest(
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     lossless: bool = False,
     audio_bytes: int | None = None,
+    originals: Mapping[str, str] | None = None,
 ) -> ArtworkPlan:
     """Which image wins, and every write it takes for it to be everywhere.
 
@@ -684,7 +711,7 @@ def _suggest(
     if overwrite_art:
         if cover is None:
             return ArtworkPlan(album_dir=album_dir, before=before)
-        return _plan_for(album_dir, before, cover, cover.image, Source.FOLDER)
+        return _plan_for(album_dir, before, cover, cover.image, Source.FOLDER, originals=originals)
 
     picked = archive if chosen is Source.ARCHIVE else None
 
@@ -710,11 +737,20 @@ def _suggest(
                 before=before,
                 preserves=True,
                 folder=folder_cover,
+                originals=originals,
             )
         return ArtworkPlan(album_dir=album_dir, before=before, preserves_per_track_art=True)
 
     if picked is not None:
-        return _plan_for(album_dir, before, cover, picked, Source.ARCHIVE, folder=folder_cover)
+        return _plan_for(
+            album_dir,
+            before,
+            cover,
+            picked,
+            Source.ARCHIVE,
+            folder=folder_cover,
+            originals=originals,
+        )
 
     own = next((art for _, art in tracks if art is not None), None)
 
@@ -763,6 +799,7 @@ def _suggest(
         cover_image=cover_image,
         cover_source=cover_source,
         folder=folder_cover,
+        originals=originals,
     )
 
 
@@ -792,6 +829,7 @@ def _plan_for(
     cover_image: EmbeddedArt | None = None,
     cover_source: Source | None = None,
     folder: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
+    originals: Mapping[str, str] | None = None,
 ) -> ArtworkPlan:
     """Every write that puts `winner` on `targets`, and `cover_image` on the
     folder cover.
@@ -801,13 +839,17 @@ def _plan_for(
     differ, the folder cover takes the better one and the tracks are left with
     theirs. Each is written only where the target does not already hold it —
     the selection is made by the caller, so a difference here IS the change.
+
+    A squished copy of an image holds it (`originals`, #888). A copy shrunk to
+    fit is smaller than its original, so the size rule picks the original over
+    it, and this is where that comes to nothing.
     """
     for_cover = cover_image if cover_image is not None else winner
     for_cover_source = cover_source if cover_image is not None else source
     changes = [
         Change(target=path, before=digest, after=winner.digest)
         for path, digest in targets.items()
-        if digest != winner.digest
+        if not _holds(digest, winner.digest, originals)
     ]
     if cover is None:
         # The one place a folder cover is created, so the one place the policy
@@ -825,7 +867,7 @@ def _plan_for(
                     folder_cover=True,
                 )
             )
-    elif cover.image.digest != for_cover.digest:
+    elif not _holds(cover.image.digest, for_cover.digest, originals):
         changes.append(
             Change(
                 target=cover.path or album_dir / cover.name,
@@ -1249,6 +1291,9 @@ class ArtworkView:
     #: archive check: its download threshold needs them as the plan does.
     lossless: bool = False
     audio_bytes: int | None = None
+    #: Each squished copy's original (#888), so a row holding a copy reads as
+    #: holding the image it was made from.
+    originals: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def front_only(self) -> bool:
@@ -1260,11 +1305,12 @@ class ArtworkView:
         """Whether using `candidate` on `row` would change nothing: the row
         already has it, or is already getting it, byte for byte. Unknowable for
         an image not yet in hand, so False there — Use stays on offer, and the
-        plan writes nothing if the bytes turn out to match."""
+        plan writes nothing if the bytes turn out to match. A row holding a
+        squished copy of it has it (#888)."""
         if candidate.image is None:
             return False
         digest = candidate.image.digest
-        return (row.image is not None and row.image.digest == digest) or (
+        return (row.image is not None and _holds(row.image.digest, digest, self.originals)) or (
             row.written_image is not None and row.written_image.digest == digest
         )
 
@@ -1500,6 +1546,7 @@ def summarise(
     excluded_archive: bool = False,
     folder_cover: FolderCoverPolicy = FolderCoverPolicy.IF_MISSING,
     audio_bytes: int | None = None,
+    originals: Mapping[str, str] | None = None,
 ) -> ArtworkView:
     """Everything the section shows, from tags already read and a folder cover.
 
@@ -1535,6 +1582,10 @@ def summarise(
     `superseded` is what the album carries of a front the archive has since
     replaced (#886), by digest (`superseded`). Those rows take the archive's
     front now whatever it measures, the group's included.
+
+    `originals` maps each squished copy to the image it was made from (#888),
+    for the plan and for the rows: a row holding a copy of the archive's front
+    holds the archive's front.
     """
     readable = [(path, t) for path, t in tracks if not t.unreadable]
     taken = chosen if chosen is Source.ARCHIVE and archive is not None else None
@@ -1555,6 +1606,7 @@ def summarise(
         folder_cover=folder_cover,
         lossless=lossless,
         audio_bytes=audio_bytes,
+        originals=originals,
     )
     by_target = {c.target: c for c in the_plan.changes}
     cover_change = the_plan.cover_change(Scope.ALL)
@@ -1644,14 +1696,15 @@ def summarise(
             carriers=keys,
             # Not once the release's own front IS that image: nothing borrowed.
             borrowed_from=(borrowed or {}).get(image.digest)
-            if image is not None and (own_front is None or image.digest != own_front.digest)
+            if image is not None
+            and (own_front is None or not _holds(image.digest, own_front.digest, originals))
             else None,
             superseded=image is not None
             and image.digest in superseded
-            and (archive is None or image.digest != archive.digest),
+            and (archive is None or not _holds(image.digest, archive.digest, originals)),
             has_archive=archive is not None
             and image is not None
-            and image.digest == archive.digest,
+            and _holds(image.digest, archive.digest, originals),
             takes_archive=archive is not None
             and incoming is not None
             and incoming.image.digest == archive.digest,
@@ -1697,4 +1750,5 @@ def summarise(
         superseded=superseded,
         lossless=lossless,
         audio_bytes=audio_bytes,
+        originals=dict(originals or {}),
     )
