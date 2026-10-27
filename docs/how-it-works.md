@@ -264,7 +264,8 @@ the Inbox are announced in the Activity feed.
 
 Album art lives in two places: **embedded** in each track, and as a
 **`cover.jpg`** (or `cover.png`) in the folder. Players differ in which they
-read (Plex and Navidrome prefer the embedded image), so an album can look right
+read (Plex and Navidrome prefer an image file in the folder, and fall back to
+the embedded image), so an album can look right
 in one and blank in another. The **Artwork** section on an album's page shows
 both.
 

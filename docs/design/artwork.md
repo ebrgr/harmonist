@@ -361,7 +361,8 @@ artwork included.
 
 **A missing folder cover is suggested only if the user turns that on**, and it
 ships off. The two mistakes don't cost the same. An album without the file still
-plays correctly everywhere, since Plex and Navidrome read embedded art first. The
+plays correctly everywhere: Plex and Navidrome prefer an image file in the folder,
+but fall back to the embedded art when there isn't one. The
 other way round writes megabytes into thousands of folders, and when it was the
 default it made hundreds of albums look like they had an update whose only content
 was the missing file. The setting governs suggesting the file only: an existing
