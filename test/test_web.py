@@ -10425,6 +10425,14 @@ def test_artwork_section_names_the_tracks_missing_art(client, cfg):
     assert "the album&#39;s own artwork" in rendered
 
 
+def test_artwork_section_names_no_files_when_no_track_has_art(client, cfg):
+    """A row labelled "All 3 tracks" already says which files (#882)."""
+    d = _album_with_art(cfg, "Bare", covers=[None, None, None])
+    r = client.get(f"/album/{_id_for(cfg, d)}/artwork")
+    assert "All 3 tracks" in r.text
+    assert "Track.m4a" not in r.text
+
+
 def test_artwork_section_shows_the_folder_cover_it_would_create(client, cfg):
     """#457: a cover file gets written into an album that hasn't got one, and
     the section said nothing — a 3 MB image appearing in a music folder read as

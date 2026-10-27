@@ -37,6 +37,9 @@ versions follow [semantic versioning](https://semver.org).
   log has them, and the checks retry on their own (#864).
 - **Times are shown in your timezone**, set with the `TZ` environment
   variable (#865).
+- **The Artwork section no longer lists every file under "All N tracks"**
+  when none of an album's tracks has artwork. Files are still named when only
+  some lack it (#882).
 - **Activity rows show the date** as well as the time (#865).
 - **An album with no `cover.jpg` is offered a larger Cover Art Archive image
   for its tracks**: always if it's lossless, and if it's lossy, when that adds
