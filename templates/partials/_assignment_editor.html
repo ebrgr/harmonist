@@ -252,10 +252,13 @@
             {% endif %}
             {% if not album_tracks %}
             {# HTMX's moveBefore preservation restores by CSS selector; encode
-               fingerprint separators in the DOM id, not in the submitted value. #}
-            <div id="assignment-artwork-{{ album.id }}-{{ release_fingerprint | replace(':', '_') }}" hx-preserve
+               fingerprint separators in the DOM id, not in the submitted value.
+               The folders the review adds are in both: their files are in the
+               artwork plan, so adding or removing one loads it again (#881). #}
+            {% set fill_query %}{% for disc, part in added.items() %}&fill={{ disc }}%3A{{ part.id|urlencode }}{% endfor %}{% endset %}
+            <div id="assignment-artwork-{{ album.id }}-{{ release_fingerprint | replace(':', '_') }}{% for disc, part in added.items() %}-{{ disc }}_{{ part.id }}{% endfor %}" hx-preserve
                  class="assignment-artwork py-3 border-t border-line">
-                <div hx-get="{{ review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint, replacement) }}"
+                <div hx-get="{{ review_url('/assignments/' ~ album.id ~ '/artwork?release_fingerprint=' ~ release_fingerprint ~ fill_query, replacement) }}"
                      hx-trigger="load" hx-target="closest .assignment-artwork" hx-swap="innerHTML settle:0ms"
                      hx-indicator="find [role='status']" hx-disabled-elt="this">
                     {% with artwork_pending=true %}

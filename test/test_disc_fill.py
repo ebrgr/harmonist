@@ -200,6 +200,42 @@ def test_confirming_tags_both_folders_and_they_become_one_album(client, cfg, spl
     assert album.state == AlbumState.COMPLETE
 
 
+def test_the_artwork_confirmed_with_the_review_reaches_the_added_folder_too(client, cfg, split):
+    """The artwork plan the review shows is the plan for every folder it tags.
+
+    Drawn over the suggested folder alone, it was a different plan from the
+    one the tagging rebuilt over both, so a confirmation with artwork tagged
+    the album and wrote none of it.
+    """
+    from datetime import UTC, datetime
+
+    from harmonist import activity_store, cover_art, images
+
+    first, second = split
+    aid = _id_for(cfg, first)
+    image = test_web._png(61)
+    cover_art.configure_cache(cfg.paths.config_dir / "caa")
+    cover_art.cache_image(MBID, image, "image/png")
+    activity_store.store_cover_art(
+        MBID,
+        activity_store.CachedCoverArt(
+            fetched_at=datetime.now(UTC), image_url="https://example.com/cover.png"
+        ),
+    )
+    review = _review(client, aid)
+    # The artwork the review loads, from the address the review gives it.
+    load = BeautifulSoup(review, "html.parser").select_one(".assignment-artwork [hx-get]")
+    assert load is not None
+    artwork = client.get(str(load["hx-get"]))
+    assert "Use artwork from the selected release" in artwork.text
+    fields = _confirmation_fields(review) | _confirmation_fields(artwork.text)
+    applied = client.post(f"/confirm/{aid}/accept", data=fields | {"include_artwork": "true"})
+    assert "confirmation-applied" in applied.headers.get("HX-Trigger", "")
+    for folder in (first, second):
+        arts = {formats.read_tags(f).art for f in album_files.audio_files(folder)}
+        assert {a.digest if a else None for a in arts} == {images.digest(image)}, folder
+
+
 def test_a_folder_matched_since_the_review_is_not_taken(client, cfg, split):
     first, second = split
     aid = _id_for(cfg, first)
