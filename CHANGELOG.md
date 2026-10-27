@@ -6,70 +6,36 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-10-27
+
 ### Added
 
-- **Tracks are tagged with their composers, lyricists, writers and the works
-  they perform**, as Picard writes them. A credit arriving is an Enrichment
-  update. A composer MusicBrainz doesn't credit, such as one from a CD-rip
-  database, is removed.
-  After upgrading, every cached release is fetched again, so Update available
-  starts nearly empty and refills (#680).
-- **A suggestion's missing disc can be filled from another unmatched folder**,
-  for a release ripped a disc at a time into folders of its own. When exactly
-  one folder fits the disc's track count and lengths it is filled in already,
-  and isn't listed in the Inbox as an album of its own. Confirming tags both
-  folders, and they become one album (#876).
-- **Artwork the Cover Art Archive no longer has as the release's front is
-  offered a replacement**, however small the front is now: the release's
-  front, or else the release group's. Its row on the album page says
-  "no longer the archive's front". This applies only once the archive check
-  has seen the front change after upgrading (#886).
-- **The Library's Artwork filter lists albums with oversize artwork**: an
-  embedded image or folder cover over the 20 MB image size limit, which
-  Navidrome won't read. The album's Artwork section marks the image beside its
-  size (#889).
+- **Tracks are tagged with composers, lyricists, writers and works** (#680).
+  Composers MusicBrainz doesn't credit are removed, and Update available
+  refills after upgrading.
+- **A missing disc can be filled from another unmatched folder** (#876).
+- **A changed archive front is offered as a replacement** (#886).
+- **The Library's Artwork filter finds oversize artwork** (#889).
 
 ### Changed
 
-- **Pasting an MBID is the last of the Find release options, By MBID**, and
-  its button is **Use**, like a search result's. The release it names opens
-  for review even when the files fit it exactly, instead of being tagged at
-  once (#880).
-- **A release search by name lists up to 15 releases in a scrolling list**,
-  instead of five. When MusicBrainz found more, the list says how many and
-  ends with a link to the same search on MusicBrainz (#878).
-- **A track's tag change that has no column in the album page's tracklist is
-  shown under that track**, instead of in a box in the Tags section. Composer
-  and work credits take one column each, with every name linking to
-  MusicBrainz (#863).
-- **Background artwork check failures stay out of Activity**: the container
-  log has them, and the checks retry on their own (#864).
-- **Times are shown in your timezone**, set with the `TZ` environment
-  variable (#865).
-- **The Artwork section no longer lists every file under "All N tracks"**
-  when none of an album's tracks has artwork. Files are still named when only
-  some lack it (#882).
-- **Activity rows show the date** as well as the time (#865).
-- **An album with no `cover.jpg` is offered a larger Cover Art Archive image
-  for its tracks**: always if it's lossless, and if it's lossy, when that adds
-  at most 10% to its size. It's an artwork replacement, so it waits for review
-  and is never applied unattended. Elsewhere, embedded artwork is still kept
-  unless you choose otherwise (#872).
+- **Tracks can take a larger archive front when there's no `cover.jpg`**:
+  lossless always, lossy if it adds at most 10% (#872).
+- **A pasted MBID opens review instead of tagging at once** (#880).
+- **Name searches list up to 15 releases**, not five (#878).
+- **Tag changes with no tracklist column show under their track** (#863).
+- **Times follow the `TZ` environment variable**, and Activity rows show the
+  date (#865).
+- **Background artwork check failures stay out of Activity** (#864).
+- **An artwork row covering every track no longer lists them all** (#882).
 
 ### Fixed
 
-- **An image over the 20 MB image size limit is reduced to fit as Harmonist
-  writes it**, so a Cover Art Archive original saved at full quality no longer
-  lands in the folder or the tracks as a file Navidrome won't read. After Apply
-  says "reduced to fit", and the picker marks an archive image over the limit
-  before it's picked (#888).
-- **Startup and sync no longer scan the library a second time** when there was
-  nothing new to sort into it (#891).
-- **An album linked to a Bandcamp purchase shows Bandcamp as its Origin**, with
-  a link to the purchase, even when its files have lost Bandcamp's comment (#867).
-- **A tag whose files hold an empty value counts as unset**, so it no longer
-  shows as "removed", flags an update, or appears in History when a re-tag
-  clears it (#896).
+- **Images over the 20 MB limit are reduced to fit when written**, so
+  Navidrome reads them (#888).
+- **Startup and sync no longer scan the library twice** (#891).
+- **A linked Bandcamp purchase shows Bandcamp as the Origin** (#867).
+- **An empty tag counts as unset**, not "removed" (#896).
 
 ## [1.30.0] - 2026-10-22
 
