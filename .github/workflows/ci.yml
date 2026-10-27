@@ -152,12 +152,15 @@ jobs:
           restore-keys: |
             pip-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.python.outputs.python-version }}-
 
+      # Name setup-python's interpreter rather than trusting PATH: the image has
+      # its own Python 3.12, and a bare `pip` once reached it when setup-python
+      # found 3.15 already in the runner's tool cache.
       - name: Install (with dev + e2e extras)
-        run: pip install -e ".[dev,e2e]"
+        run: '"${{ steps.python.outputs.python-path }}" -m pip install -e ".[dev,e2e]"'
 
       - name: Verify Playwright image compatibility
         run: |
-          python - <<'PY'
+          "${{ steps.python.outputs.python-path }}" - <<'PY'
           import importlib.metadata
           import json
           from pathlib import Path
@@ -178,7 +181,7 @@ jobs:
         env:
           RUN_E2E: "1"
           E2E_TRACE_DIR: test-results
-        run: pytest test/e2e -q -rs -n 4 --dist loadscope --durations=30 --junitxml=e2e-results.xml
+        run: '"${{ steps.python.outputs.python-path }}" -m pytest test/e2e -q -rs -n 4 --dist loadscope --durations=30 --junitxml=e2e-results.xml'
 
       - name: Upload browser test results and timings
         if: always()
