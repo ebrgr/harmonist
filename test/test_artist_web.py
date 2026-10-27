@@ -58,6 +58,7 @@ def artist_client(tmp_path, monkeypatch):
         paths=PathsConfig(music_dir=music, config_dir=tmp_path / "config", artist_info_dir=info)
     )
     cfg.paths.config_dir.mkdir()
+    cfg.ui.show_artists = True
     make_album(music, "Together", RELEASE, ["Alice", "Bob"], [ALICE, BOB])
     make_album(music, "Solo", SOLO, ["Alice"], [ALICE])
     make_album(

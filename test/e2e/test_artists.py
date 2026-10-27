@@ -13,7 +13,9 @@ pw = pytest.importorskip("playwright.sync_api")
 @pytest.fixture(scope="module")
 def artists_server(tmp_path_factory):
     yield from _run_demo_server(
-        tmp_path_factory.mktemp("artists"), app_module="test.e2e.artists_app:app"
+        tmp_path_factory.mktemp("artists"),
+        app_module="test.e2e.artists_app:app",
+        config_toml="[ui]\nshow_artists = true\n",
     )
 
 
