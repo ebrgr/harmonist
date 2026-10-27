@@ -6,6 +6,8 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- The Artists tab is hidden by default and can be enabled in Settings under User Interface; Library artist links remain available (#9).
+
 - New artist NFOs can use one reviewed location beside the audio or in the Artist Information Folder, with a saved preference and portable artist folder names (#8).
 
 - Artist names on album cards open their local profiles, with a return to the same Library page, filters and search (#7).

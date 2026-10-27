@@ -76,6 +76,23 @@ associated `artist.nfo`. A local `<thumb>` reference takes precedence, followed
 by `folder.jpg` / `folder.png`. The Artists list and artist page share this
 artwork; remote image URLs are not downloaded.
 
+## `[ui]`
+
+| Key | Env | Default | |
+|---|---|---|---|
+| `show_artists` | `HARMONIST_UI_SHOW_ARTISTS` | `false` | Shows the Artists tab on the home page. Available in Settings under User Interface. |
+
+The Artists tab is hidden unless enabled. The preference is saved in
+`harmonist.toml` and applies without restarting. Artist-name links in Library,
+direct artist profiles and NFO metadata remain available while the tab is hidden.
+An Artists URL or remembered Artists selection falls back to Library. Existing
+Library navigation context is preserved when returning from an artist profile.
+
+```toml
+[ui]
+show_artists = false
+```
+
 ## `[artist_nfo]`
 
 | Key | Env | Default | |

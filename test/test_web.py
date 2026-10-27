@@ -283,7 +283,9 @@ def test_consolidated_status_endpoint(client):
         "pending",
         "artwork_revision",
         "progress",
+        "ui",
     }
+    assert body["ui"] == {"show_artists": False}
     assert body["sync"]["state"] == "idle"
     assert body["reconcile"]["state"] == "idle"
     assert "state" in body["scan"]
