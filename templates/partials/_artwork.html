@@ -226,9 +226,10 @@
                frame is the finding, and the row is there to be chosen for
                whether or not anything is suggested for it. #}
             <span class="art-row__meta-plain">not in the folder</span>
-            {% else %}
+            {% elif r.tracks|length != r.total_tracks %}
             {# Named, not counted: the remedy is per file, so the user needs to
-               know which files to look at. #}
+               know which files to look at — unless it is all of them, which
+               the label already says (#882). #}
             <span class="art-row__files">
                 {% for t in r.tracks %}{{ t.name }}{% if not loop.last %}<br>{% endif %}{% endfor %}
             </span>
