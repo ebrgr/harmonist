@@ -103,6 +103,68 @@ def test_local_observation_filters(tmp_path, images, folder_cover, unreadable, e
     assert not any(filters[slug][1](album) for slug in slugs)
 
 
+#: Navidrome's default `MaxImageSize`, "20MB" in decimal units: it won't read a
+#: larger image at all (#888).
+NAVIDROME_MAX = 20_000_000
+
+
+def _sized(length):
+    return formats.EmbeddedArt(digest=f"d{length}", mime="image/jpeg", length=length)
+
+
+@pytest.mark.parametrize(
+    ("tracks", "cover", "unreadable", "expected"),
+    [
+        ((NAVIDROME_MAX, NAVIDROME_MAX), NAVIDROME_MAX, False, False),
+        ((NAVIDROME_MAX + 1, 64), None, False, True),
+        ((64, 64), NAVIDROME_MAX + 1, False, True),
+        ((None, None), NAVIDROME_MAX + 1, False, True),
+        ((None, None), None, False, False),
+        # A track that can't be read hides nothing about an image that was.
+        ((NAVIDROME_MAX + 1, None), None, True, True),
+    ],
+)
+def test_oversize_artwork_is_any_image_navidrome_refuses(
+    tmp_path, tracks, cover, unreadable, expected
+):
+    album = _tagged(tmp_path / "music", _release(mbid=MBID, tracks=2), tracks=2)
+    if cover is not None:
+        png = png_bytes(64, 64)
+        (album.path / "cover.png").write_bytes(png + bytes(cover - len(png)))
+    album = scanner.scan(tmp_path / "music")[0]
+    assert album.artwork_local is not None
+    if cover is not None:
+        assert album.artwork_local.cover is not None
+        assert album.artwork_local.cover.image.length == cover
+    album.artwork_local = replace(
+        album.artwork_local,
+        tracks=tuple(
+            (path, _sized(n) if n else None)
+            for (path, _), n in zip(album.artwork_local.tracks, tracks, strict=True)
+        ),
+        unreadable=unreadable,
+    )
+    assert _library_filters({})["artwork-oversize"][1](album) is expected
+    album.artwork_local = None
+    assert not _library_filters({})["artwork-oversize"][1](album)
+
+
+def test_oversize_artwork_is_offered_in_the_artwork_menu(tmp_path):
+    album = _tagged(tmp_path / "music", _release(mbid=MBID))
+    assert album.artwork_local is not None
+    path, _ = album.artwork_local.tracks[0]
+    album.artwork_local = replace(album.artwork_local, tracks=((path, _sized(NAVIDROME_MAX + 1)),))
+    other = replace(album, id="other", title="Other", artwork_local=None)
+    view = _library_page_vars([album, other], 1, 20, filter_=None)
+    menu = {f["slug"]: f for f in view["artwork_filters"]}
+    assert menu["artwork-oversize"]["label"] == "Oversize artwork"
+    assert menu["artwork-oversize"]["count"] == 1
+    # The menu's own options never repeat as chips beside it.
+    assert {f["slug"] for f in view["filters"]}.isdisjoint(menu.keys() - {"no-artwork"})
+    view = _library_page_vars([album, other], 1, 20, filter_="artwork-oversize")
+    assert view["rows"] == [album]
+
+
 def test_observations_intersect_updates_and_clear_independently(tmp_path, monkeypatch):
     album = _tagged(tmp_path / "music", _release(mbid=MBID))
     album.update_available = True

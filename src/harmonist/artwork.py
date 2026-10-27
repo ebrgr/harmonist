@@ -135,6 +135,13 @@ def superseded(replaced: ReplacedFront | None, carried: Iterable[EmbeddedArt]) -
 #: Lossless audio has no cap, since its tracks dwarf any front.
 LOSSY_GROWTH = Fraction(1, 10)
 
+#: The largest image a player is known to read (#888): Navidrome's default
+#: `MaxImageSize`, "20MB" in decimal units. Navidrome refuses a larger one
+#: outright, and the album keeps whatever art Navidrome held before rather than
+#: falling back to the next image. A user can raise that setting, but Harmonist
+#: can't see it, so the default is the limit.
+PLAYER_MAX_BYTES = 20_000_000
+
 
 def beats(mine: Size | None, theirs: Size | None) -> bool:
     """Whether `mine` is the better image: strictly larger on both axes (#410).

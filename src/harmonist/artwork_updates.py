@@ -112,6 +112,15 @@ class LocalArtwork:
             a.digest if a else None for _, a in self.tracks
         )
 
+    @property
+    def oversize(self) -> bool:
+        """Any image a player won't read (#889). Each track's image and the
+        folder cover are separate files to a player, so one is enough. Not
+        gated on `unreadable` as the others are: a file that can't be read
+        hides nothing about an image that was."""
+        images = [a for _, a in self.tracks] + [self.cover.image if self.cover else None]
+        return any(a is not None and a.length > artwork.PLAYER_MAX_BYTES for a in images)
+
 
 @dataclass(frozen=True)
 class Observation:

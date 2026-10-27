@@ -24,6 +24,8 @@ versions follow [semantic versioning](https://semver.org).
   front, or else the release group's. Its row on the album page says
   "no longer the archive's front". This applies only once the archive check
   has seen the front change after upgrading (#886).
+- **The Library's Artwork filter lists albums with oversize artwork**: an
+  embedded image or folder cover over 20 MB, which Navidrome won't read (#889).
 
 ### Changed
 

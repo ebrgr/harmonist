@@ -363,8 +363,8 @@ the end date to the alias on MusicBrainz corrects both.
 
 The **Create cover.jpg in album folders** setting is probably on. It makes every album
 without a `cover.jpg` and with artwork available count as having an artwork update. Set it back to **Never** in
-**Settings → Tagging**. Plex and Navidrome use the artwork embedded in your
-files, so most albums don't need the file.
+**Settings → Tagging**. Without the file, Plex and Navidrome use the artwork
+embedded in your files, so most albums don't need it.
 
 ### The log says a background artwork check failed
 
@@ -392,6 +392,11 @@ The usual causes:
   **Apply artwork**.
 - **Some tracks have no image.** Applying updates fills them from the album's
   artwork.
+- **An image is too large for the player.** Navidrome won't read an image over
+  20 MB (its `MaxImageSize` setting). It keeps showing whatever it had before,
+  so the cover can come and go. The Library's **Artwork → Oversize artwork**
+  filter lists albums carrying one. Choose a smaller image for that row, then
+  **Apply artwork**.
 
 Your player may cache artwork; refresh the album's metadata there afterwards.
 

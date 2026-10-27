@@ -262,6 +262,7 @@ _LIBRARY_ARTWORK = {
     "no-artwork": "No artwork",
     "artwork-missing-tracks": "Tracks missing artwork",
     "artwork-different-tracks": "Different artwork across tracks",
+    "artwork-oversize": "Oversize artwork",
 }
 
 
@@ -355,6 +356,10 @@ def _library_filters(
         "artwork-different-tracks": (
             "Different artwork across tracks",
             lambda a: a.artwork_local is not None and a.artwork_local.different_tracks,
+        ),
+        "artwork-oversize": (
+            "Oversize artwork",
+            lambda a: a.artwork_local is not None and a.artwork_local.oversize,
         ),
         "artwork-available": ("Artwork updates", lambda a: artwork_operation(a) is not None),
         "artwork-addition": (
@@ -1995,7 +2000,9 @@ def _library_page_vars(
             and f["slug"] not in _LIBRARY_ORIGINS
             and f["slug"] not in _LIBRARY_CODECS
             and f["slug"] not in _LIBRARY_ARTWORK_UPDATES
-            and f["slug"] not in {"artwork-missing-tracks", "artwork-different-tracks"}
+            # The artwork menu stands where No artwork would; its other options
+            # live only inside it.
+            and (f["slug"] not in _LIBRARY_ARTWORK or f["slug"] == "no-artwork")
         ],
         "origin_filters": [f for f in filters if f["slug"] in _LIBRARY_ORIGINS],
         "codec_filters": [f for f in filters if f["slug"] in _LIBRARY_CODECS],
