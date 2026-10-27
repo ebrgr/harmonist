@@ -1822,6 +1822,9 @@ def apply_artwork(
     # target whose image could not be kept is known before anything moves (#470).
     # No `incoming` to skip: a change exists only where the target does NOT
     # already hold what is coming, so every before-image here is really doomed.
+    # That includes a change whose `before` and `after` are the same image over
+    # the limit (#893): what's coming is its squished copy, and Undo restores
+    # the original from what's kept here.
     kept = _keep_doomed_art({c.target: c.before for c in changes})
 
     changed = 0

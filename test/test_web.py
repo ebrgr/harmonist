@@ -10511,10 +10511,13 @@ def test_after_apply_says_an_image_over_the_limit_is_reduced_to_fit(client, cfg)
     rows = {r.select_one(".art-row__who").get_text(strip=True): r for r in soup.select(".art-row")}
     after = rows["All 2 tracks"].select_one(".art-row__side--after .art-row__oversize")
     assert after is not None
-    assert after.get_text(strip=True) == "reduced to fit"
+    assert after.get_text(strip=True) == "will be reduced to fit"
     assert after["title"] == "Re-encoded to 20,000,000 bytes or less as it's written"
     now = rows["cover.jpg"].select_one(".art-row__side .art-row__oversize")
     assert now is not None and now.get_text(strip=True) == "over image size limit"
+    # …and keeping it means writing it again, squished (#893).
+    kept = rows["cover.jpg"].select_one(".art-row__side--after .art-row__oversize")
+    assert kept is not None and kept.get_text(strip=True) == "will be reduced to fit"
 
 
 def test_artwork_section_promises_no_overwrite_where_art_is_preserved(client, cfg):

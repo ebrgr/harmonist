@@ -6,6 +6,16 @@ versions follow [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Artwork an album already has over the 20 MB limit is offered reduced to
+  fit**, as an artwork Replacement, so Navidrome reads it (#893).
+
+### Changed
+
+- **After Apply says an image over the limit "will be reduced to fit"**, since
+  "reduced to fit" beside its size read as the size after reducing (#893).
+
 ## [1.31.0] - 2026-10-27
 
 ### Added

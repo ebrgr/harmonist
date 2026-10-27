@@ -396,9 +396,9 @@ The usual causes:
   Navidrome won't read it, and keeps showing whatever it had before, so the
   cover can come and go. The Library's **Artwork → Oversize artwork** filter
   lists albums carrying one, and the album's Artwork section marks it "over
-  image size limit". Images Harmonist writes are reduced to fit, so this is
-  one the album already had. Choose a smaller image for that row, then
-  **Apply artwork**.
+  image size limit". Its After Apply says "will be reduced to fit": **Apply
+  artwork** writes it again at a size Navidrome reads, and Undo puts the
+  original back.
 
 Your player may cache artwork; refresh the album's metadata there afterwards.
 

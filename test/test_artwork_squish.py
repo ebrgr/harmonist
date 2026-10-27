@@ -351,3 +351,178 @@ def test_a_borrowed_image_written_squished_is_still_a_stand_in(tmp_path, monkeyp
     kept = caa_listings.stand_ins_after(tmp_path, [], "rel", (), [COPY.digest])
 
     assert kept == ((replace(borrowed, digest=COPY.digest),) if originals else ())
+
+
+# ---------------------------------------------------------------------------
+# An image the album already has over the limit is offered squished (#893).
+# Holding the wanted image isn't enough when it's the original over the limit:
+# writing it would change it.
+# ---------------------------------------------------------------------------
+
+#: Exactly at the limit, which isn't over it.
+FITS = formats.EmbeddedArt(
+    digest="3" * 64, mime="image/jpeg", length=LIMIT, size=images.Size(1000, 1000)
+)
+
+
+def _carrying(tmp_path, carrier, image):
+    """Tracks and a folder cover with `image` on `carrier` alone."""
+    if carrier == "tracks":
+        return [(tmp_path / "01.m4a", image), (tmp_path / "02.m4a", image)], None
+    cover = artwork.FolderCover(name="cover.jpg", image=image, path=tmp_path / "cover.jpg")
+    return [(tmp_path / "01.m4a", None)], cover
+
+
+@pytest.mark.parametrize("carrier", ["tracks", "cover"])
+@pytest.mark.parametrize(
+    ("image", "offered"), [(ORIGINAL, True), (FITS, False)], ids=["over", "at"]
+)
+def test_an_image_the_album_has_over_the_limit_is_offered_squished(
+    tmp_path, carrier, image, offered
+):
+    """The size rule keeps what the album has, and keeping an image over the
+    limit means writing it again, squished: a Replacement of each carrier with
+    the image it already holds."""
+    tracks, cover = _carrying(tmp_path, carrier, image)
+
+    plan = artwork.plan(tmp_path, tracks, cover, folder_cover=artwork.FolderCoverPolicy.NEVER)
+
+    rewrites = [(c.after, c.operation) for c in plan.changes if c.before == image.digest]
+    expected = [(image.digest, artwork.Operation.REPLACEMENT)] * (2 if carrier == "tracks" else 1)
+    assert rewrites == (expected if offered else [])
+
+
+@pytest.mark.parametrize("carrier", ["tracks", "cover"])
+def test_choosing_the_image_a_carrier_holds_over_the_limit_writes_it(tmp_path, carrier):
+    """Using the archive's image a carrier already holds, byte for byte, is
+    no longer a no-op when that image is over the limit: The White Room's
+    Use, which said Unchanged once the original was in hand."""
+    tracks, cover = _carrying(tmp_path, carrier, ORIGINAL)
+    choose = artwork.COVER if carrier == "cover" else ORIGINAL.digest
+
+    plan = artwork.plan(
+        tmp_path,
+        tracks,
+        cover,
+        choices={choose: "777"},
+        picks={"777": ORIGINAL},
+        folder_cover=artwork.FolderCoverPolicy.NEVER,
+    )
+
+    assert [c.after for c in plan.changes if c.before == ORIGINAL.digest] == [ORIGINAL.digest] * (
+        2 if carrier == "tracks" else 1
+    )
+
+
+@pytest.mark.parametrize("carrier", ["tracks", "cover"])
+def test_keeping_an_image_over_the_limit_leaves_it_as_it_is(tmp_path, carrier):
+    """The way out: the row's Keep drops the squish, as it drops any change."""
+    tracks, cover = _carrying(tmp_path, carrier, ORIGINAL)
+    keep = artwork.COVER if carrier == "cover" else ORIGINAL.digest
+
+    plan = artwork.plan(
+        tmp_path,
+        tracks,
+        cover,
+        choices={keep: artwork.Choice.KEEP},
+        folder_cover=artwork.FolderCoverPolicy.NEVER,
+    )
+
+    assert not [c for c in plan.changes if c.before == ORIGINAL.digest]
+
+
+def test_a_compilations_folder_cover_over_the_limit_is_offered_squished(tmp_path):
+    """Per-track sleeves are left alone, as ever; the folder cover is a
+    carrier of its own."""
+    cover = artwork.FolderCover(name="cover.jpg", image=ORIGINAL, path=tmp_path / "cover.jpg")
+    tracks = [(tmp_path / "01.m4a", FITS), (tmp_path / "02.m4a", COPY)]
+
+    plan = artwork.plan(tmp_path, tracks, cover, folder_cover=artwork.FolderCoverPolicy.NEVER)
+
+    assert [(c.target.name, c.before, c.after) for c in plan.changes] == [
+        ("cover.jpg", ORIGINAL.digest, ORIGINAL.digest)
+    ]
+    assert plan.preserves_per_track_art
+
+
+def test_the_picker_offers_use_on_a_row_keeping_its_image_over_the_limit(tmp_path):
+    """Use is no longer Unchanged on a row that keeps an image over the limit,
+    since using it would squish it. Without the Keep the row is already
+    getting it, so it is."""
+    candidate = artwork.Candidate(
+        image_id="777",
+        origin=artwork.Candidate.RELEASE,
+        front=True,
+        types=("front",),
+        image=ORIGINAL,
+    )
+    tracks = [(tmp_path / "01.m4a", formats.TrackTags(art=ORIGINAL))]
+
+    def view(choices):
+        return artwork.summarise(
+            tmp_path,
+            tracks,
+            None,
+            None,
+            ORIGINAL,
+            choices=choices,
+            picks={"777": ORIGINAL},
+            candidates=[candidate],
+            folder_cover=artwork.FolderCoverPolicy.NEVER,
+        )
+
+    suggested = view(None)
+    kept = view({ORIGINAL.digest: artwork.Choice.KEEP})
+
+    assert suggested.unchanged(suggested.rows[0], candidate)
+    assert not kept.unchanged(kept.rows[0], candidate)
+
+
+def test_an_oversize_cover_the_album_has_is_squished_and_then_settles(album_with_tracks):
+    """Applied, it's written squished at the same size; planned again, the
+    copy holds its original and nothing is left; undone, the original is
+    back byte for byte."""
+    album_dir = album_with_tracks(2)
+    small = _jpeg(64, seed=1, quality=75)
+    big = _jpeg(256, seed=2)
+    files = sorted(album_dir.glob("*.m4a"))
+    for track in files:
+        formats.write_cover(track, small)
+    cover = album_dir / "cover.jpg"
+    cover.write_bytes(big)
+
+    plan = tagger.decide_artwork(album_dir, files, cover)
+    assert [(c.target, c.before, c.after) for c in plan.changes] == [
+        (cover, images.digest(big), images.digest(big))
+    ]
+    outcome = tagger.apply_artwork(album_dir, plan, files=files, cover_path=cover)
+
+    squished = cover.read_bytes()
+    assert outcome.changed == 1 and len(squished) <= LIMIT
+    assert images.dimensions(squished) == images.Size(256, 256)
+    assert {_art(f) for f in files} == {small}
+    assert tagger.decide_artwork(album_dir, files, cover).changes == ()
+
+    restored = tagger.restore_artwork(album_dir, tag_history.artwork_revert_plan(_detail()))
+
+    assert restored.stale == () and cover.read_bytes() == big
+
+
+def test_the_library_finds_an_oversize_image_to_squish_as_a_replacement(tmp_path):
+    """Found by the Library's own plan, from the scan alone, and routed as a
+    Replacement like any other; gone once it's applied."""
+    from harmonist import artwork_updates, scanner
+    from test.test_gardener import _release, _tagged
+
+    album = _tagged(tmp_path / "music", _release(tracks=1), tracks=1)
+    cover = album.path / "cover.jpg"
+    cover.write_bytes(_jpeg(256, seed=2))
+    scanned = scanner.scan(tmp_path / "music")[0]
+
+    assert artwork_updates.operation(scanned) is artwork.Operation.REPLACEMENT
+
+    files = sorted(album.path.glob("*.m4a"))
+    plan = tagger.decide_artwork(album.path, files, cover)
+    tagger.apply_artwork(album.path, plan, files=files, cover_path=cover)
+
+    assert artwork_updates.operation(scanner.scan(tmp_path / "music")[0]) is None

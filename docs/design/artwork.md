@@ -169,6 +169,19 @@ loses nothing the album had.
 The After Apply column says the image will be **reduced to fit** rather than
 showing the copy's size, which would mean encoding the image to draw the page.
 
+**An image the album already has over the limit is offered squished** (#893).
+Holding the wanted image byte for byte normally means nothing to write, but
+holding the original over the limit doesn't: keeping it means writing it again,
+squished, so the plan makes it a Replacement of each carrier with the image it
+already holds. That's a change like any other: found by the Library from the
+scan alone, routed by the user's threshold, never written unattended, and
+undone from the backup every replacement keeps. The alternative was an action
+on the album page alone, which would leave each such album to be found by hand,
+when the scan already knows every image's length and a player is silently
+refusing the image meanwhile. A compilation's folder cover is offered too, since
+it isn't one of the sleeves; the row's Keep declines it, as it declines any
+change.
+
 ## A stand-in gives way
 
 When a release has no front of its own, the artwork Harmonist writes can come

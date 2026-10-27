@@ -73,6 +73,15 @@ def _holds(carried: str | None, wanted: str, originals: Mapping[str, str] | None
     )
 
 
+def _settled(carried: str | None, wanted: EmbeddedArt, originals: Mapping[str, str] | None) -> bool:
+    """Whether a carrier holding `carried` needs nothing written to hold
+    `wanted`: it holds it, and not as the original over the image size limit,
+    which writing would squish (#893). A copy squished from it is settled."""
+    return _holds(carried, wanted.digest, originals) and not (
+        carried == wanted.digest and too_large(wanted)
+    )
+
+
 class CoverArtAnswer(Protocol):
     """What this module needs of a Cover Art Archive answer (#276).
 
@@ -602,10 +611,11 @@ def _with_choices(
 
     # Written only where the bytes differ: choosing the image a carrier
     # already holds is a no-op, not a rewrite (*Far & Off*, #659). Nor is
-    # choosing the image a carrier holds a squished copy of (#888).
+    # choosing the image a carrier holds a squished copy of (#888) — but
+    # choosing the original over the limit that it holds squishes it (#893).
     for path, digest in before.items():
         image = take(digest or GAP)
-        if image is not None and not _holds(digest, image.digest, originals):
+        if image is not None and not _settled(digest, image, originals):
             chosen[path] = Change(target=path, before=digest, after=image.digest)
     if (image := take(COVER)) is not None:
         if cover is None:
@@ -613,7 +623,7 @@ def _with_choices(
             chosen[target] = Change(
                 target=target, before=None, after=image.digest, folder_cover=True
             )
-        elif not _holds(cover.image.digest, image.digest, originals):
+        elif not _settled(cover.image.digest, image, originals):
             target = cover.path or album_dir / cover.name
             chosen[target] = Change(
                 target=target,
@@ -746,6 +756,20 @@ def _suggest(
                 folder=folder_cover,
                 originals=originals,
             )
+        if cover is not None and too_large(cover.image):
+            # The folder cover isn't one of the sleeves, and keeping it over
+            # the limit means writing it again, squished (#893).
+            return _plan_for(
+                album_dir,
+                {},
+                cover,
+                cover.image,
+                Source.FOLDER,
+                before=before,
+                preserves=True,
+                folder=folder_cover,
+                originals=originals,
+            )
         return ArtworkPlan(album_dir=album_dir, before=before, preserves_per_track_art=True)
 
     if picked is not None:
@@ -850,13 +874,17 @@ def _plan_for(
     A squished copy of an image holds it (`originals`, #888). A copy shrunk to
     fit is smaller than its original, so the size rule picks the original over
     it, and this is where that comes to nothing.
+
+    The original itself, over the limit, doesn't (#893): the size rule keeping
+    it means writing it again, squished, so a target holding it is a change
+    whose `before` and `after` are the same image.
     """
     for_cover = cover_image if cover_image is not None else winner
     for_cover_source = cover_source if cover_image is not None else source
     changes = [
         Change(target=path, before=digest, after=winner.digest)
         for path, digest in targets.items()
-        if not _holds(digest, winner.digest, originals)
+        if not _settled(digest, winner, originals)
     ]
     if cover is None:
         # The one place a folder cover is created, so the one place the policy
@@ -874,7 +902,7 @@ def _plan_for(
                     folder_cover=True,
                 )
             )
-    elif not _holds(cover.image.digest, for_cover.digest, originals):
+    elif not _settled(cover.image.digest, for_cover, originals):
         changes.append(
             Change(
                 target=cover.path or album_dir / cover.name,
@@ -1324,12 +1352,13 @@ class ArtworkView:
         already has it, or is already getting it, byte for byte. Unknowable for
         an image not yet in hand, so False there — Use stays on offer, and the
         plan writes nothing if the bytes turn out to match. A row holding a
-        squished copy of it has it (#888)."""
+        squished copy of it has it (#888); a row holding it over the limit
+        doesn't, since using it would squish it (#893)."""
         if candidate.image is None:
             return False
-        digest = candidate.image.digest
-        return (row.image is not None and _holds(row.image.digest, digest, self.originals)) or (
-            row.written_image is not None and row.written_image.digest == digest
+        image = candidate.image
+        return (row.image is not None and _settled(row.image.digest, image, self.originals)) or (
+            row.written_image is not None and row.written_image.digest == image.digest
         )
 
     @property

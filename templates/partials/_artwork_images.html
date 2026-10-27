@@ -9,8 +9,9 @@
 
    An image about to be written is squished to fit as it is (#888), so on the
    After Apply side the size is the picked image's and the mark says what
-   happens to it. The squished size isn't shown: that would mean encoding the
-   image to draw the page.
+   will happen to it: in the future tense, since beside the size a past
+   participle read as the size after reducing. The squished size isn't shown:
+   that would mean encoding the image to draw the page.
 
    Its own macro, not the album page's, because the picker's facts route
    answers with this line alone. Trimmed so a line with nothing to say is an
@@ -20,7 +21,7 @@
         {% set limit = '{:,}'.format(image_size_limit) %}
         {% if incoming %}
         <span class="art-row__oversize text-amber-700"
-              title="Re-encoded to {{ limit }} bytes or less as it's written">reduced to fit</span>
+              title="Re-encoded to {{ limit }} bytes or less as it's written">will be reduced to fit</span>
         {% else %}
         <span class="art-row__oversize text-amber-700"
               title="Over {{ limit }} bytes">over image size limit</span>
