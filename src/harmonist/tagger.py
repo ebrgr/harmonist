@@ -28,12 +28,14 @@ from . import (
     audit,
     compare,
     cover_art,
+    derived,
     formats,
     id_registry,
     images,
     mb_lookup,
     mb_tracks,
     progress,
+    squish,
     tag_history,
     track_structure,
 )
@@ -1215,6 +1217,30 @@ def _load_images(
     return loaded
 
 
+def _fit_images(album_dir: Path, loaded: Mapping[str, bytes]) -> dict[str, bytes]:
+    """What to write for each image the plan names, by the plan's digest: the
+    image itself, or a squished copy of one over the image size limit (#888).
+
+    An image that can't be squished is written as it is, which is what was
+    written before squishing existed: it loses nothing the album had, where
+    refusing would cost the user the image they picked."""
+    fitted: dict[str, bytes] = {}
+    for digest, data in loaded.items():
+        try:
+            out = squish.fit(data, limit=artwork.PLAYER_MAX_BYTES)
+        except squish.SquishError:
+            log.warning(
+                "could not squish the %d-byte image %s for %s; writing it as it is",
+                len(data),
+                digest[:12],
+                album_dir.name,
+                exc_info=True,
+            )
+            out = None
+        fitted[digest] = out if out is not None else data
+    return fitted
+
+
 class _Wrote(StrEnum):
     """How one folder-cover write went."""
 
@@ -1252,6 +1278,10 @@ def _write_folder_cover(
     a `tag.track` line carrying the `artwork` pair — the shape History renders
     and the artwork Undo reads. A creation's pair is `[None, digest]`: the image
     it added and the absence it added it to (#471 builds the Undo on that).
+
+    `image` may be a squished copy of the plan's image (#888). Both records
+    name the copy, since it's what the file holds and what Undo checks for;
+    `cover.write` names the image it was squished from as well.
     """
     target = change.target
     if change.before is None:
@@ -1287,7 +1317,10 @@ def _write_folder_cover(
     # `sidecar.write()` then persists as `temp_uid`, and what the scanner already
     # calls the album meanwhile; the alias chain carries it forward from there.
     album_id = album_id or id_registry.peek(album_dir)
+    written = images.digest(image)
     details = {"was": change.before} if change.before is not None else {}
+    if written != change.after:
+        details["squished_from"] = change.after
     audit.record(
         "cover.write",
         album_id=album_id,
@@ -1296,13 +1329,13 @@ def _write_folder_cover(
         source=source.value if source is not None else "-",
         bytes=len(image),
         overwrote=change.before is not None,
-        digest=change.after,
+        digest=written,
         **details,
     )
     event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=target.name)
     if event_id is not None:
         activity_store.record_tag_changes(
-            event_id, file=target.name, changes={owned.ARTWORK: [change.before, change.after]}
+            event_id, file=target.name, changes={owned.ARTWORK: [change.before, written]}
         )
     return _Wrote.WRITTEN
 
@@ -1750,7 +1783,11 @@ def apply_artwork(
     # which may be the better one (#479), and one per row a user chose for
     # (#659). Loaded before anything is written, and only the ones this action
     # really writes — a plan that touches no track reads no track.
-    loaded = _load_images(plan, changes, cover_path, archive, picks)
+    # Keyed by the plan's digest whether or not it was squished (#888): the
+    # plan and the outcome speak of the image that was picked, the records of
+    # each file of the copy it holds.
+    loaded = _fit_images(album_dir, _load_images(plan, changes, cover_path, archive, picks))
+    holds = {d: images.digest(data) for d, data in loaded.items()}
     track_digests = list(dict.fromkeys(c.after for c in tracks))
 
     # Before anything is written, and for the same reason `tag_album` records
@@ -1766,6 +1803,16 @@ def apply_artwork(
         cover=cover_change.after if cover_change is not None else "-",
         scope=scope.value,
     )
+    for original, copy in holds.items():
+        if copy != original:
+            audit.record(
+                "artwork.squish",
+                album_id=album_id,
+                album=album_dir,
+                original=original,
+                digest=copy,
+                bytes=len(loaded[original]),
+            )
     # Keep whatever is about to be destroyed — every track AND the folder cover,
     # in one go — before a single write, so this is undoable (#131) and so a
     # target whose image could not be kept is known before anything moves (#470).
@@ -1812,7 +1859,9 @@ def apply_artwork(
             event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=name)
             if event_id is not None:
                 activity_store.record_tag_changes(
-                    event_id, file=name, changes={owned.ARTWORK: [change.before, change.after]}
+                    event_id,
+                    file=name,
+                    changes={owned.ARTWORK: [change.before, holds[change.after]]},
                 )
 
         for cover in job.items([cover_change] if cover_change else [], lambda c: c.target.name):
@@ -1833,6 +1882,10 @@ def apply_artwork(
                 unkept.append(cover.target.name)
             else:
                 failed.append(cover.target.name)
+    # Once a copy is on disk, so it answers as its original from now on.
+    for original in dict.fromkeys(written):
+        if holds[original] != original:
+            derived.record(holds[original], original=original)
     return ArtworkOutcome(
         changed=changed,
         stale=tuple(stale),
