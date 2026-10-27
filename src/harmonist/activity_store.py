@@ -354,6 +354,25 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "ALTER TABLE caa_cache ADD COLUMN replaced_height INTEGER",
         "ALTER TABLE caa_cache ADD COLUMN replaced_length INTEGER",
     ),
+    # 11 -> 12: which images Harmonist squished to fit the image size limit,
+    # and from what (#888).
+    #
+    # A squished copy is a different file from the image that was picked, so
+    # everything that asks "does the album carry this image?" would answer no:
+    # #886's match on a replaced front, a choice already honoured, a stand-in,
+    # a watch's proposal. The pair is knowable only at the write; recorded here,
+    # the copy answers as its original.
+    #
+    # Keyed by the squished image, not the album: one front squished into a
+    # set's every disc is one row. Harmonist's record of its own act, so not
+    # the sidecar (docs/design/storage.md). No index beyond the key: it's read
+    # whole, once, into memory (`derived`).
+    (
+        """CREATE TABLE derived_images (
+            digest   TEXT PRIMARY KEY,
+            original TEXT NOT NULL
+        )""",
+    ),
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)  # the version this build expects/creates
@@ -1525,6 +1544,51 @@ def ignored_updates() -> dict[str, IgnoredUpdate]:
     return out
 
 
+def record_derived_image(digest: str, *, original: str) -> None:
+    """Remember that the image `digest` was squished from `original` (#888).
+
+    Called as the squished copy is written, the only time the pair is known
+    for certain. Idempotent: the same squish recorded again replaces itself.
+
+    Swallowed on failure, as an alias is: an artwork write must not fail
+    because the log is down. Loud, because what's lost is real: the copy then
+    reads as an image of its own, so a replaced front it was made from is no
+    longer recognised, and a choice it honoured shows as still to apply."""
+    if not digest or not original or digest == original:
+        return
+    try:
+        with _LOCK:
+            conn = _ensure()
+            conn.execute(
+                "INSERT OR REPLACE INTO derived_images (digest, original) VALUES (?, ?)",
+                (digest, original),
+            )
+            conn.commit()
+    except sqlite3.Error:
+        log.exception(
+            "activity_store record_derived_image failed — %s squished from %s; the "
+            "copy will read as an image of its own",
+            digest,
+            original,
+            extra=_QUIET_MIRROR,
+        )
+
+
+def derived_images() -> dict[str, str]:
+    """Every squished image's digest, mapped to the original it was made from.
+
+    Raises `StoreUnavailableError` rather than returning `{}`, which would
+    state that nothing was ever squished."""
+    try:
+        with _LOCK:
+            conn = _ensure()
+            rows = conn.execute("SELECT digest, original FROM derived_images").fetchall()
+    except sqlite3.Error as exc:
+        log.exception("activity_store derived_images() failed", extra=_QUIET_MIRROR)
+        raise StoreUnavailableError("could not read which images were squished") from exc
+    return {digest: original for digest, original in rows}
+
+
 def clear() -> None:
     """Drop all stored state — events, their tag detail, AND aliases (tests /
     demo reset).
@@ -1555,6 +1619,10 @@ def clear() -> None:
     they name albums by id in the library being torn down, so one left behind
     would mute an update on an album that no longer exists — or, after a
     re-seed, on a different one.
+
+    Squished images (#888) go too. Keyed by content, a row stays true anywhere,
+    but it's a record of writes into the library being torn down, and a reset
+    leaves none of that library's history behind.
     """
     try:
         with _LOCK:
@@ -1564,6 +1632,7 @@ def clear() -> None:
             conn.execute("DELETE FROM album_aliases")
             conn.execute("DELETE FROM mb_release_cache")
             conn.execute("DELETE FROM gardener_ignores")
+            conn.execute("DELETE FROM derived_images")
             conn.commit()
     except sqlite3.Error:
         # Swallowed rather than raised: the callers are teardown paths (test

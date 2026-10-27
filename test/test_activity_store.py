@@ -1352,3 +1352,52 @@ def test_a_replaced_front_reads_back_as_it_was_stored():
     got = activity_store.cached_cover_art("rel")
     assert got is not None
     assert (got.digest, got.replaced) == ("n", replaced)
+
+
+def test_migrates_a_v11_database_in_place_keeping_its_answers(tmp_path):
+    """The 11 -> 12 upgrade (#888): a stored answer survives, and the new table
+    of squished images starts empty, since nothing was squished before it."""
+    db = tmp_path / "v11.db"
+    conn = sqlite3.connect(db, isolation_level=None)
+    for statements in activity_store._MIGRATIONS[:11]:
+        for sql in statements:
+            conn.execute(sql)
+    conn.execute(
+        "INSERT INTO caa_cache (mbid, fetched_at, image_url, digest) VALUES (?, ?, ?, ?)",
+        ("rel-old", "2026-10-01T00:00:00+00:00", "http://x/1.jpg", "d1"),
+    )
+    conn.execute("PRAGMA user_version = 11")
+    conn.close()
+
+    activity_store.init(db)
+
+    assert _user_version(db) == activity_store.SCHEMA_VERSION
+    got = activity_store.cached_cover_art("rel-old")
+    assert got is not None and got.digest == "d1"
+    assert activity_store.derived_images() == {}
+
+
+def test_a_squished_image_reads_back_as_its_original():
+    activity_store.record_derived_image("squished", original="original")
+    activity_store.record_derived_image("other", original="original")
+
+    assert activity_store.derived_images() == {"squished": "original", "other": "original"}
+
+    # Recording the same squish again changes nothing.
+    activity_store.record_derived_image("squished", original="original")
+    assert activity_store.derived_images() == {"squished": "original", "other": "original"}
+
+
+def test_clear_forgets_squished_images():
+    activity_store.record_derived_image("squished", original="original")
+    activity_store.clear()
+    assert activity_store.derived_images() == {}
+
+
+def test_reading_squished_images_from_a_broken_store_is_an_error(monkeypatch):
+    def broken() -> sqlite3.Connection:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(activity_store, "_ensure", broken)
+    with pytest.raises(activity_store.StoreUnavailableError):
+        activity_store.derived_images()
