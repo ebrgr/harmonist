@@ -413,6 +413,19 @@ Replacements happen only through an action where the user has seen what will be
 replaced: applying updates, applying artwork, or confirming a release with
 artwork included.
 
+**Resolution doesn't say which image is better, which is why a replacement
+waits for a person.** The Cover Art Archive's images vary widely in quality.
+Art that was distributed digitally is generally clean, but much of the rest is
+scanned from physical sleeves, and a scan can be poor in ways no measurement
+sees: soft, skewed, unevenly lit, or carrying the print's dot pattern, at any
+resolution. A high-resolution scan of a CD booklet can be worse than the small
+image the album already has. Pixels and bytes are all the size rule can
+measure, so it proposes, and someone looking at both decides. An addition needs
+no such judgment: an image where there was none loses nothing if it turns out
+to be a poor one. This is a constraint on every way artwork can improve, not
+only on the size rule: no measure of quality Harmonist could compute would make
+an unreviewed replacement safe.
+
 **A missing folder cover is suggested only if the user turns that on**, and it
 ships off. The two mistakes don't cost the same. An album without the file still
 plays correctly everywhere: Plex and Navidrome prefer an image file in the folder,
