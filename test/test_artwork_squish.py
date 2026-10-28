@@ -98,6 +98,49 @@ def test_an_image_over_the_limit_is_written_squished_everywhere(album_with_track
     assert outcome.written == (images.digest(squished),)
 
 
+@pytest.mark.parametrize(
+    ("cover_pick", "squished"), [("1", 1), ("2", 2)], ids=["one-image", "two-images"]
+)
+def test_each_image_is_squished_once_however_many_files_take_it(
+    album_with_tracks, monkeypatch, cover_pick, squished
+):
+    """Squishing is the slow part of a write, so an action does it once per
+    image it writes, not once per file: three tracks and a folder cover
+    taking one image squish it once, and taking two, twice."""
+    from harmonist import squish
+
+    album_dir = album_with_tracks(3)
+    small = _jpeg(64, seed=1, quality=75)
+    files = sorted(album_dir.glob("*.m4a"))
+    for track in files:
+        formats.write_cover(track, small)
+    picks = {
+        "1": cover_art.Front(data=_jpeg(256, seed=2), mime="image/jpeg"),
+        "2": cover_art.Front(data=_jpeg(256, seed=3), mime="image/jpeg"),
+    }
+    calls: list[str] = []
+    real = squish.fit
+
+    def counted(data: bytes, *, limit: int) -> bytes | None:
+        calls.append(images.digest(data))
+        return real(data, limit=limit)
+
+    monkeypatch.setattr(squish, "fit", counted)
+    plan = tagger.decide_artwork(
+        album_dir,
+        files,
+        None,
+        choices={images.digest(small): "1", artwork.COVER: cover_pick},
+        picks=picks,
+        folder_cover=artwork.FolderCoverPolicy.IF_MISSING,
+    )
+
+    outcome = tagger.apply_artwork(album_dir, plan, files=files, cover_path=None, picks=picks)
+
+    assert outcome.changed == 4
+    assert len(calls) == squished and len(set(calls)) == squished
+
+
 def test_undo_puts_back_what_a_squished_write_replaced(album_with_tracks):
     """The history records the copy actually written, which is what Undo
     checks a file still holds before restoring it."""
