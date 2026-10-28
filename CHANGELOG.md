@@ -16,6 +16,11 @@ versions follow [semantic versioning](https://semver.org).
 - **After Apply says an image over the limit "will be reduced to fit"**, since
   "reduced to fit" beside its size read as the size after reducing (#893).
 
+### Fixed
+
+- **The album page's sections are evenly spaced**, without a double gap above
+  the album panel and below Possible mismatch (#902).
+
 ## [1.31.0] - 2026-10-27
 
 ### Added

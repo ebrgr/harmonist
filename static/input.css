@@ -177,6 +177,9 @@
 .album-contribution-area:has(.contribution-review > *) > .album-contributions,
 .album-page:has(.contribution-review > *, #album-inbox-actions .assignment-editor) .album-findings { display: none; }
 .album-page:has(.contribution-review > *, #album-inbox-actions .assignment-editor) #album-artwork { display: none; }
+/* The alert slot is empty until a fetch fills it, and an empty child still
+   takes the page's `space-y` gap, doubling the space above the album panel. */
+.album-page > [id^="album-alert-"]:not(:has(> *)) { display: none; }
 
 /* Keep numeric columns compact and both title columns equal, including when
  * movement controls appear. Long names wrap instead of stretching the table. */
@@ -420,6 +423,10 @@ button[disabled],
   border: 1px solid var(--color-line);
   border-radius: .5rem;
 }
+/* …and no box at all until then. An empty section is still a child of the
+   page's `space-y`, so it took a second gap, doubling the space between its
+   neighbours. Dropped by a browser without `:has()`, which is the loose side. */
+.album-findings:not(:has(.album-update__legend, .album-update__answers > *)) { display: none; }
 
 /* A finding and its remedy on one line (#443). Two findings can appear — what
    MusicBrainz has, and what the artwork could be — and each answers to its own
