@@ -95,7 +95,9 @@
 </section>
 {% else %}
     {% if reasons %}
-<section class="border border-line rounded-lg p-4 space-y-3" aria-labelledby="mismatch-heading-{{ album.id }}">
+    {# A gap, not space-y: dismissing hides the body, and space-y would still
+       hang a margin under the heading, padding the card below more than above. #}
+<section class="border border-line rounded-lg p-4 flex flex-col gap-3" aria-labelledby="mismatch-heading-{{ album.id }}">
     <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 id="mismatch-heading-{{ album.id }}" class="{{ heading }}">Possible mismatch</h2>
         {{ dont_warn() }}

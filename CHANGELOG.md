@@ -27,7 +27,8 @@ versions follow [semantic versioning](https://semver.org).
 ### Fixed
 
 - **The album page's sections are evenly spaced**, without a double gap above
-  the album panel and below Possible mismatch (#902).
+  the album panel and below Possible mismatch, nor extra padding under a
+  dismissed Possible mismatch (#902).
 - **A folder cover is named for the image it holds** (#905). One created or
   replaced from a PNG over the 20 MB limit is `cover.jpg`, the JPEG it is
   reduced to, and a `cover.jpg` replaced by a PNG becomes `cover.png`, unless
