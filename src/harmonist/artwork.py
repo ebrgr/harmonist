@@ -473,10 +473,17 @@ class ArtworkPlan:
             return path.name
 
 
-def cover_name_for(mime: str) -> str:
+def cover_name_for(image: EmbeddedArt) -> str:
     """The name a created folder cover takes: `cover.png` for a PNG, else
-    `cover.jpg` — the two names `cover_art.cached_cover` looks for."""
-    return "cover.png" if "png" in mime.lower() else "cover.jpg"
+    `cover.jpg` — the two names `cover_art.cached_cover` looks for.
+
+    Named for the image as it will be written, not as it was picked: one over
+    the limit is written squished, and a squished copy is always a JPEG
+    (#905). Named for the PNG it came from, it was a `cover.png` holding a
+    JPEG."""
+    if too_large(image):
+        return "cover.jpg"
+    return "cover.png" if "png" in image.mime.lower() else "cover.jpg"
 
 
 def plan(
@@ -619,7 +626,7 @@ def _with_choices(
             chosen[path] = Change(target=path, before=digest, after=image.digest)
     if (image := take(COVER)) is not None:
         if cover is None:
-            target = album_dir / cover_name_for(image.mime)
+            target = album_dir / cover_name_for(image)
             chosen[target] = Change(
                 target=target, before=None, after=image.digest, folder_cover=True
             )
@@ -896,7 +903,7 @@ def _plan_for(
         if folder is not FolderCoverPolicy.NEVER:
             changes.append(
                 Change(
-                    target=album_dir / cover_name_for(for_cover.mime),
+                    target=album_dir / cover_name_for(for_cover),
                     before=None,
                     after=for_cover.digest,
                     folder_cover=True,

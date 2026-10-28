@@ -20,6 +20,8 @@ versions follow [semantic versioning](https://semver.org).
 
 - **The album page's sections are evenly spaced**, without a double gap above
   the album panel and below Possible mismatch (#902).
+- **A folder cover created from a PNG over the 20 MB limit is `cover.jpg`**,
+  the JPEG it is reduced to, not a `cover.png` holding a JPEG (#905).
 
 ## [1.31.0] - 2026-10-27
 

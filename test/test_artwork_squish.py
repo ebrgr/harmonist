@@ -43,6 +43,14 @@ def _jpeg(size: int, *, seed: int, quality: int = 100) -> bytes:
     return buf.getvalue()
 
 
+def _png(size: int, *, seed: int) -> bytes:
+    """Grain, which a PNG can't compress: about `size`² × 3 bytes."""
+    pixels = random.Random(seed).randbytes(size * size * 3)
+    buf = io.BytesIO()
+    Image.frombytes("RGB", (size, size), pixels).save(buf, "PNG")
+    return buf.getvalue()
+
+
 def _art(track) -> bytes:
     """The image a track carries; it has one."""
     found = formats.read_cover(track)
@@ -96,6 +104,52 @@ def test_an_image_over_the_limit_is_written_squished_everywhere(album_with_track
     # The outcome reports the copy, as the album carries it: what a stand-in
     # record names (#663).
     assert outcome.written == (images.digest(squished),)
+
+
+@pytest.mark.parametrize("chosen", [False, True], ids=["suggested", "chosen"])
+def test_a_png_over_the_limit_creates_a_cover_named_for_the_jpeg_it_becomes(
+    album_with_tracks, chosen
+):
+    """Squishing always makes a JPEG, so a folder cover created from a PNG
+    over the limit is `cover.jpg` (#905). Named for the PNG, it was a
+    `cover.png` holding a JPEG: *Astral Projection — Dancing Galaxy*, whose
+    archive front is a 5700×5558 PNG."""
+    album_dir = album_with_tracks(2)
+    small = _jpeg(64, seed=1, quality=75)
+    big = _png(300, seed=2)
+    assert len(big) > LIMIT
+    files = sorted(album_dir.glob("*.m4a"))
+    for track in files:
+        formats.write_cover(track, small)
+    archive = cover_art.Front(data=big, mime="image/png")
+    choice = artwork.COVER if chosen else images.digest(small)
+    plan = tagger.decide_artwork(
+        album_dir,
+        files,
+        None,
+        archive=archive,
+        choices={choice: artwork.Choice.ARCHIVE},
+        folder_cover=artwork.FolderCoverPolicy.IF_MISSING,
+    )
+    # The plan names it as the page does, before anything is written.
+    cover = plan.cover_change(artwork.Scope.ALL)
+    assert cover is not None and cover.target == album_dir / "cover.jpg"
+
+    outcome = tagger.apply_artwork(album_dir, plan, files=files, cover_path=None, archive=archive)
+
+    assert not (outcome.stale or outcome.failed)
+    assert not (album_dir / "cover.png").exists()
+    assert (album_dir / "cover.jpg").read_bytes()[:2] == b"\xff\xd8"
+    # And it's what the next pass reads as the image it was squished from.
+    again = tagger.decide_artwork(
+        album_dir,
+        files,
+        album_dir / "cover.jpg",
+        archive=archive,
+        choices={choice: artwork.Choice.ARCHIVE},
+        folder_cover=artwork.FolderCoverPolicy.IF_MISSING,
+    )
+    assert again.changes == ()
 
 
 @pytest.mark.parametrize(
