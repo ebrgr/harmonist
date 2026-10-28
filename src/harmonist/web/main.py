@@ -2982,13 +2982,9 @@ def _set_suggestion(
     mbid = _release_of(album)
     if mbid is None or _listed_candidate(mbid, image_id) is None:
         raise HTTPException(404, "No such artwork candidate")
+    # The checkbox is the report: the sidecar write is audited, and nothing goes
+    # to the Activity feed (#911).
     if artwork_watch.reject(album, image_id, rejected):
-        aid, label = _live_album_ref(album)
-        activity.info(
-            "Stopped suggesting this image" if rejected else "Restored artwork suggestion",
-            album_id=aid,
-            album_label=label,
-        )
         request.app.state.scan_runner.refresh_now()
     fresh = _refreshed_from_disk(request, _find_album(request, album_id))
     try:
@@ -6730,14 +6726,10 @@ def _register_routes(app: FastAPI) -> None:
             error = f"Couldn't start the artwork watch: {exc}"
             aid, label = _live_album_ref(album)
             activity.warning(error, album_id=aid, album_label=label)
+        # The checkbox is the report: the sidecar write is audited, and nothing
+        # goes to the Activity feed (#911). A failure to start still does, above.
         if changed:
             request.app.state.scan_runner.refresh_now()
-            aid, label = _live_album_ref(album)
-            activity.info(
-                "Watching for better artwork" if watch else "Stopped watching for artwork",
-                album_id=aid,
-                album_label=label,
-            )
         fresh_album = _refreshed_from_disk(request, _find_album(request, album_id))
         caa = caa_cache.stored(release)
         response = _templates(request).TemplateResponse(

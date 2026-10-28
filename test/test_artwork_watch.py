@@ -108,6 +108,29 @@ def test_watch_uses_replacement_and_rejection_is_reversible(client, cfg, setup, 
     assert before == {p.name: p.read_bytes() for p in album.path.iterdir() if p.suffix != ".json"}
 
 
+def test_artwork_checkboxes_are_not_reported(client, cfg, setup):
+    """Better artwork wanted and Don't suggest this image show where they stand,
+    so the Activity feed doesn't repeat them (#911). The audit log still has the
+    decisions."""
+    album, _, _, _, _ = setup
+    feed_before = activity_store.recent(50, source=activity_store.Source.ACTIVITY)
+    url = f"/album/{album.id}/artwork/suggestion/200"
+
+    responses = [
+        start(client, album),
+        client.post(url, data={"rejected": "true"}),
+        client.post(url, data={"rejected": "false"}),
+        client.post(f"/album/{album.id}/artwork/watch", data={"release": "rel-aaa"}),
+    ]
+
+    assert [r.status_code for r in responses] == [200, 200, 200, 200]
+    assert sc.read(album.path).artwork_watch is None
+    assert activity_store.recent(50, source=activity_store.Source.ACTIVITY) == feed_before
+    audit = [e.message for e in activity_store.recent(50, source=activity_store.Source.AUDIT)]
+    assert len([m for m in audit if "artwork_watch=" in m]) == 2
+    assert len([m for m in audit if "artwork_rejected=" in m]) == 2
+
+
 def test_rejected_default_is_not_suggested_but_manual_use_still_works(client, cfg, setup):
     album, _, _, _, _ = setup
     start(client, album)

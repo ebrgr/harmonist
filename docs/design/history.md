@@ -9,9 +9,10 @@ The records are shaped for reversal first and for reading second.
 - **Activity** is for the user: one plain-language entry per outcome ("Matched",
   "Unlinked"), shown in the Activity tab and on album pages. A suggestion is not
   an outcome: finding one is only flashed, and confirming it is the entry, naming
-  the release and how it was found (#639). Nor is muting a warning: its checkbox
-  already shows where the setting stands, so the toggle is neither entered nor
-  flashed, and only the audit log has it (#911).
+  the release and how it was found (#639). Nor is ticking a box such as **Don't
+  warn me about this** or **Better artwork wanted**: the box already shows where
+  the setting stands, so the toggle is neither entered nor flashed, and only the
+  audit log has it (#911).
 - **The audit log** is for finding out exactly what happened: structured
   `event key=value` lines, as many as an operation takes, for every download,
   file change, sidecar change, demotion and cleared checkpoint.
