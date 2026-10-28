@@ -106,6 +106,32 @@ def test_a_cover_replaced_by_the_other_type_is_renamed_to_match(
     assert _plan(album_dir, archive)[1].changes == ()
 
 
+def test_a_cover_made_from_a_mislabelled_embedded_image_is_named_for_its_bytes(
+    album_with_tracks,
+):
+    """Another tagger can label an embedded PNG a JPEG, and the name used to
+    follow the label: a `cover.jpg` holding a PNG."""
+    from mutagen.mp4 import MP4, MP4Cover
+
+    album_dir = album_with_tracks(1)
+    png = _image(100, "PNG", seed=1)
+    track = next(album_dir.glob("*.m4a"))
+    audio = MP4(track)
+    audio["covr"] = [MP4Cover(png, imageformat=MP4Cover.FORMAT_JPEG)]
+    audio.save()
+    files = [track]
+    plan = tagger.decide_artwork(
+        album_dir, files, None, folder_cover=artwork.FolderCoverPolicy.IF_MISSING
+    )
+    cover = plan.cover_change(artwork.Scope.ALL)
+    assert cover is not None and cover.target == album_dir / "cover.png"
+
+    tagger.apply_artwork(album_dir, plan, files=files, cover_path=None)
+
+    assert (album_dir / "cover.png").read_bytes() == png
+    assert not (album_dir / "cover.jpg").exists()
+
+
 def test_a_renamed_cover_can_be_undone(album_with_tracks):
     album_dir = album_with_tracks(1)
     before = _image(64, "JPEG", seed=1)

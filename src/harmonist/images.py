@@ -42,6 +42,20 @@ class Size(NamedTuple):
     height: int
 
 
+def mime_of(data: bytes) -> str | None:
+    """The image's type from its own first bytes, or None for anything but a
+    PNG or a JPEG.
+
+    What a file is called or a tag declares is somebody's claim, and can be
+    wrong: another tagger labelling a PNG a JPEG made a `cover.jpg` that held
+    a PNG (#905)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    return None
+
+
 def dimensions(data: bytes) -> Size | None:
     """The image's pixel size, or None when it can't be read from these bytes.
 

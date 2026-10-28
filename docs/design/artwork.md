@@ -150,7 +150,9 @@ made it a PNG.
 
 **A folder cover is named for what it holds** (#905): `cover.jpg` for a JPEG,
 `cover.png` for a PNG, decided by the image as it's written, so a squished PNG
-is a `cover.jpg`. A replacement of the other type renames the file. Keeping the
+is a `cover.jpg`. The type comes from the image's own first bytes, not from a
+tag's label or a file's extension, which are claims another tool may have got
+wrong. A replacement of the other type renames the file. Keeping the
 name was the alternative, and it left a `cover.png` holding a JPEG, which every
 reader that goes by the extension then misdescribes. The rename never lands on
 another `cover.*` already beside it: `cover.jpg` is the one read when both

@@ -14,7 +14,7 @@ from typing import Any, NamedTuple
 
 from mutagen import MutagenError
 
-from ..images import Size, digest, dimensions
+from ..images import Size, digest, dimensions, mime_of
 from .quality import AudioQuality
 
 
@@ -280,8 +280,13 @@ class EmbeddedArt:
     @classmethod
     def of(cls, data: bytes, mime: str) -> EmbeddedArt:
         """Measure one image. The single place art is turned into facts, so all
-        three tag systems describe the same JPEG identically."""
-        return cls(digest=digest(data), mime=mime, length=len(data), size=dimensions(data))
+        three tag systems describe the same JPEG identically.
+
+        `mime` is what the source claims, a tag's label or a file's extension,
+        and stands only where the bytes don't say (#905)."""
+        return cls(
+            digest=digest(data), mime=mime_of(data) or mime, length=len(data), size=dimensions(data)
+        )
 
 
 @dataclass(frozen=True)

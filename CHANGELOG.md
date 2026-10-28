@@ -23,7 +23,9 @@ versions follow [semantic versioning](https://semver.org).
 - **A folder cover is named for the image it holds** (#905). One created or
   replaced from a PNG over the 20 MB limit is `cover.jpg`, the JPEG it is
   reduced to, and a `cover.jpg` replaced by a PNG becomes `cover.png`, unless
-  that name is already taken.
+  that name is already taken. An image's type is read from the image itself,
+  so a PNG another tagger labelled a JPEG makes a `cover.png`, and the Artwork
+  section says PNG.
 
 ## [1.31.0] - 2026-10-27
 
