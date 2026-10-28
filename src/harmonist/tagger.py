@@ -1357,14 +1357,58 @@ def _write_folder_cover(
         audit.record(
             "cover.rename", album_id=album_id, album=album_dir, file=dest.name, was=target.name
         )
-    # Under the name the file has now, which is where Undo looks for it. Undo
-    # puts the image back there, under the new name (#905).
+    _record_cover_change(album_dir, album_id, target, dest, change.before, written)
+    return _Wrote.WRITTEN
+
+
+def _rename_folder_cover(album_dir: Path, change: artwork.Change, album_id: str | None) -> _Wrote:
+    """Rename the folder cover as `change` says, its image as it is (#907).
+
+    Checked against the plan as a replacement is: the cover still holds the
+    image the plan saw, and nothing has taken the new name since. A move, not
+    a rewrite, so the file keeps everything about it but its name."""
+    target, dest = change.target, change.rename_to
+    assert dest is not None  # a rename-only change always names where it goes
+    try:
+        was = target.read_bytes()
+    except OSError:
+        log.exception("could not read %s before renaming it", target)
+        return _Wrote.FAILED
+    if images.digest(was) != change.before or dest.exists():
+        log.info("%s changed since it was planned; leaving it", target.name)
+        return _Wrote.STALE
+    try:
+        os.replace(target, dest)
+    except OSError:
+        log.exception("could not rename %s to %s", target, dest.name)
+        return _Wrote.FAILED
+    album_id = album_id or id_registry.peek(album_dir)
+    audit.record(
+        "cover.rename", album_id=album_id, album=album_dir, file=dest.name, was=target.name
+    )
+    _record_cover_change(album_dir, album_id, target, dest, change.before, change.after)
+    return _Wrote.WRITTEN
+
+
+def _record_cover_change(
+    album_dir: Path,
+    album_id: str | None,
+    target: Path,
+    dest: Path,
+    before: str | None,
+    written: str,
+) -> None:
+    """The `tag.track` line a folder-cover write leaves: the shape History
+    renders and the artwork Undo reads.
+
+    Under the name the file has now, which is where Undo looks for it, and
+    with the name it had where that differs, which Undo puts back (#907)."""
+    changes: dict[str, list[str | None]] = {owned.ARTWORK: [before, written]}
+    if dest != target:
+        changes[owned.FILE_NAME] = [target.name, dest.name]
     event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=dest.name)
     if event_id is not None:
-        activity_store.record_tag_changes(
-            event_id, file=dest.name, changes={owned.ARTWORK: [change.before, written]}
-        )
-    return _Wrote.WRITTEN
+        activity_store.record_tag_changes(event_id, file=dest.name, changes=changes)
 
 
 def _keep_doomed_art(
@@ -1815,7 +1859,9 @@ def apply_artwork(
     # Keyed by the plan's digest whether or not it was squished (#888): the
     # plan and the outcome speak of the image that was picked, the records of
     # each file of the copy it holds.
-    loaded = _fit_images(album_dir, _load_images(plan, changes, cover_path, archive, picks))
+    # A rename on its own writes no image, so none is loaded for it (#907).
+    writes = [c for c in changes if not c.rename_only]
+    loaded = _fit_images(album_dir, _load_images(plan, writes, cover_path, archive, picks))
     holds = {d: images.digest(data) for d, data in loaded.items()}
     track_digests = list(dict.fromkeys(c.after for c in tracks))
 
@@ -1849,8 +1895,8 @@ def apply_artwork(
     # already hold what is coming, so every before-image here is really doomed.
     # That includes a change whose `before` and `after` are the same image over
     # the limit (#893): what's coming is its squished copy, and Undo restores
-    # the original from what's kept here.
-    kept = _keep_doomed_art({c.target: c.before for c in changes})
+    # the original from what's kept here. A rename on its own destroys nothing.
+    kept = _keep_doomed_art({c.target: c.before for c in writes})
 
     changed = 0
     stale: list[str] = []
@@ -1897,17 +1943,23 @@ def apply_artwork(
                 )
 
         for cover in job.items([cover_change] if cover_change else [], lambda c: c.target.name):
-            wrote = _write_folder_cover(
-                album_dir,
-                cover,
-                loaded[cover.after],
-                plan.image_for(cover).source,
-                album_id,
-                kept,
-            )
+            if cover.rename_only:
+                wrote = _rename_folder_cover(album_dir, cover, album_id)
+            else:
+                wrote = _write_folder_cover(
+                    album_dir,
+                    cover,
+                    loaded[cover.after],
+                    plan.image_for(cover).source,
+                    album_id,
+                    kept,
+                )
             if wrote is _Wrote.WRITTEN:
                 changed += 1
-                written.append(holds[cover.after])
+                # Not an image written: a rename ends no watch, and stands in
+                # for nothing it didn't already (#907).
+                if not cover.rename_only:
+                    written.append(holds[cover.after])
             elif wrote is _Wrote.STALE:
                 stale.append(cover.target.name)
             elif wrote is _Wrote.UNKEPT:
@@ -2180,6 +2232,10 @@ def restore_artwork(
     image is taken off (`formats.remove_cover`), and a folder cover the change
     created is deleted. Nothing is needed from the store for that.
 
+    **A rename goes back to the old name** (#907): a folder cover renamed to
+    match its image is renamed back, with the image it replaced put back too
+    if it replaced one. Not onto a file that has taken the old name since.
+
     **Everything resolves before anything is written**: every file is found,
     every image to put back is read from the store, and every image about to be
     destroyed is kept — or `ArtworkUnavailableError` is raised and nothing is
@@ -2193,8 +2249,9 @@ def restore_artwork(
     """
     files = album_files.for_paths(paths if paths is not None else [album_dir])
     naming = album_files.Naming(album_dir, files)
-    #: (target, the image to put back or None to take it off, what it holds now)
-    actions: list[tuple[Path, bytes | None, str]] = []
+    #: (target, the image to put back or None to take it off, what it holds
+    #: now, and the name a renamed folder cover goes back to)
+    actions: list[tuple[Path, bytes | None, str, Path | None]] = []
     stale: list[str] = []
     for item in plan:
         # A record can name the folder cover as well as a track (#410), and that
@@ -2209,8 +2266,16 @@ def restore_artwork(
         )
         if formats.is_supported(path) and not path.exists():
             raise ArtworkUnavailableError(f"{item.file} is no longer in this album")
+        # A folder cover the change renamed goes back to its old name (#907).
+        # A rename that kept its image puts back nothing else, so nothing is
+        # read from the store for it.
+        old = (
+            _resolve_in_album(album_dir, item.renamed_from, ArtworkUnavailableError)
+            if item.renamed_from is not None
+            else None
+        )
         data: bytes | None = None
-        if item.before is not None:
+        if item.before is not None and not (old is not None and item.before == item.after):
             stored = artwork_store.path_for(item.before)
             if stored is None:
                 raise ArtworkUnavailableError(
@@ -2227,19 +2292,34 @@ def restore_artwork(
         # what a created cover is undone TO.
         current = _image_at(path)
         now = images.digest(current[0]) if current is not None else None
+        if old is not None:
+            was = _image_at(old)
+            if now is None and was is not None and images.digest(was[0]) == item.before:
+                continue  # already back where it started
+            # Never onto a cover that has taken the old name since: it's
+            # somebody's change, and putting this one back would destroy it.
+            if now != item.after or old.exists():
+                stale.append(naming.name_of(path))
+                continue
+            actions.append((path, data, item.after, old))
+            continue
         if now == item.before:
             continue  # already back where it started
         if now != item.after:
             stale.append(naming.name_of(path))
             continue
-        actions.append((path, data, item.after))
+        actions.append((path, data, item.after, None))
 
     # Keep what is about to be destroyed, all of it BEFORE anything is written —
     # and if any of it cannot be kept, nothing is written at all (#470).
     # Refusing the whole undo rather than doing the rest is this function's own
-    # rule: a partial restore is a state the album never had.
-    kept = _keep_doomed_art({path: after for path, _data, after in actions})
-    if unkept := [path for path, _data, after in actions if after not in kept]:
+    # rule: a partial restore is a state the album never had. Renaming a cover
+    # back destroys nothing unless it puts an image back as well.
+    doomed = [
+        (path, after) for path, data, after, old in actions if old is None or data is not None
+    ]
+    kept = _keep_doomed_art(dict(doomed))
+    if unkept := [path for path, after in doomed if after not in kept]:
         raise ArtworkUnavailableError(
             f"the image {naming.name_of(unkept[0])} carries now could not be kept, "
             "and undoing would destroy it with no way back"
@@ -2255,7 +2335,29 @@ def restore_artwork(
     album_id = sidecar_mod.album_id_for(album_dir) or id_registry.peek(album_dir)
 
     restored = removed = 0
-    for path, data, _after in actions:
+    for path, data, after, old in actions:
+        if old is not None:
+            # A bare rename moves the file. One that puts an image back too
+            # writes the old name first and then removes the new, as the
+            # replacement it undoes did the other way round.
+            if data is None:
+                os.replace(path, old)
+            else:
+                _write_image_at(old, data)
+                path.unlink()
+            restored += 1
+            audit.record(
+                "artwork.restore",
+                album_id=album_id,
+                album=album_dir,
+                file=old.name,
+                digest=images.digest(data) if data is not None else after,
+                removed=False,
+            )
+            audit.record(
+                "cover.rename", album_id=album_id, album=album_dir, file=old.name, was=path.name
+            )
+            continue
         if data is not None:
             _write_image_at(path, data)
             restored += 1

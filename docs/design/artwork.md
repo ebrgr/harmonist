@@ -157,8 +157,17 @@ name was the alternative, and it left a `cover.png` holding a JPEG, which every
 reader that goes by the extension then misdescribes. The rename never lands on
 another `cover.*` already beside it: `cover.jpg` is the one read when both
 exist, so a `cover.png` there is a file the user was never shown, and the cover
-is written in place instead. Undo puts the old image back under the new name
-for now, since the record names only the file as it is.
+is written in place instead.
+
+**A cover already under the other type's name is offered the rename on its
+own** (#907), its image as it is. Nobody looks for a `cover.jpg` that's really
+a PNG, so Harmonist does. The file is moved rather than rewritten, so it keeps
+everything about it but its name.
+
+**The record carries both names, and Undo puts the old one back.** The record
+names the file as it is afterwards, which is where Undo finds it, and a rename
+adds the name it had. Undo then refuses if something has taken the old name
+since, for the reason the rename never lands on one.
 
 **A copy counts as its original.** The copy is a different file from the image
 that was picked, and everything that asks whether an album carries an image
@@ -417,6 +426,11 @@ Every write is one of two kinds, and the difference is whether anything is lost:
 - an **addition** puts an image where there was none: a track with no art, or a
   folder cover the album lacks;
 - a **replacement** overwrites an existing image.
+
+**A rename on its own is an addition** (#907). It loses nothing, the image a
+player reads doesn't change, and it lands on a name that held nothing. A third
+kind was the alternative, and it would have added a value to both threshold
+settings for a change that needs no more care than an addition does.
 
 **A tagging nobody reviewed makes additions only** (#418), and so does applying
 artwork nobody reviewed ([above](#applying-artwork-without-asking)).

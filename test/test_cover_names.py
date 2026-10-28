@@ -4,6 +4,7 @@ but never over another `cover.*` already beside it."""
 
 import io
 import random
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -14,6 +15,8 @@ from harmonist import (
     artwork_store,
     cover_art,
     derived,
+    formats,
+    id_registry,
     images,
     tag_history,
     tagger,
@@ -143,8 +146,9 @@ def test_a_renamed_cover_can_be_undone(album_with_tracks):
     restored = tagger.restore_artwork(album_dir, tag_history.artwork_revert_plan(_detail()))
 
     assert restored.restored >= 1 and restored.stale == ()
-    cover = cover_art.cached_cover(album_dir)
-    assert cover is not None and cover.read_bytes() == before
+    # Under its old name, not the one the replacement gave it (#907).
+    assert (album_dir / "cover.jpg").read_bytes() == before
+    assert not (album_dir / "cover.png").exists()
 
 
 def test_a_rename_never_overwrites_the_other_cover_beside_it(album_with_tracks):
@@ -181,3 +185,147 @@ def test_a_cover_that_appears_where_a_rename_lands_makes_it_stale(album_with_tra
     assert outcome.stale == ("cover.jpg",)
     assert (album_dir / "cover.jpg").read_bytes() == before
     assert (album_dir / "cover.png").read_bytes() == theirs
+
+
+# ---------------------------------------------------------------------------
+# A cover already named for the other type is offered the rename on its own
+# (#907): *Björk — Volta*'s `cover.jpg` holding a PNG.
+# ---------------------------------------------------------------------------
+
+
+def _misnamed(album_with_tracks, was: str, kind: str) -> tuple[Path, bytes]:
+    """An album whose track carries the image its folder cover holds, under
+    the other type's name: the rename is all there is to do."""
+    album_dir = album_with_tracks(1)
+    data = _image(64, kind, seed=1)
+    formats.write_cover(next(album_dir.glob("*.m4a")), data)
+    (album_dir / was).write_bytes(data)
+    return album_dir, data
+
+
+def _suggested(album_dir, **kw):
+    files = sorted(album_dir.glob("*.m4a"))
+    return files, tagger.decide_artwork(album_dir, files, cover_art.cached_cover(album_dir), **kw)
+
+
+@pytest.mark.parametrize(
+    ("was", "kind", "becomes"),
+    [("cover.jpg", "PNG", "cover.png"), ("cover.png", "JPEG", "cover.jpg")],
+    ids=["png-as-jpg", "jpeg-as-png"],
+)
+def test_a_cover_named_for_the_other_type_is_renamed_as_it_is(
+    album_with_tracks, was, kind, becomes
+):
+    album_dir, data = _misnamed(album_with_tracks, was, kind)
+    inode = (album_dir / was).stat().st_ino
+    files, plan = _suggested(album_dir)
+
+    (change,) = plan.changes
+    assert (change.target.name, change.rename_to and change.rename_to.name) == (was, becomes)
+    # An Addition: it loses nothing, so a tagging and auto-apply may make it.
+    assert plan.operation(artwork.Scope.ALL) is artwork.Operation.ADDITION
+    assert plan.scoped(artwork.Scope.ADDITIONS) == (change,)
+
+    outcome = tagger.apply_artwork(album_dir, plan, files=files, cover_path=album_dir / was)
+
+    assert (outcome.changed, outcome.written) == (1, ())
+    assert not (album_dir / was).exists()
+    # Moved, not rewritten: the same file under its new name.
+    assert (album_dir / becomes).read_bytes() == data
+    assert (album_dir / becomes).stat().st_ino == inode
+    messages = _audit()
+    assert any(m.startswith("cover.rename") and f"was={was}" in m for m in messages)
+    assert not any(m.startswith("cover.write") for m in messages)
+    # Nothing was destroyed, so nothing was kept, and no backup is claimed.
+    assert artwork_store.path_for(images.digest(data)) is None
+    assert activity_store.artwork_backups() == []
+    assert _suggested(album_dir)[1].changes == ()
+
+
+def test_a_rename_is_not_offered_onto_the_other_cover_beside_it(album_with_tracks):
+    album_dir, _ = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    (album_dir / "cover.png").write_bytes(_image(32, "PNG", seed=3))
+
+    assert _suggested(album_dir)[1].changes == ()
+
+
+def test_keeping_the_cover_as_it_is_drops_its_rename(album_with_tracks):
+    album_dir, _ = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+
+    _, plan = _suggested(album_dir, choices={artwork.COVER: artwork.Choice.KEEP})
+
+    assert plan.changes == ()
+
+
+def test_a_rename_on_its_own_is_undone_to_the_old_name(album_with_tracks):
+    album_dir, data = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    files, plan = _suggested(album_dir)
+    # No cover path, as a tagging may pass: a rename reads no image to write.
+    tagger.apply_artwork(album_dir, plan, files=files, cover_path=None)
+    revert = tag_history.artwork_revert_plan(_detail())
+    assert [(r.file, r.renamed_from) for r in revert] == [("cover.png", "cover.jpg")]
+
+    restored = tagger.restore_artwork(album_dir, revert)
+    again = tagger.restore_artwork(album_dir, revert)
+
+    assert (restored.restored, restored.stale) == (1, ())
+    assert (again.changed, again.stale) == (0, ())  # already back
+    assert (album_dir / "cover.jpg").read_bytes() == data
+    assert not (album_dir / "cover.png").exists()
+
+
+def test_undoing_a_rename_leaves_a_cover_that_took_the_old_name_since(album_with_tracks):
+    album_dir, data = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    files, plan = _suggested(album_dir)
+    tagger.apply_artwork(album_dir, plan, files=files, cover_path=album_dir / "cover.jpg")
+    theirs = _image(32, "JPEG", seed=3)
+    (album_dir / "cover.jpg").write_bytes(theirs)
+
+    restored = tagger.restore_artwork(album_dir, tag_history.artwork_revert_plan(_detail()))
+
+    assert (restored.changed, restored.stale) == (0, ("cover.png",))
+    assert (album_dir / "cover.jpg").read_bytes() == theirs
+    assert (album_dir / "cover.png").read_bytes() == data
+
+
+def test_history_shows_a_rename_as_the_file_name_alone(album_with_tracks):
+    album_dir, _ = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    files, plan = _suggested(album_dir)
+    tagger.apply_artwork(album_dir, plan, files=files, cover_path=album_dir / "cover.jpg")
+
+    rows = tag_history.summarise(_detail())
+
+    assert [(r.label, r.before, r.after) for r in rows] == [("File name", "cover.jpg", "cover.png")]
+    # …and no tag Undo would try to revert it as a tag.
+    assert tag_history.revert_plan(_detail()) == ()
+
+
+def test_a_rescan_sees_a_renamed_cover(album_with_tracks):
+    """A rename keeps the file's mtime, so a scan cache keyed on the cover's
+    mtime alone served the old path: the album page then said the renamed
+    cover wasn't in the folder."""
+    from harmonist import scanner
+
+    album_dir, _ = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    cache: scanner.AlbumCache = {}
+    (first,) = scanner.scan(album_dir.parent.parent, album_cache=cache)
+    assert first.cover_path == album_dir / "cover.jpg"
+
+    (album_dir / "cover.jpg").replace(album_dir / "cover.png")
+    (again,) = scanner.scan(album_dir.parent.parent, album_cache=cache)
+
+    assert again.cover_path == album_dir / "cover.png"
+
+
+def test_history_offers_undo_for_a_rename_that_kept_nothing(album_with_tracks):
+    """Undo is offered only where every image it would put back is kept. A
+    rename puts back only a name, so it needs none."""
+    from harmonist.web import main
+
+    album_dir, _ = _misnamed(album_with_tracks, "cover.jpg", "PNG")
+    files, plan = _suggested(album_dir)
+    tagger.apply_artwork(album_dir, plan, files=files, cover_path=album_dir / "cover.jpg")
+    history = activity_store.album_history(id_registry.peek(album_dir))
+    detail = activity_store.tag_changes_for([e.id for e in history])
+
+    assert main._restorable_anchors(history, detail)

@@ -428,12 +428,16 @@ class Proposal:
     #: The plan's fingerprint, which a selection of this card carries (#859):
     #: what the user reviewed, so nothing else is written in its name.
     fingerprint: str
+    #: The name the folder cover is renamed to with its image as it is: a
+    #: cover named for the other type (#907).
+    cover_renamed_to: str | None = None
 
     @property
     def summary(self) -> str:
         """Which files it writes, short enough for one line of a grid card:
         "Updates all 12 tracks", "Updates 3 of 12 tracks", "Updates cover.jpg
-        only", "Updates all 12 tracks and cover.jpg".
+        only", "Updates all 12 tracks and cover.jpg", "Renames cover.jpg to
+        cover.png".
 
         Whether it adds or replaces is the card's group heading, and the images
         beside it say what changes; this is only where. Counted in files, the
@@ -450,6 +454,9 @@ class Proposal:
         else:
             tracks = f"{n} of {total} tracks"
         cover = self.cover_name if self.cover is not None else None
+        if cover and self.cover_renamed_to:
+            renames = f"{cover} to {self.cover_renamed_to}"
+            return f"Updates {tracks} and renames {renames}" if tracks else f"Renames {renames}"
         if tracks and cover:
             return f"Updates {tracks} and {cover}"
         if cover:
@@ -493,6 +500,9 @@ def proposal(album: Album) -> Proposal | None:
         cover=cover.operation if cover is not None else None,
         cover_name=cover.target.name if cover is not None else None,
         fingerprint=plan.fingerprint(artwork.Scope.ALL),
+        cover_renamed_to=cover.rename_to.name
+        if cover is not None and cover.rename_only and cover.rename_to
+        else None,
     )
 
 

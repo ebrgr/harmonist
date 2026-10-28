@@ -178,7 +178,11 @@ def art_of(seed: int, *, width: int = 1400, height: int = 1400) -> EmbeddedArt:
 ALBUM = Path("/music/Artist/Album")
 
 
-def cover_of(image: EmbeddedArt, name: str = "cover.jpg") -> artwork.FolderCover:
+def cover_of(image: EmbeddedArt, name: str | None = None) -> artwork.FolderCover:
+    """A folder cover holding `image`, named for it unless `name` says
+    otherwise: one named for the other type is offered a rename (#907)."""
+    if name is None:
+        name = "cover.png" if "png" in image.mime else "cover.jpg"
     return artwork.FolderCover(name=name, image=image)
 
 
@@ -251,7 +255,7 @@ class TestOutcomes:
         one = art_of(1)
         view = summarise(album(one, one, one), cover_of(one))
 
-        assert [r.label for r in view.rows] == ["All 3 tracks", "cover.jpg"]
+        assert [r.label for r in view.rows] == ["All 3 tracks", "cover.png"]
         assert view.writes is False
         assert not any(r.writes for r in view.rows)
         assert view.count == "1 image"  # one picture, however many rows
@@ -268,7 +272,7 @@ class TestOutcomes:
             cover_of(art_of(2, width=900, height=900)),
         )
 
-        assert [r.label for r in view.rows] == ["All 2 tracks", "cover.jpg"]
+        assert [r.label for r in view.rows] == ["All 2 tracks", "cover.png"]
         assert [r.outcome for r in view.rows] == [artwork.Outcome.KEPT, artwork.Outcome.SAME]
         assert [r.writes for r in view.rows] == [False, False]
 
@@ -395,7 +399,7 @@ class TestRows:
         view = summarise(album(None, None), cover_of(art_of(1)))
         cover_row = next(r for r in view.rows if r.folder)
         assert cover_row.tracks == ()
-        assert cover_row.label == "cover.jpg"
+        assert cover_row.label == "cover.png"
 
     def test_a_missing_folder_cover_is_still_a_row(self) -> None:
         """Always a row (#659), so it can be chosen for — even where the policy
@@ -996,6 +1000,23 @@ class TestSummaryWording:
     files, and reads as a complaint about the picture rather than an offer.
     """
 
+    def test_a_cover_named_for_the_other_type_is_said_to_be_one(self) -> None:
+        """The rename is all there is to do (#907): the row shows the cover
+        under its new name, and the line says what's wrong with the old one
+        rather than offering better artwork."""
+        same = art_of(1)
+        view = summarise(album(same, same), cover_of(same, name="cover.jpg"))
+
+        cover = view.rows[-1]
+        assert (cover.label, cover.outcome, cover.written_from) == (
+            "cover.jpg",
+            artwork.Outcome.RENAMED,
+            "cover.png",
+        )
+        assert view.operation is artwork.Operation.ADDITION
+        assert view.summary == "The folder cover is a PNG named cover.jpg."
+        assert view.write_targets == "folder cover (cover.jpg, renamed cover.png)"
+
     def test_it_counts_the_tracks_that_change_not_the_images(self) -> None:
         """Three tracks sharing one image is one row and three files. Counted in
         files, since "1 image that could be better" understates a change to
@@ -1016,7 +1037,7 @@ class TestSummaryWording:
         big = art_of(1, width=3000, height=3000)
         view = summarise(album(big, big), cover_of(art_of(2, width=500, height=500)))
 
-        assert view.summary == "Better artwork is available for cover.jpg."
+        assert view.summary == "Better artwork is available for cover.png."
 
     def test_the_cover_is_named_when_the_archive_beats_it(self) -> None:
         """The archive beats everything, and since #479 that means the folder
@@ -1028,7 +1049,7 @@ class TestSummaryWording:
             archive=art_of(3, width=2000, height=2000),
         )
 
-        assert view.summary == "Better artwork is available for cover.jpg."
+        assert view.summary == "Better artwork is available for cover.png."
 
     def test_a_gap_and_an_improvement_are_two_clauses(self) -> None:
         """A gap to fill and a folder cover to improve are two different facts,
@@ -1037,7 +1058,7 @@ class TestSummaryWording:
         view = summarise(album(big, big, None), cover_of(art_of(2, width=300, height=300)))
 
         assert view.summary == (
-            "1 track is missing artwork, and better artwork is available for cover.jpg."
+            "1 track is missing artwork, and better artwork is available for cover.png."
         )
 
     def test_a_gap_alone_says_only_that(self) -> None:
@@ -1233,7 +1254,7 @@ class TestRowChoices:
 
         tracks, cover = view.rows
         assert (tracks.label, tracks.written_image) == ("All 2 tracks", theirs)
-        assert (cover.label, cover.writes) == ("cover.jpg", False)
+        assert (cover.label, cover.writes) == ("cover.png", False)
         assert tracks.carriers == (mine.digest,) and cover.carriers == (artwork.COVER,)
 
     def test_a_missing_cover_can_be_chosen_for_whatever_the_policy(self) -> None:

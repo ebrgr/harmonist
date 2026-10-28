@@ -192,6 +192,13 @@ TRACK_FIELDS: tuple[Owned, ...] = tuple(f for f in Owned if SCOPE[f] is Scope.TR
 #: rather than trying to render a sha256 as a tag.
 ARTWORK = "artwork"
 
+#: …and under which a rename records the file's name as `[before, after]`
+#: (#907). Not a tag either, for the same reason: the record's `file` is the
+#: name the file has afterwards, and this is what lets Undo put the old one
+#: back. A rename that changes nothing else records `ARTWORK` as the same
+#: digest twice, so Undo can still check the file holds what it left.
+FILE_NAME = "file_name"
+
 
 class Significance(StrEnum):
     """What KIND of change this is — deliberately *not* whether it needs review.
@@ -680,4 +687,5 @@ LABELS: dict[str, str] = {
     Owned.LYRICISTS: "Lyricist",
     Owned.WRITERS: "Writer",
     ARTWORK: "Artwork",
+    FILE_NAME: "File name",
 }

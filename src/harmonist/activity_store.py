@@ -860,6 +860,9 @@ def artwork_backups() -> list[ArtworkBackup]:
             continue
         if not pair[0]:
             continue
+        # Nor is an image a rename kept where it was (#907): nothing was kept.
+        if pair[0] == pair[1]:
+            continue
         # The `event:` prefix cannot collide with an action id, which is a uuid4
         # hex — so a record from before correlation stands alone rather than
         # joining whatever action happens to be keyed nearby.

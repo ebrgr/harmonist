@@ -867,11 +867,11 @@ def test_every_owned_field_has_a_label():
     the only thing standing behind a field added today (#309).
 
     Over the whole diff vocabulary, like `SIGNIFICANCE`: `ARTWORK` is a key the
-    History really renders a row for.
+    History really renders a row for, and so is `FILE_NAME` (#907).
     """
-    from harmonist.formats.owned import ARTWORK, LABELS, Owned
+    from harmonist.formats.owned import ARTWORK, FILE_NAME, LABELS, Owned
 
-    assert set(LABELS) == {f.value for f in Owned} | {ARTWORK}
+    assert set(LABELS) == {f.value for f in Owned} | {ARTWORK, FILE_NAME}
     assert all(LABELS.values()), "a blank label renders a row with no name at all"
 
 

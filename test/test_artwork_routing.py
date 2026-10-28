@@ -281,6 +281,32 @@ def test_a_card_says_which_files_its_update_writes_in_one_line(changed, total, c
     assert proposal.summary == line
 
 
+@pytest.mark.parametrize(
+    ("changed", "line"),
+    [
+        (0, "Renames cover.jpg to cover.png"),
+        (1, "Updates 1 track and renames cover.jpg to cover.png"),
+    ],
+)
+def test_a_card_says_a_cover_is_renamed_rather_than_updated(changed, line):
+    """Its image stays as it is, so "Updates cover.jpg" would be wrong (#907)."""
+    image = formats.EmbeddedArt.of(png_bytes(10, 10), "image/png")
+    proposal = artwork_updates.Proposal(
+        operation=A.ADDITION,
+        before=image,
+        after=image,
+        tracks_total=1,
+        tracks_added=changed,
+        tracks_replaced=0,
+        cover=A.ADDITION,
+        cover_name="cover.jpg",
+        fingerprint="f",
+        cover_renamed_to="cover.png",
+    )
+
+    assert proposal.summary == line
+
+
 # ---- Settings -------------------------------------------------------------
 
 

@@ -10271,12 +10271,15 @@ def _album_with_art(
     covers: list[bytes | None],
     folder: bytes | None = None,
     source: Path = SINE_M4A,
+    folder_name: str = "cover.jpg",
 ):
     """An album whose tracks carry the given images (None = no embedded art).
     ALAC unless `source` is another `.m4a`, such as `sine-aac.m4a`.
 
-    `folder` is written as `cover.jpg` whatever it is, so a PNG that replaces
-    it is written as `cover.png`, renamed to match (#905)."""
+    `folder` is written as `folder_name`, `cover.jpg` whatever it is. So a PNG
+    that replaces it is written as `cover.png`, renamed to match (#905), and a
+    PNG left as it is is offered that rename (#907): a test about anything
+    else names a PNG `cover.png`."""
     from harmonist import formats
 
     d = cfg.paths.music_dir / "Artist" / name
@@ -10292,7 +10295,7 @@ def _album_with_art(
         if cover is not None:
             formats.write_cover(f, cover)
     if folder is not None:
-        (d / "cover.jpg").write_bytes(folder)
+        (d / folder_name).write_bytes(folder)
     return d
 
 
@@ -10525,7 +10528,9 @@ def test_after_apply_says_an_image_over_the_limit_is_reduced_to_fit(client, cfg)
 
 def test_artwork_section_promises_no_overwrite_where_art_is_preserved(client, cfg):
     """A compilation's covers are kept, so no row may offer a replacement."""
-    d = _album_with_art(cfg, "Compilation", covers=[_png(1), _png(2)], folder=_png(3))
+    d = _album_with_art(
+        cfg, "Compilation", covers=[_png(1), _png(2)], folder=_png(3), folder_name="cover.png"
+    )
     album_id = _id_for(cfg, d)
 
     r = client.get(f"/album/{album_id}/artwork")
@@ -10704,7 +10709,9 @@ def test_a_re_tag_whose_artwork_write_fails_still_reports_the_tags(client, cfg, 
 def test_the_artwork_action_is_offered_only_when_something_would_change(client, cfg):
     """No button when nothing would change, the same way the rows say nothing."""
     same = _png(1)
-    settled = _album_with_art(cfg, "Settled", covers=[same, same], folder=same)
+    settled = _album_with_art(
+        cfg, "Settled", covers=[same, same], folder=same, folder_name="cover.png"
+    )
     improvable = _album_with_art(cfg, "Improvable", covers=[_png(1), None], folder=_png(2))
 
     quiet = client.get(f"/album/{_id_for(cfg, settled)}/artwork")
@@ -11097,14 +11104,18 @@ def _listed(mbid: str, *images: tuple[str, str, bool], kind: str = "release") ->
     )
 
 
-def _archive_candidate(cfg, name: str, mbid: str, *, image: bytes, covers, folder) -> Path:
+def _archive_candidate(
+    cfg, name: str, mbid: str, *, image: bytes, covers, folder, folder_name: str = "cover.jpg"
+) -> Path:
     """An album whose release has a cached archive candidate the size rule loses
     to — the state #472's override exists for — listed as the archive lists it,
     so the picker offers it (#659)."""
     from harmonist import cover_art
     from harmonist.activity_store import CachedCoverArt
 
-    d = _release_backed_album_with_art(cfg, name, mbid, covers=covers, folder=folder)
+    d = _release_backed_album_with_art(
+        cfg, name, mbid, covers=covers, folder=folder, folder_name=folder_name
+    )
     cover_art.cache_image(mbid, image, "image/png")
     url = f"https://coverartarchive.org/release/{mbid}/front"
     activity_store.store_cover_art(
@@ -11168,7 +11179,13 @@ def test_the_archive_image_can_be_chosen_whatever_its_size(client, cfg):
     mine = png_bytes(900, 900) + b"\x01"
     theirs = png_bytes(300, 300) + b"\x02"
     d = _archive_candidate(
-        cfg, "Chosen", "rel-choose", image=theirs, covers=[mine, mine], folder=mine
+        cfg,
+        "Chosen",
+        "rel-choose",
+        image=theirs,
+        covers=[mine, mine],
+        folder=mine,
+        folder_name="cover.png",
     )
     aid = _id_for(cfg, d)
 
@@ -11180,7 +11197,7 @@ def test_the_archive_image_can_be_chosen_whatever_its_size(client, cfg):
     chosen = _pick(client, aid, _pick(client, aid, ordinary, row=0), row=1)
 
     assert "Apply artwork" in chosen
-    assert (d / "cover.jpg").read_bytes() == mine  # looking wrote nothing
+    assert (d / "cover.png").read_bytes() == mine  # looking wrote nothing
 
     client.post(
         f"/album/{aid}/artwork/update",
@@ -11268,6 +11285,7 @@ def test_removing_a_suggestion_keeps_what_the_row_has(client, cfg):
         image=png_bytes(300, 300) + b"\x02",
         covers=[mine, None],
         folder=mine,
+        folder_name="cover.png",
     )
     aid = _id_for(cfg, d)
     ordinary = client.get(f"/album/{aid}/artwork").text
@@ -12181,6 +12199,31 @@ def test_history_offers_undo_for_artwork_a_change_added(client, cfg):
     assert not (d / "cover.png").exists()
     track1 = formats.read_cover(d / "01 Track.m4a")
     assert track1 is not None and track1[0] == art
+
+
+def test_history_offers_undo_for_a_cover_renamed_to_match_its_image(client, cfg):
+    """A rename that kept its image has no Artwork row in History, only its
+    File name, so the Undo sits there (#907). Pressing it puts the old name
+    back."""
+    import re
+
+    art = _png(1)
+    d = _album_with_art(cfg, "Renamed", covers=[art], folder=art)  # PNG as cover.jpg
+    aid = _id_for(cfg, d)
+    shown = _form_value(client.get(f"/album/{aid}/artwork").text, "plan")
+    client.post(f"/album/{aid}/artwork/update", data={"plan": shown})
+    assert (d / "cover.png").read_bytes() == art and not (d / "cover.jpg").exists()
+
+    page = client.get(f"/album/{_id_for(cfg, d)}").text
+    undo = re.search(
+        r'hx-post="/artwork/restore/[^"]+"\s+hx-vals=\'\{"event_id": "(\d+)"\}\'', page
+    )
+    assert undo, "no artwork Undo offered for a rename"
+
+    r = client.post(f"/artwork/restore/{_id_for(cfg, d)}", data={"event_id": undo.group(1)})
+
+    assert "Artwork restored" in r.text
+    assert (d / "cover.jpg").read_bytes() == art and not (d / "cover.png").exists()
 
 
 def test_an_addition_offers_no_undo_when_the_store_can_keep_nothing(client, cfg):
@@ -13136,6 +13179,10 @@ def test_confirmation_names_artwork_outcome_and_exact_identity(client, cfg, monk
     )
     if kind in {"protected", "partial-kept"}:
         (d / "cover.jpg").unlink()
+    elif kind == "identical":
+        # Named for the PNG it holds, so the archive's image is all there is
+        # to decide on: as `cover.jpg` it's offered a rename (#907).
+        (d / "cover.jpg").rename(d / "cover.png")
     candidate = (
         original
         if kind == "identical"
@@ -13180,10 +13227,14 @@ def test_confirmation_names_artwork_outcome_and_exact_identity(client, cfg, monk
         assert current[row(candidate_preview)] != images.digest(candidate)
     checkbox = page.select_one('[name="include_artwork"]')
     assert bool(checkbox) is writes
+    # The setup's PNG is a `cover.jpg`, so a PNG replacing it is renamed (#905).
     if kind == "same-size":
-        assert "embedded artwork in 2 tracks and folder cover (cover.jpg)" in page.text
+        assert (
+            "embedded artwork in 2 tracks and folder cover (cover.jpg, renamed cover.png)"
+            in page.text
+        )
     elif kind in {"protected-folder", "partial"}:
-        assert "Will update: folder cover (cover.jpg)" in page.text
+        assert "Will update: folder cover (cover.jpg, renamed cover.png)" in page.text
         assert "Will update: embedded" not in page.text
     if per_track:
         assert "Differing per-track artwork is preserved" in page.text

@@ -2640,7 +2640,10 @@ def _restorable_anchors(
         return out
     for anchor, records in tag_history.group_records(history, detail).items():
         plan = tag_history.artwork_revert_plan(records)
-        needed = {item.before for item in plan if item.before is not None}
+        # A rename that kept its image puts nothing back but the name (#907).
+        needed = {
+            item.before for item in plan if item.before is not None and item.before != item.after
+        }
         if plan and all(artwork_store.path_for(d) is not None for d in needed):
             out.add(anchor)
     return out

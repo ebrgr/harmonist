@@ -29,7 +29,7 @@ from typing import Any
 
 from . import album_files, formats
 from .compare import Run, diff_runs
-from .formats.owned import ARTWORK, LABELS, SCOPE, Owned, Scope, is_absent
+from .formats.owned import ARTWORK, FILE_NAME, LABELS, SCOPE, Owned, Scope, is_absent
 
 #: Local alias for the shared label map, which moved to `owned` so the album
 #: comparison can build its rows from it too (#295) — one name per field for
@@ -89,7 +89,8 @@ _FIELD_ORDER: tuple[Owned, ...] = (
     Owned.MB_COMPOSER_IDS,
 )
 _ORDER: dict[str, int] = {f.value: i for i, f in enumerate(_FIELD_ORDER)} | {
-    ARTWORK: len(_FIELD_ORDER)
+    ARTWORK: len(_FIELD_ORDER),
+    FILE_NAME: len(_FIELD_ORDER) + 1,
 }
 
 
@@ -369,11 +370,16 @@ class ArtworkRevert:
     to a file that had none — undoing that means taking it off again. `after`
     is the image the change left, and it is what proves the file still carries
     this change: one changed since is left alone, as a tag Undo leaves a field.
+
+    `renamed_from` is the name a folder cover had before the change renamed it
+    to `file` (#907), which Undo puts back. With `before` equal to `after` the
+    rename was all the change did.
     """
 
     file: str
     before: str | None
     after: str
+    renamed_from: str | None = None
 
 
 def artwork_revert_plan(records: Sequence[Any]) -> tuple[ArtworkRevert, ...]:
@@ -399,8 +405,10 @@ def artwork_revert_plan(records: Sequence[Any]) -> tuple[ArtworkRevert, ...]:
         if not isinstance(after, str) or not after:
             continue
         was = before if isinstance(before, str) and before else None
-        if was != after:
-            out.append(ArtworkRevert(file=record.file, before=was, after=after))
+        renamed = _pair(record.changes.get(FILE_NAME))
+        old = renamed[0] if renamed is not None and isinstance(renamed[0], str) else None
+        if was != after or old:
+            out.append(ArtworkRevert(file=record.file, before=was, after=after, renamed_from=old))
     return tuple(out)
 
 
@@ -446,6 +454,8 @@ def revert_plan(records: Sequence[Any]) -> tuple[FileRevert, ...]:
 
     * **artwork**, which is not an owned tag and has its own undo and its own
       store (#131). One button per store, each honest about what it can do.
+      A folder cover's **file name** goes with it (#907): it is the artwork
+      Undo that renames the cover back.
     * nothing else here — the `mb_album_id` guard lives in `tagger.revert_tags`,
       because whether reverting it would strand the album is a question about
       the sidecar, which this module has no business reading.
@@ -457,7 +467,7 @@ def revert_plan(records: Sequence[Any]) -> tuple[FileRevert, ...]:
     for record in records:
         fields: dict[str, tuple[Any, Any]] = {}
         for field, entry in record.changes.items():
-            if field == ARTWORK:
+            if field in (ARTWORK, FILE_NAME):
                 continue
             pair = _pair(entry)
             if pair is None:
@@ -571,6 +581,10 @@ def summarise(records: Sequence[Any]) -> tuple[FieldChange, ...]:
             pair = _pair(entry)
             if pair is None:
                 continue
+            if field == ARTWORK and pair[0] == pair[1]:
+                # A rename that kept its image (#907): the file name's row says
+                # what happened, and an artwork row would claim a change.
+                continue
             by_field.setdefault(field, []).append((record.file, record.position, *pair))
 
     rows = [_row(field, entries, total) for field, entries in by_field.items()]
@@ -617,7 +631,9 @@ def _row(field: str, entries: list[tuple[str, str | None, Any, Any]], total: int
         tracks=sum(1 for f, _, _, _ in entries if _is_track(f)),
         total=total,
         cover=next((f for f, _, _, _ in entries if not _is_track(f)), None),
-        scope=SCOPE.get(Owned(field)) if field in _ORDER and field != ARTWORK else None,
+        scope=SCOPE.get(Owned(field))
+        if field in _ORDER and field not in (ARTWORK, FILE_NAME)
+        else None,
         before_runs=before_runs,
         after_runs=after_runs,
         variants=variants,

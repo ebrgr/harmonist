@@ -10,6 +10,9 @@ versions follow [semantic versioning](https://semver.org).
 
 - **Artwork an album already has over the 20 MB limit is offered reduced to
   fit**, as an artwork Replacement, so Navidrome reads it (#893).
+- **A folder cover named for the wrong image type is offered a rename**, such
+  as a `cover.jpg` that's really a PNG, as an artwork Addition (#907). Undoing
+  a folder cover's rename now puts its old name back too.
 
 ### Changed
 

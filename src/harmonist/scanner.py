@@ -36,12 +36,14 @@ from .sidecar import read as read_sidecar
 log = logging.getLogger(__name__)
 
 # A cheap per-album fingerprint: (audio file name+mtime_ns+size tuples, sidecar
-# mtime_ns, cover mtime_ns). Changes whenever anything that affects an album's
-# derived state could change, so it drives the re-scan cache below. The FIRST
-# element (the audio tuples) is the "audio signature": it changes only when the
-# tracks themselves change — used to skip the expensive tag reads when just the
-# sidecar/cover moved (see resolve_album / the scan runner).
-AlbumSignature = tuple[tuple[tuple[str, int, int], ...], int | None, int | None]
+# mtime_ns, each folder cover's name+mtime_ns). Changes whenever anything that
+# affects an album's derived state could change, so it drives the re-scan cache
+# below. The FIRST element (the audio tuples) is the "audio signature": it
+# changes only when the tracks themselves change — used to skip the expensive
+# tag reads when just the sidecar/cover moved (see resolve_album / the scan
+# runner). The covers go by name as well as mtime because a rename keeps the
+# mtime (#907), and the name is which file the album's cover is.
+AlbumSignature = tuple[tuple[tuple[str, int, int], ...], int | None, tuple[tuple[str, int], ...]]
 # Persistent {album_dir: (full_signature, Album, fields)} threaded across scans.
 # Two-level: a FULL-signature hit returns the cached Album with zero I/O; when
 # only the sidecar/cover changed (audio signature == cached audio signature) the
@@ -146,7 +148,7 @@ def read_dir(album_dir: Path, names: Sequence[str] | None = None) -> DirContents
     audio: list[tuple[Path, int, int]] = []
     video: list[tuple[Path, int, int]] = []
     sidecar_mtime: int | None = None
-    cover_mtime: int | None = None
+    covers: list[tuple[str, int]] = []
     for name in entries:
         f = album_dir / name
         try:
@@ -163,7 +165,7 @@ def read_dir(album_dir: Path, names: Sequence[str] | None = None) -> DirContents
         elif name == ".harmonist.json":
             sidecar_mtime = st.st_mtime_ns
         elif name in ("cover.jpg", "cover.png"):
-            cover_mtime = st.st_mtime_ns
+            covers.append((name, st.st_mtime_ns))
     if not audio:
         return None
     audio.sort(key=lambda e: album_files.sort_key(Path(e[0].name)))
@@ -180,7 +182,7 @@ def read_dir(album_dir: Path, names: Sequence[str] | None = None) -> DirContents
         # subdirectories.
         tuple((e[0].name, e[1], e[2]) for e in [*audio, *video]),
         sidecar_mtime,
-        cover_mtime,
+        tuple(sorted(covers)),
     )
     return DirContents([e[0] for e in audio], [e[0] for e in video], signature)
 

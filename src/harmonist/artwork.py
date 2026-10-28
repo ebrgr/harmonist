@@ -33,7 +33,7 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from fractions import Fraction
 from pathlib import Path
@@ -355,10 +355,18 @@ class Change:
     #: Where a folder cover moves to as it is replaced: the name its new image's
     #: type takes, when that differs from its own and is free (#905).
     rename_to: Path | None = None
+    #: …or the whole of the change: a cover whose name is the other type from
+    #: the image it holds, renamed with that image as it is (#907).
+    rename_only: bool = False
 
     @property
     def operation(self) -> Operation:
-        return Operation.ADDITION if self.before is None else Operation.REPLACEMENT
+        """A rename on its own is an Addition: it loses nothing, the image a
+        player reads doesn't change, and it lands on a name that held nothing
+        (#907)."""
+        if self.before is None or self.rename_only:
+            return Operation.ADDITION
+        return Operation.REPLACEMENT
 
 
 @dataclass(frozen=True)
@@ -572,7 +580,7 @@ def plan(
         originals=originals,
     )
     if overwrite_art or cover_unreadable:
-        return suggested
+        return _renamed(suggested, cover)
     if stand_ins and archive is not None and not excluded_archive:
         # A carrier is the tracks' image's digest, or the folder cover itself.
         waiting = stand_ins - {archive.digest}
@@ -585,8 +593,47 @@ def plan(
             given[COVER] = Choice.ARCHIVE
         choices = {**given, **(choices or {})}
     if not choices:
-        return suggested
-    return _with_choices(suggested, cover, archive, choices, picks or {}, originals)
+        return _renamed(suggested, cover)
+    return _renamed(
+        _with_choices(suggested, cover, archive, choices, picks or {}, originals), cover
+    )
+
+
+def _renamed(planned: ArtworkPlan, cover: FolderCover | None) -> ArtworkPlan:
+    """`planned`, renaming the folder cover where its name is the other type
+    from the image it holds (#907): a `cover.jpg` holding a PNG, a `cover.png`
+    holding a JPEG.
+
+    Only where nothing else is written to the cover, since a write names it
+    for its new image already (#905), and not where the user chose to keep it
+    as it is. Never onto another `cover.*` beside it, for #905's reason.
+
+    By the image's own type, read from its bytes. One whose bytes say neither
+    PNG nor JPEG has the type its name claims (`EmbeddedArt.of`), so it is
+    never renamed.
+    """
+    if cover is None or planned.cover_change(Scope.ALL) is not None:
+        return planned
+    if planned.choices.get(COVER) == Choice.KEEP:
+        return planned
+    target = cover.path or planned.album_dir / cover.name
+    name = "cover.png" if "png" in cover.image.mime.lower() else "cover.jpg"
+    if Path(name).suffix == target.suffix.lower() or name in cover.beside:
+        return planned
+    image = cover.image
+    change = Change(
+        target=target,
+        before=image.digest,
+        after=image.digest,
+        folder_cover=True,
+        rename_to=target.with_name(name),
+        rename_only=True,
+    )
+    return replace(
+        planned,
+        changes=(*planned.changes, change),
+        images={**planned.images, image.digest: Incoming(image, Source.FOLDER)},
+    )
 
 
 def _with_choices(
@@ -951,7 +998,7 @@ def _plan_for(
 class Outcome(StrEnum):
     """What applying the artwork would do to one row's image.
 
-    Only the first two reach the page. The other two are the two ways of writing
+    Only the first three reach the page. The other two are the two ways of writing
     nothing, kept apart because they are different facts — one is a protection,
     the other a no-op — and a caller asking "why is nothing happening here"
     deserves the real answer.
@@ -962,6 +1009,9 @@ class Outcome(StrEnum):
     #: These tracks have no image, or the folder cover does not exist; the
     #: winner fills the gap.
     FILLED = "filled"
+    #: The folder cover keeps its image and takes the name that image's type
+    #: does (#907).
+    RENAMED = "renamed"
     #: Left as it is though it is not the folder cover's image — per-track
     #: artwork Harmonist preserves, an album image that won or tied against the
     #: folder cover, or a gap with nothing to fill it.
@@ -1238,7 +1288,7 @@ class ArtRow:
     def writes(self) -> bool:
         """Whether the plan puts something here. The rows that answer False
         render nothing on the right at all (#400)."""
-        return self.outcome in (Outcome.REPLACED, Outcome.FILLED)
+        return self.outcome in (Outcome.REPLACED, Outcome.FILLED, Outcome.RENAMED)
 
     @property
     def title(self) -> str | None:
@@ -1420,7 +1470,10 @@ class ArtworkView:
         if tracks:
             targets.append(f"embedded artwork in {tracks} track{'' if tracks == 1 else 's'}")
         targets.extend(
-            f"folder cover ({change.target.name})" for change in changes if change.folder_cover
+            f"folder cover ({change.target.name}"
+            + (f", renamed {change.rename_to.name})" if change.rename_to else ")")
+            for change in changes
+            if change.folder_cover
         )
         return " and ".join(targets)
 
@@ -1505,12 +1558,15 @@ class ArtworkView:
         filled = sum(len(r.tracks) for r in self.rows if r.is_gap and r.writes)
         improved = sum(len(r.tracks) for r in self.images if r.writes)
         creates = next((r.folder for r in self.rows if r.absent and r.writes), None)
+        renamed = next((r for r in self.rows if r.outcome is Outcome.RENAMED), None)
 
         carriers = []
         if improved:
             carriers.append(f"{improved} track{'' if improved == 1 else 's'}")
         # The folder cover is its own row, and often the only thing changing.
-        if self.cover is not None and any(r.writes and r.folder for r in self.images):
+        if self.cover is not None and any(
+            r.outcome is Outcome.REPLACED and r.folder for r in self.images
+        ):
             carriers.append(self.cover.name)
 
         parts = []
@@ -1522,6 +1578,12 @@ class ArtworkView:
             # Named, because it is a file that will appear in the user's folder
             # and the one thing on this line they could not see coming (#457).
             parts.append(f"there is no {creates}")
+        if renamed is not None and renamed.image is not None:
+            # The type, from the image's own bytes, beside the name that
+            # claims the other one (#907). Not led by the file's name, which
+            # the capital below would misspell.
+            kind = "PNG" if "png" in renamed.image.mime else "JPEG"
+            parts.append(f"the folder cover is a {kind} named {renamed.label}")
         if not parts:
             return "This album's artwork can be updated."
         # Capitalised from whichever clause leads, since either can.
@@ -1736,12 +1798,20 @@ def summarise(
         keys: tuple[str, ...],
         *,
         folder: str | None = None,
+        change: Change | None = None,
     ) -> ArtRow:
         # Each row shows ITS OWN incoming image (#479, #659). The folder cover
         # can be taking a better one than the tracks are, and a user choosing
         # row by row can give every row a different one, so nothing here is
         # read off a single album-wide winner.
-        if incoming is not None:
+        renamed_to = (
+            change.rename_to.name
+            if change is not None and change.rename_only and change.rename_to
+            else None
+        )
+        if incoming is not None and renamed_to is not None:
+            outcome = Outcome.RENAMED
+        elif incoming is not None:
             outcome = Outcome.FILLED if image is None else Outcome.REPLACED
         else:
             outcome = Outcome.SAME if folder is not None else Outcome.KEPT
@@ -1753,7 +1823,12 @@ def summarise(
             total_tracks=len(tracks),
             multi_disc=multi_disc,
             folder=folder,
-            written_from=_source_label(incoming.source, cover) if incoming else None,
+            # A rename's incoming image is the cover itself, named as it will be.
+            written_from=renamed_to
+            if outcome is Outcome.RENAMED
+            else _source_label(incoming.source, cover)
+            if incoming
+            else None,
             written_image=incoming.image if incoming else None,
             from_archive=from_archive,
             # Read off the stored answer rather than the image: which listing
@@ -1801,7 +1876,9 @@ def summarise(
     # at all, and a row saying "not in the folder" would be the opposite of
     # the truth (#112); the section says what really happened instead.
     if cover is not None:
-        rows.append(row(cover.image, (), cover_incoming, (COVER,), folder=cover.name))
+        rows.append(
+            row(cover.image, (), cover_incoming, (COVER,), folder=cover.name, change=cover_change)
+        )
     elif not cover_unreadable:
         name = cover_change.target.name if cover_change is not None else "cover.jpg"
         rows.append(row(None, (), cover_incoming, (COVER,), folder=name))

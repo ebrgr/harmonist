@@ -285,6 +285,9 @@ Harmonist's rules:
   Settings, though you can choose an image for it either way.
 - Albums where tracks have different images, such as compilations, keep them
   unless you choose an image for one of them.
+- A folder cover is named for the image it holds: `cover.jpg` for a JPEG,
+  `cover.png` for a PNG. One under the other name, such as a `cover.jpg` that's
+  really a PNG, is offered a rename, as an addition.
 
 An image larger than 20,000,000 bytes is **over the image size limit**, the
 largest a player is known to read. Navidrome won't read an image over its
