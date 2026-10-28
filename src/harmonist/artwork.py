@@ -352,6 +352,9 @@ class Change:
     before: str | None
     after: str
     folder_cover: bool = False
+    #: Where a folder cover moves to as it is replaced: the name its new image's
+    #: type takes, when that differs from its own and is free (#905).
+    rename_to: Path | None = None
 
     @property
     def operation(self) -> Operation:
@@ -449,8 +452,12 @@ class ArtworkPlan:
         quadratic on a box set.
         """
         root = album_files.root_of(self.album_dir, tuple(self.before))
+        # A rename is spelled only where there is one, so every other plan's
+        # fingerprint is what it was (#905).
         lines = sorted(
-            f"{self._name(c.target, root)}\t{c.before or ''}\t{c.after}" for c in self.scoped(scope)
+            f"{self._name(c.target, root)}\t{c.before or ''}\t{c.after}"
+            + (f"\t{c.rename_to.name}" if c.rename_to is not None else "")
+            for c in self.scoped(scope)
         )
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
@@ -484,6 +491,26 @@ def cover_name_for(image: EmbeddedArt) -> str:
     if too_large(image):
         return "cover.jpg"
     return "cover.png" if "png" in image.mime.lower() else "cover.jpg"
+
+
+def _replacing(album_dir: Path, cover: FolderCover, image: EmbeddedArt) -> Change:
+    """The change that puts `image` on the folder cover the album has.
+
+    Renamed to the name `image` is written as when that's the other type
+    (#905): written in place, a `cover.jpg` took PNG bytes and a squished
+    `cover.png` JPEG ones. Never onto another `cover.*` beside it, which the
+    page never showed: the cover is written in place then, as it always was.
+    """
+    target = cover.path or album_dir / cover.name
+    name = cover_name_for(image)
+    moves = Path(name).suffix != target.suffix.lower() and name not in cover.beside
+    return Change(
+        target=target,
+        before=cover.image.digest,
+        after=image.digest,
+        folder_cover=True,
+        rename_to=target.with_name(name) if moves else None,
+    )
 
 
 def plan(
@@ -631,13 +658,8 @@ def _with_choices(
                 target=target, before=None, after=image.digest, folder_cover=True
             )
         elif not _settled(cover.image.digest, image, originals):
-            target = cover.path or album_dir / cover.name
-            chosen[target] = Change(
-                target=target,
-                before=cover.image.digest,
-                after=image.digest,
-                folder_cover=True,
-            )
+            change = _replacing(album_dir, cover, image)
+            chosen[change.target] = change
     # Tracks in album order, then the folder cover, as `_plan_for` lays them out.
     changes = [
         c
@@ -910,14 +932,7 @@ def _plan_for(
                 )
             )
     elif not _settled(cover.image.digest, for_cover, originals):
-        changes.append(
-            Change(
-                target=cover.path or album_dir / cover.name,
-                before=cover.image.digest,
-                after=for_cover.digest,
-                folder_cover=True,
-            )
-        )
+        changes.append(_replacing(album_dir, cover, for_cover))
     images = {winner.digest: Incoming(winner, source)}
     if for_cover_source is not None:
         images.setdefault(for_cover.digest, Incoming(for_cover, for_cover_source))
@@ -979,6 +994,9 @@ class FolderCover:
     #: Where it is, when that is not simply `name` in the album's directory — a
     #: caller holding the real path hands it over rather than have it rebuilt.
     path: Path | None = None
+    #: The other `cover.*` names beside it, which a rename must not land on
+    #: (#905). `cover_art.covers_beside` reads them.
+    beside: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

@@ -30,13 +30,24 @@ class CoverArtError(Exception):
     pass
 
 
+#: The folder-cover names, in the order `cached_cover` prefers them.
+COVER_NAMES = ("cover.jpg", "cover.png")
+
+
 def cached_cover(album_dir: Path) -> Path | None:
     """Return path to a pre-existing cover.{jpg,png} in album_dir, or None."""
-    for name in ("cover.jpg", "cover.png"):
+    for name in COVER_NAMES:
         p = album_dir / name
         if p.exists():
             return p
     return None
+
+
+def covers_beside(cover: Path) -> frozenset[str]:
+    """The other folder-cover names that exist beside `cover`: a `cover.png`
+    that `cached_cover` never shows while a `cover.jpg` is there, and that
+    renaming the `cover.jpg` would overwrite (#905)."""
+    return frozenset(n for n in COVER_NAMES if n != cover.name and (cover.parent / n).exists())
 
 
 @dataclass(frozen=True)

@@ -146,8 +146,17 @@ out at 16 MB at quality 95, with an SSIM of 0.990 against the original.
 dimensions; the dimensions shrink only once quality has run out. Keeping them
 keeps the size rule settled too, since a tie goes to the image already there.
 The result is always a JPEG. A PNG over the limit can only shrink by losing what
-made it a PNG, and the file keeps its name, as any replacement of a folder
-cover already does.
+made it a PNG.
+
+**A folder cover is named for what it holds** (#905): `cover.jpg` for a JPEG,
+`cover.png` for a PNG, decided by the image as it's written, so a squished PNG
+is a `cover.jpg`. A replacement of the other type renames the file. Keeping the
+name was the alternative, and it left a `cover.png` holding a JPEG, which every
+reader that goes by the extension then misdescribes. The rename never lands on
+another `cover.*` already beside it: `cover.jpg` is the one read when both
+exist, so a `cover.png` there is a file the user was never shown, and the cover
+is written in place instead. Undo puts the old image back under the new name
+for now, since the record names only the file as it is.
 
 **A copy counts as its original.** The copy is a different file from the image
 that was picked, and everything that asks whether an album carries an image

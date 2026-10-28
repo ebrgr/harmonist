@@ -10273,7 +10273,10 @@ def _album_with_art(
     source: Path = SINE_M4A,
 ):
     """An album whose tracks carry the given images (None = no embedded art).
-    ALAC unless `source` is another `.m4a`, such as `sine-aac.m4a`."""
+    ALAC unless `source` is another `.m4a`, such as `sine-aac.m4a`.
+
+    `folder` is written as `cover.jpg` whatever it is, so a PNG that replaces
+    it is written as `cover.png`, renamed to match (#905)."""
     from harmonist import formats
 
     d = cfg.paths.music_dir / "Artist" / name
@@ -10897,7 +10900,7 @@ def test_apply_updates_writes_the_replacements_the_page_showed(client, cfg, monk
     # The folder cover took the tracks' better image — a REPLACEMENT, which an
     # additions-only scope refuses to make, so this is the assertion that tells
     # Scope.ALL and Scope.ADDITIONS apart.
-    assert (d / "cover.jpg").read_bytes() == big, "the replacement the page showed"
+    assert (d / "cover.png").read_bytes() == big, "the replacement the page showed"
     # …and the tracks keep their own, untouched: the folder cover is the only
     # carrier the size rule decides (#479).
     for track in ("01 Track.m4a", "02 Track.m4a"):
@@ -11184,7 +11187,7 @@ def test_the_archive_image_can_be_chosen_whatever_its_size(client, cfg):
         data={"plan": _form_value(chosen, "plan"), "use": _carried_use(chosen)},
     )
 
-    assert (d / "cover.jpg").read_bytes() == theirs
+    assert (d / "cover.png").read_bytes() == theirs
     for track in ("01 Track.m4a", "02 Track.m4a"):
         art = formats.read_cover(d / track)
         assert art is not None and art[0] == theirs
@@ -12090,7 +12093,7 @@ def test_apply_updates_applies_the_image_the_user_chose(client, cfg, monkeypatch
     assert "Re-tagged" in r.text
     assert "changed after the page showed it" not in r.text
     # The smaller image the user chose, everywhere the preview said it would go.
-    assert (d / "cover.jpg").read_bytes() == theirs
+    assert (d / "cover.png").read_bytes() == theirs
     for track in ("01 Track.m4a", "02 Track.m4a"):
         art = formats.read_cover(d / track)
         assert art is not None and art[0] == theirs
@@ -13021,7 +13024,7 @@ def test_confirmation_applies_the_reviewed_smaller_archive_image(
     assert "Matched" in result.text
     assert formats.read_cover(files[0]) == (small, "image/png")
     assert formats.read_cover(files[1]) == (small, "image/png")
-    assert (d / "cover.jpg").read_bytes() == small
+    assert (d / "cover.png").read_bytes() == small
     assert sc.read(d).mb_release_id == release["id"]
 
 
@@ -13197,7 +13200,8 @@ def test_confirmation_checkbox_controls_the_actual_write(client, cfg, monkeypatc
     data = fields | {"include_artwork": str(included).lower()}
     result = client.post(f"/confirm/{aid}", data=data)
     assert "Matched" in result.text
-    assert (d / "cover.jpg").read_bytes() == (small if included else big)
+    folder = d / ("cover.png" if included else "cover.jpg")
+    assert folder.read_bytes() == (small if included else big)
     for path in d.glob("*.m4a"):
         assert formats.read_cover(path) == (small if included else big, "image/png")
         assert formats.read_owned(path)["mb_album_id"] == release["id"]
@@ -13256,7 +13260,7 @@ def test_confirmation_preserves_per_track_artwork(client, cfg, monkeypatch):
     result = client.post(f"/confirm/{aid}", data=fields | {"include_artwork": "true"})
     assert "Matched" in result.text
     assert [formats.read_cover(p) for p in sorted(d.glob("*.m4a"))] == before
-    assert (d / "cover.jpg").read_bytes() == small
+    assert (d / "cover.png").read_bytes() == small
 
 
 def test_confirmation_rejects_a_changed_stored_release_before_any_writes(client, cfg, monkeypatch):

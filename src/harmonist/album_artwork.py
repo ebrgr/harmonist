@@ -191,6 +191,7 @@ def view(
                 name=album.cover_path.name,
                 image=formats.EmbeddedArt.of(data, mime),
                 path=album.cover_path,
+                beside=cover_art.covers_beside(album.cover_path),
             )
     # What it carries of a front the archive has since replaced (#886).
     carried = [t.art for _, t in tracks if t.art is not None]

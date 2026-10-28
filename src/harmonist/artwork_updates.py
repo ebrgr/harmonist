@@ -180,6 +180,7 @@ def read_local(
                 image=formats.EmbeddedArt.of(
                     data, "image/png" if cover_path.suffix.lower() == ".png" else "image/jpeg"
                 ),
+                beside=cover_art.covers_beside(cover_path),
             )
     return LocalArtwork(
         tuple((p, f.art) for p, f in zip(files, fields, strict=True) if not f.unreadable),

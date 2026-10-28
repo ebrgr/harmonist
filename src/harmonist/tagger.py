@@ -844,6 +844,7 @@ def decide_artwork(
             name=cover_path.name,
             image=formats.EmbeddedArt.of(cover_path.read_bytes(), _mime_for(cover_path)),
             path=cover_path,
+            beside=cover_art.covers_beside(cover_path),
         )
     archive_image = (
         formats.EmbeddedArt.of(archive.data, archive.mime) if archive is not None else None
@@ -1304,13 +1305,29 @@ def _write_folder_cover(
             # outcome — not here as well.
             log.info("not replacing %s: its current image could not be kept", target.name)
             return _Wrote.UNKEPT
+    # Renamed as it's replaced, to the name its new image's type takes (#905).
+    # The plan never renames onto a cover it saw; one that has appeared since is
+    # somebody's change, and stands.
+    dest = change.rename_to or target
+    if change.rename_to is not None and dest.exists():
+        log.info("%s gained a %s since it was planned; leaving it", album_dir.name, dest.name)
+        return _Wrote.STALE
     try:
-        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
         tmp.write_bytes(image)
-        os.replace(tmp, target)
+        os.replace(tmp, dest)
     except OSError:
-        log.exception("could not write the album's artwork to %s", target)
+        log.exception("could not write the album's artwork to %s", dest)
         return _Wrote.FAILED
+    if change.rename_to is not None:
+        try:
+            target.unlink()
+        except OSError:
+            # Both names would hold a cover, and `cover.jpg` would win whichever
+            # it was. Taking the new one back leaves the album as it was.
+            log.exception("could not remove %s after writing %s", target, dest)
+            dest.unlink(missing_ok=True)
+            return _Wrote.FAILED
 
     # The id the album answers to right now (#456). A cover is often created by
     # an album's FIRST tagging, before any sidecar names it — and a bare None
@@ -1327,17 +1344,25 @@ def _write_folder_cover(
         "cover.write",
         album_id=album_id,
         album=album_dir,
-        file=target.name,
+        file=dest.name,
         source=source.value if source is not None else "-",
         bytes=len(image),
         overwrote=change.before is not None,
         digest=written,
         **details,
     )
-    event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=target.name)
+    if dest != target:
+        # The old name is gone from disk now, and this is the only place both
+        # are known. Its image is kept, under `was` in `cover.write`.
+        audit.record(
+            "cover.rename", album_id=album_id, album=album_dir, file=dest.name, was=target.name
+        )
+    # Under the name the file has now, which is where Undo looks for it. Undo
+    # puts the image back there, under the new name (#905).
+    event_id = audit.record("tag.track", album_id=album_id, album=album_dir, file=dest.name)
     if event_id is not None:
         activity_store.record_tag_changes(
-            event_id, file=target.name, changes={owned.ARTWORK: [change.before, written]}
+            event_id, file=dest.name, changes={owned.ARTWORK: [change.before, written]}
         )
     return _Wrote.WRITTEN
 
