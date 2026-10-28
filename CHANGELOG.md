@@ -21,6 +21,8 @@ versions follow [semantic versioning](https://semver.org).
 - **The album page reads each file once, and not at all on a repeat view of an
   unchanged album**; while it reads, it says "Reading tags…" and no longer
   blames MusicBrainz (#904).
+- **Ticking or unticking Don't warn me about this no longer adds to Activity or
+  flashes the status bar**, for the mismatch and incomplete-album warnings (#911).
 
 ### Fixed
 

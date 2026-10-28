@@ -315,6 +315,34 @@ def test_provisional_cd_match_reopens_for_new_sibling_and_can_be_dismissed_again
     assert sidecar.read(folder).accepted_release_id is None
 
 
+def test_toggling_the_mismatch_warning_is_not_reported(tmp_path, monkeypatch):
+    """The checkbox shows where the setting stands, so neither the Activity feed
+    nor the status bar repeats it (#911). The audit log still has the decision."""
+    current = release(("CD",))
+    client, folder = _app(tmp_path, monkeypatch, current)
+    monkeypatch.setattr(
+        musicbrainzngs,
+        "browse_releases",
+        Mock(side_effect=lambda **kw: {"release-list": [current], "release-count": 1}),
+    )
+    page = _dismissal_panel(client)
+    feed_before = activity_store.recent(50, source=activity_store.Source.ACTIVITY)
+
+    responses = [
+        _dismiss(client, page),
+        _dismiss(client, page),
+        client.post(f"/library/{MBID}/release-accepted", data={"mbid": MBID}),
+    ]
+
+    assert [r.status_code for r in responses] == [200, 200, 200]
+    for r in responses:
+        assert "harmonist-status" not in r.headers.get("HX-Trigger", "")
+    assert activity_store.recent(50, source=activity_store.Source.ACTIVITY) == feed_before
+    audit_rows = activity_store.recent(50, source=activity_store.Source.AUDIT)
+    assert len([e for e in audit_rows if "mismatch_dismissal=" in e.message]) == 2
+    assert sidecar.read(folder).mismatch_dismissal is None
+
+
 def test_existing_sibling_gaining_source_evidence_renews_dismissal(client, monkeypatch):
     client, _ = client
     sibling = release(mbid="sibling")
@@ -491,14 +519,11 @@ def test_dont_warn_records_the_shown_release_once_and_can_be_taken_back(client, 
     )
     page = _dismissal_panel(client)
     before = {p: p.read_bytes() for p in folder.iterdir() if p.name != ".harmonist.json"}
-    outcomes = []
     for _ in range(2):
         r = _dismiss(client, page)
         assert r.status_code == 200
         assert sidecar.read(folder).mismatch_dismissal.release == MBID
-        outcomes.append(json.loads(r.headers["HX-Trigger"])["harmonist-status"]["verb"])
-    # A double click is reported as what it is, rather than as a second change.
-    assert outcomes == ["Mismatch warning paused", "No change"]
+    # A double click is not a second change.
     rows = [e for e in activity_store.recent(50) if "mismatch_dismissal" in e.message]
     assert len(rows) == 1
     # An unticked box posts no value: that absence takes the acceptance back.

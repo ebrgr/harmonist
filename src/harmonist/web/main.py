@@ -5555,8 +5555,8 @@ def _register_routes(app: FastAPI) -> None:
             and part.accepted_release_id is None
             for _, part in parts
         ):
-            # Idempotent: a double click writes nothing and reports nothing new.
-            return _flash_response("No change", album=album, tasks_changed=False)
+            # Idempotent: a double click writes nothing.
+            return _quiet_response(tasks_changed=False)
         for folder, part in parts:
             assert part is not None
             updated = replace(part, accepted_release_id=None, mismatch_dismissal=target)
@@ -5566,9 +5566,7 @@ def _register_routes(app: FastAPI) -> None:
         if runner.is_engaged():
             runner.refresh_now()
         request.state.skip_rescan = True
-        response = _flash_response(
-            "Mismatch warning paused" if accept else "Mismatch warning back on", album=album
-        )
+        response = _quiet_response()
         if sc.accepted_release_id == mbid:
             # Retiring an older permanent acceptance changes the available
             # contribution and checkbox meaning. Swap it in this response, not
@@ -8059,7 +8057,7 @@ def _register_routes(app: FastAPI) -> None:
             # here keeps a double-click out of the audit log entirely. Still
             # re-states the badge, so a checkbox that raced itself ends up
             # showing what is on disk rather than what the last click typed.
-            return _flash_response("No change", album=album, oob=_completeness_oob(request, album))
+            return _quiet_response(oob=_completeness_oob(request, album))
         updated = replace(sc, tracks_unavailable=accept)
         sidecar_mod.write(album.path, updated)
         # The Library's filter counts change, and nothing else does — the state is
@@ -8072,11 +8070,7 @@ def _register_routes(app: FastAPI) -> None:
         # The album page states the completeness beside this control (#227), so it
         # is now stale on the very page the click came from. Swap it out of band
         # from the album as it is AFTER the write — `album` was resolved before it.
-        return _flash_response(
-            "Accepted as complete" if accept else "Back in the Incomplete list",
-            album=album,
-            oob=_completeness_oob(request, replace(album, sidecar=updated)),
-        )
+        return _quiet_response(oob=_completeness_oob(request, replace(album, sidecar=updated)))
 
     @app.post("/library/{album_id}/ignore-update", response_class=HTMLResponse)
     def ignore_update(request: Request, album_id: str, ignore: bool = Form(False)) -> Response:
@@ -8799,6 +8793,19 @@ def _flash_response(
         status_code=status_code,
         headers={"HX-Trigger": json.dumps(triggers)},
     )
+
+
+def _quiet_response(*, tasks_changed: bool = True, oob: str = "") -> HTMLResponse:
+    """`_flash_response` without the report: no Activity entry, no status flash.
+
+    For a control whose own state is the report — a warning's "Don't warn me"
+    box (#911). The tick already says where the setting stands, so a flash only
+    repeats it, and the feed would fill with toggles. The sidecar write beneath
+    is still audited. Refusals keep using `_flash_response`: the box flips back
+    on them, and the user needs to know why.
+    """
+    triggers = {"tasks-changed": True} if tasks_changed else {}
+    return HTMLResponse(oob, headers={"HX-Trigger": json.dumps(triggers)})
 
 
 def _render_release_picker(

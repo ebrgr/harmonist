@@ -8970,8 +8970,29 @@ def test_accepting_is_idempotent(client, cfg):
     second = _accept(client, aid)
 
     assert (first.status_code, second.status_code) == (200, 200)
-    assert "No change" in second.text
     assert sc.read(d).tracks_unavailable is True
+    audit_rows = activity_store.recent(50, source=Source.AUDIT)
+    assert len([e for e in audit_rows if "tracks_unavailable=" in e.message]) == 1
+
+
+def test_toggling_the_incomplete_warning_is_not_reported(client, cfg):
+    """The checkbox shows where the setting stands, so neither the Activity feed
+    nor the status bar repeats it (#911). The audit log still has the decision."""
+    d = _make_incomplete_album(cfg, "Blu", mbid="rel-blu", tagged_at=datetime.now(UTC))
+    aid = _id_for(cfg, d)
+    activity_store.clear()
+
+    responses = [_accept(client, aid), _accept(client, aid), _accept(client, aid, accept=False)]
+
+    assert [r.status_code for r in responses] == [200, 200, 200]
+    for r in responses:
+        assert "harmonist-status" not in r.headers.get("HX-Trigger", "")
+    assert activity_store.recent(50, source=Source.ACTIVITY) == []
+    audit_rows = activity_store.recent(50, source=Source.AUDIT)
+    assert [e.message.split()[-1] for e in audit_rows if "tracks_unavailable=" in e.message] == [
+        "tracks_unavailable=True->False",
+        "tracks_unavailable=False->True",
+    ]
 
 
 def test_a_complete_album_cannot_be_accepted_as_complete(client, cfg):
@@ -9179,7 +9200,6 @@ def test_a_double_submit_still_re_states_the_badge(client, cfg):
 
     body = _accept(client, aid).text
 
-    assert "No change" in body
     assert f'id="album-completeness-{aid}"' in body
     assert "album-warning__badge--muted" in body
 
