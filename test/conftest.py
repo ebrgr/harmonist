@@ -104,6 +104,19 @@ def reset_artwork_updates():
 
 
 @pytest.fixture(autouse=True)
+def forget_tag_reads():
+    """`formats.read_tags` remembers what each file held (#904). A test that
+    swaps a format backend's reader for a fake, after a real read of the same
+    unchanged file, would otherwise be served the real read.
+
+    The private cache directly: nothing in Harmonist itself ever needs to
+    forget every read, so there is no public way to."""
+    formats._read_cache.clear()
+    yield
+    formats._read_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_library_titles():
     from harmonist import library_titles
 

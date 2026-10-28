@@ -10,6 +10,10 @@ read/write functions used here, then register it in `_MODULES`.
 
 from __future__ import annotations
 
+import copy
+import os
+import threading
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -170,12 +174,69 @@ def read_tags(path: Path) -> TrackTags:
 
     An unsupported extension is not a read failure, so it comes back empty
     rather than flagged: nothing was wrong, there is simply nothing to read.
+
+    Served from memory while the file is unchanged (#904) — see `_read_cache`.
     """
     mod = _module_for(path)
     if mod is None:
         return TrackTags()
+    stamp = _stamp(path)
+    if stamp is not None:
+        with _read_lock:
+            hit = _read_cache.get(path)
+            if hit is not None and hit[0] == stamp:
+                _read_cache.move_to_end(path)
+                return copy.deepcopy(hit[1])
     tags: TrackTags = mod.read_tags(path)
+    # A file that couldn't be opened is asked again next time: on a network
+    # mount that is a blink, and remembering it would make the blink last.
+    if stamp is not None and not tags.unreadable:
+        with _read_lock:
+            _read_cache[path] = (stamp, copy.deepcopy(tags))
+            _read_cache.move_to_end(path)
+            while len(_read_cache) > _READ_CACHE_SIZE:
+                _read_cache.popitem(last=False)
     return tags
+
+
+# What `read_tags` last found in each file, and the stat it found it under
+# (#904). An album page reads every file for the comparison and again for the
+# update plan, and every visit read them all over again: with large embedded
+# art, mutagen pulls the whole image off disk on each open, and on a NAS that
+# was seconds per view for tags that had not changed.
+#
+# The stat is the whole test of "unchanged", so it is stricter than the
+# scanner's mtime and size. ctime is in it because an editor can restore the
+# mtime it rewrote (Mp3tag offers to), and nothing in userspace can set ctime;
+# the inode, because a file replaced by a rename is a different file. Harmonist's
+# own writes don't rely on it at all — every writer below drops the entry —
+# since a filesystem with coarse timestamps can't tell a read from a write
+# made in the same tick.
+#
+# Copies in and out: `TrackTags` is frozen, but its lists and `owned` are not,
+# and a caller adjusting what it was handed must not change the next caller's
+# read. Never image bytes — `TrackTags` describes the art rather than holding
+# it — so an entry is a few kilobytes and the bound holds a few hundred albums.
+_READ_CACHE_SIZE = 2048
+_read_cache: OrderedDict[Path, tuple[tuple[int, ...], TrackTags]] = OrderedDict()
+_read_lock = threading.Lock()
+
+
+def _stamp(path: Path) -> tuple[int, ...] | None:
+    """What `path`'s stat says about whether its contents could have changed,
+    or None when it can't be stat'ed — which reads the file, so the read
+    reports the failure as it always has."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _forget(path: Path) -> None:
+    """Drop `path`'s remembered read; every writer here calls it."""
+    with _read_lock:
+        _read_cache.pop(path, None)
 
 
 def read_cover(path: Path) -> tuple[bytes, str] | None:
@@ -205,7 +266,10 @@ def write_cover(path: Path, cover: bytes) -> None:
     mod = _module_for(path)
     if mod is None:
         raise UnsupportedFormatError(f"no audio module handles {path.suffix}")
-    mod.write_cover(path, cover)
+    try:
+        mod.write_cover(path, cover)
+    finally:
+        _forget(path)
 
 
 def remove_cover(path: Path) -> None:
@@ -222,7 +286,10 @@ def remove_cover(path: Path) -> None:
     mod = _module_for(path)
     if mod is None:
         raise UnsupportedFormatError(f"no audio module handles {path.suffix}")
-    mod.remove_cover(path)
+    try:
+        mod.remove_cover(path)
+    finally:
+        _forget(path)
 
 
 def read_owned(path: Path) -> dict[str, Any]:
@@ -288,7 +355,10 @@ def write_owned(path: Path, values: dict[str, Any]) -> dict[str, Any]:
     mod = _module_for(path)
     if mod is None:
         raise UnsupportedFormatError(f"no audio module handles {path.suffix}")
-    before: dict[str, Any] = mod.write_owned(path, values)
+    try:
+        before: dict[str, Any] = mod.write_owned(path, values)
+    finally:
+        _forget(path)
     return before
 
 
@@ -308,7 +378,10 @@ def write_tags(path: Path, tagset: TagSet, cover: bytes | None) -> dict[str, Any
     if unstated(tagset):
         # Only for a release that could not answer, so the extra read is rare.
         tagset = settled(tagset, mod.read_owned(path))
-    before: dict[str, Any] = mod.write_tags(path, tagset, cover)
+    try:
+        before: dict[str, Any] = mod.write_tags(path, tagset, cover)
+    finally:
+        _forget(path)
     return before
 
 

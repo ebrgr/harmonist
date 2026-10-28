@@ -43,6 +43,17 @@ failure that costs something. It's one directory listing and a `stat` per file,
 affordable on every page view where a whole-library scan isn't. A new folder
 joining the album is still the rescan's job.
 
+**Its tags are read again only for files that have changed.** A file's tags are
+remembered alongside its `stat`, and a file whose `stat` is unchanged is served
+from memory. Reading them on every view was the slow part of the page, not
+MusicBrainz: mutagen reads the whole tag block, embedded artwork included, and
+an album carrying large images took seconds on a NAS to report tags nothing had
+touched (#904). The test is stricter than the scan's: it adds the inode change
+time, because an editor can put back the modification time it changed and
+nothing can put back the inode change time. Harmonist's own writes don't depend
+on the test at all, since a filesystem with coarse timestamps can't tell a read
+from a write in the same tick; every write forgets that file's reading.
+
 None of these can say what changed. A scan derives state from the current files
 and keeps no record of the previous ones. What Harmonist can notice is that files
 were written after its last tagging, which means another tool re-tagged them (see

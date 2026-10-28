@@ -15,6 +15,9 @@ versions follow [semantic versioning](https://semver.org).
 
 - **After Apply says an image over the limit "will be reduced to fit"**, since
   "reduced to fit" beside its size read as the size after reducing (#893).
+- **The album page reads each file once, and not at all on a repeat view of an
+  unchanged album**; while it reads, it says "Reading tags…" and no longer
+  blames MusicBrainz (#904).
 
 ### Fixed
 
