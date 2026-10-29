@@ -44,6 +44,15 @@ bookmark, reload or round trip through an album preserves the same collection.
 The New filter derives from at least one album added in the last seven days;
 there is no separate artist arrival timestamp to persist or reconcile.
 
+List and Cards are two presentations of that same collection, with the same
+ordering, page size and evidence. View belongs to navigation and a browser
+preference, never an artist Profile or its NFO. An explicit URL wins over the
+remembered layout; only the view selector updates the cookie, so background
+refreshes cannot silently overwrite a choice. Return links carry the resolved
+layout even if another tab later changes the cookie. Missing-file badges need a
+complete readable inventory; a known conflict is shown before an image absence
+caused by that conflict.
+
 Picture availability is observed in the scan alongside the NFOs, so filtering
 does not stat every image on a NAS per request. `Profile.image_ref` keeps the
 declared thumb and `Profile.image_path` holds the resolved picture; the latter

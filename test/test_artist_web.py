@@ -108,6 +108,90 @@ def test_list_and_artist_page_are_offline_and_share_the_album_tiles(artist_clien
     network.assert_not_called()
 
 
+def test_artist_view_preference_requires_an_explicit_choice_and_urls_override_it(artist_client):
+    client, _cfg, network = artist_client
+    first = client.get("/artists")
+    assert first.context["artists_view"]["view"] == "list"
+    assert "harmonist-artists-view" not in client.cookies
+    explicit_url = client.get("/artists?view=cards")
+    assert explicit_url.context["artists_view"]["view"] == "cards"
+    assert "harmonist-artists-view" not in client.cookies
+    choice = client.get("/artists?view=cards&remember_view=true", follow_redirects=False)
+    assert choice.status_code == 303
+    assert "remember_view" not in choice.headers["location"]
+    assert client.cookies["harmonist-artists-view"] == "cards"
+    assert "HttpOnly" in choice.headers["set-cookie"]
+    assert client.get("/artists").context["artists_view"]["view"] == "cards"
+    assert client.get("/artists?view=list").context["artists_view"]["view"] == "list"
+    assert client.cookies["harmonist-artists-view"] == "cards"
+    invalid = client.get("/artists?view=invalid&remember_view=true")
+    assert invalid.context["artists_view"]["view"] == "cards"
+    assert "set-cookie" not in invalid.headers
+    network.assert_not_called()
+
+
+def test_artist_view_survives_filters_and_artist_album_navigation(artist_client):
+    from urllib.parse import parse_qs, urlsplit
+
+    client, _cfg, network = artist_client
+    view = client.get("/artists?view=cards&artist_q=Alice&nfo=with").context["artists_view"]
+    assert parse_qs(urlsplit(view["clear_url"]).query)["view"] == ["cards"]
+    assert parse_qs(urlsplit(view["view_urls"]["list"]).query)["nfo"] == ["with"]
+    detail = client.get(view["detail_urls"][ALICE])
+    assert parse_qs(urlsplit(detail.context["artist_back_url"]).query)["view"] == ["cards"]
+    album_link = BeautifulSoup(detail.text, "html.parser").select_one('#library-grid a[id^="lib-"]')
+    assert album_link is not None
+    album = client.get(str(album_link["href"]))
+    back = client.get(album.context["artist_back_url"])
+    assert parse_qs(urlsplit(back.context["artist_back_url"]).query)["view"] == ["cards"]
+    network.assert_not_called()
+
+
+def test_artist_badges_distinguish_conflicts_missing_and_unavailable_inventory(
+    artist_client, monkeypatch
+):
+    from harmonist import artist_nfo
+
+    client, cfg, network = artist_client
+    normal = client.get("/artists").context["artists_view"]
+    assert normal["badges"][BOB] == ("Missing NFO", "Missing artwork")
+    nfo = cfg.paths.music_dir / "Duplicate" / "artist.nfo"
+    nfo.parent.mkdir()
+    nfo.write_text(f"<artist><musicbrainzartistid>{ALICE}</musicbrainzartistid></artist>")
+    conflicted = client.get("/artists").context["artists_view"]
+    assert conflicted["badges"][ALICE] == ("NFO conflict",)
+    for unavailable in (
+        artist_nfo.Inventory(walk_errors=("walk failed",)),
+        artist_nfo.Inventory(errors=("read failed",)),
+    ):
+        monkeypatch.setattr(
+            "harmonist.web.main._nfo_inventory", lambda _request, value=unavailable: value
+        )
+        unknown = client.get("/artists").context["artists_view"]
+        assert unknown["badges"][BOB] == ()
+        assert unknown["nfo_errors"]
+    network.assert_not_called()
+
+
+def test_album_review_redirect_keeps_the_artist_view():
+    from starlette.requests import Request
+
+    from harmonist.web.main import _album_location
+
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (
+                    b"hx-current-url",
+                    b"http://localhost/album/old?from_artist=artist&artist_view=cards&artist_q=Alice",
+                )
+            ],
+        }
+    )
+    assert "artist_view=cards" in _album_location(request, "new")
+
+
 def test_search_refresh_and_nfo_errors_recover_without_hiding_albums(artist_client):
     client, cfg, network = artist_client
     found = client.get(

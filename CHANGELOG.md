@@ -8,6 +8,7 @@ versions follow [semantic versioning](https://semver.org).
 
 ### Added
 
+- **Artists can switch between List and Cards**, remembering the view while sharing metadata badges, filters and return navigation (ebrgr/harmonist#13).
 - **Artists has its own page**, with search, NFO and artwork filters, and New for artists with an album added in the last seven days (#813).
 - **Artist NFOs are discovered throughout the library**, with conflicting and orphaned files shown by path and automatic updates after file changes (#813).
 - **Artist pictures prefer the NFO's local thumbnail**, with generic folder pictures used only in verified artist directories (#813).

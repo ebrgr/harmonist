@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .artist_nfo import Inventory
 
 _MBID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.IGNORECASE)
+VIEWS = ("list", "cards")
 
 # Official special-purpose artists, identified by MBID rather than display name.
 # https://musicbrainz.org/doc/Style/Unknown_and_untitled/Special_purpose_artist
@@ -144,6 +145,7 @@ def index_url(
     nfo: str | None = None,
     artwork: str | None = None,
     new: bool = False,
+    view: str | None = None,
 ) -> str:
     params = {"artist_page": str(page), "artist_q": q}
     if nfo:
@@ -152,6 +154,8 @@ def index_url(
         params["artwork"] = artwork
     if new:
         params["new"] = "true"
+    if view is not None and view in VIEWS:
+        params["view"] = view
     return "/artists?" + urlencode(params)
 
 
@@ -164,6 +168,7 @@ def detail_url(
     artist_nfo: str | None = None,
     artist_artwork: str | None = None,
     artist_new: bool = False,
+    artist_view: str | None = None,
 ) -> str:
     params = {"page": str(page), "artist_page": str(artist_page), "artist_q": artist_q}
     if artist_nfo:
@@ -172,6 +177,8 @@ def detail_url(
         params["artist_artwork"] = artist_artwork
     if artist_new:
         params["artist_new"] = "true"
+    if artist_view is not None and artist_view in VIEWS:
+        params["artist_view"] = artist_view
     return f"/artist/{key}?{urlencode(params)}"
 
 
@@ -185,8 +192,10 @@ def page_vars(
     artwork: str | None = None,
     new: bool = False,
     now: datetime | None = None,
+    view: str = "list",
 ) -> dict[str, object]:
     all_artists = build_index(albums)
+    view = view if view in VIEWS else "list"
     if inventory is not None:
         all_artists = [
             replace(
@@ -209,6 +218,22 @@ def page_vars(
             for album in a.albums
         )
     }
+    # A failed read can hide an association or picture. Summarize only known
+    # conflicts then; missing-file badges require a complete, readable inventory.
+    complete_inventory = (
+        inventory is not None and not inventory.walk_errors and not inventory.errors
+    )
+    badges: dict[str, tuple[str, ...]] = {}
+    for artist in all_artists:
+        if len(artist.nfo_paths) > 1:
+            badges[artist.key] = ("NFO conflict",)
+        elif complete_inventory:
+            badges[artist.key] = (
+                *(("Missing NFO",) if not artist.nfo_paths else ()),
+                *(("Missing artwork",) if artist.artwork_path is None else ()),
+            )
+        else:
+            badges[artist.key] = ()
     query = (q or "").strip()[:100]
     searched = [a for a in all_artists if alphabetical(query) in alphabetical(a.name)]
 
@@ -233,7 +258,7 @@ def page_vars(
     def location(
         number: int = 1, *, nf: str | None = nfo, art: str | None = artwork, fresh: bool = new
     ) -> str:
-        return index_url(number, query, nfo=nf, artwork=art, new=fresh)
+        return index_url(number, query, nfo=nf, artwork=art, new=fresh, view=view)
 
     facets = []
     for key, title, selected, choices in (
@@ -278,13 +303,19 @@ def page_vars(
         "pages": pages,
         "total": len(rows),
         "count": len(all_artists),
+        "view": view,
+        "view_urls": {
+            choice: index_url(page, query, nfo=nfo, artwork=artwork, new=new, view=choice)
+            for choice in VIEWS
+        },
+        "badges": badges,
         "nfo": nfo,
         "artwork": artwork,
         "new": new,
         "facets": facets,
         "new_count": sum(matches(a, nfo, artwork, True) for a in searched),
         "new_url": location(fresh=not new),
-        "clear_url": index_url(1, query),
+        "clear_url": index_url(1, query, view=view),
         "filtered": bool(nfo or artwork or new),
         "new_ids": recent,
         "detail_urls": {
@@ -295,6 +326,7 @@ def page_vars(
                 artist_nfo=nfo,
                 artist_artwork=artwork,
                 artist_new=new,
+                artist_view=view,
             )
             for a in rows[(page - 1) * 30 : page * 30]
         },

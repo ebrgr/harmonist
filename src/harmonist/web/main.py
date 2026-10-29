@@ -194,6 +194,8 @@ _LIBRARY_LIMIT_MAX = 200
 # and a second request on every load.
 _LIBRARY_LIMIT_COOKIE = "harmonist-library-limit"
 _LIBRARY_LIMIT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
+_ARTISTS_VIEW_COOKIE = "harmonist-artists-view"
+_ARTISTS_VIEW_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 
 # Tabs on the index page. `?tab=` is validated against this before it reaches the
 # template — the value is interpolated into a `panel-<name>` lookup in the tab
@@ -3182,6 +3184,14 @@ def _nfo_inventory(request: Request) -> artist_nfo.Inventory:
     return artist_nfo.scan(request.app.state.cfg.paths.music_dir)
 
 
+def _artists_layout(request: Request, explicit: str | None) -> str:
+    """URL overrides the browser preference; invalid input never reaches markup."""
+    if explicit is not None and explicit in artists.VIEWS:
+        return explicit
+    remembered = request.cookies.get(_ARTISTS_VIEW_COOKIE)
+    return remembered if remembered is not None and remembered in artists.VIEWS else "list"
+
+
 def _artists_view(
     request: Request,
     albums: list[Album],
@@ -3191,6 +3201,7 @@ def _artists_view(
     nfo: str | None = None,
     artwork: str | None = None,
     new: bool = False,
+    view: str = "list",
 ) -> dict[str, object]:
     inventory = _nfo_inventory(request)
     return {
@@ -3202,6 +3213,7 @@ def _artists_view(
             nfo=nfo,
             artwork=artwork,
             new=new,
+            view=view,
         ),
         "nfo_orphans": inventory.orphans(albums),
         "nfo_conflicts": inventory.conflicts,
@@ -4364,6 +4376,7 @@ def _album_location(request: Request, album_id: str, *, edit_assignments: bool =
             "artist_nfo",
             "artist_artwork",
             "artist_new",
+            "artist_view",
         }
     }
     if edit_assignments:
@@ -4611,22 +4624,52 @@ def _register_routes(app: FastAPI) -> None:
         nfo: str | None = None,
         artwork: str | None = None,
         new: bool = False,
+        view: str | None = None,
+        remember_view: bool = False,
     ) -> Response:
-        view = _artists_view(
-            request, _albums(request), artist_page, artist_q, nfo=nfo, artwork=artwork, new=new
+        vars_ = _artists_view(
+            request,
+            _albums(request),
+            artist_page,
+            artist_q,
+            nfo=nfo,
+            artwork=artwork,
+            new=new,
+            view=_artists_layout(request, view),
+        )
+        fragment = (
+            request.headers.get("HX-Target") == "artists-rows"
+            and request.headers.get("HX-History-Restore-Request") != "true"
         )
         headers = (
-            {"HX-Push-Url": str(view["url"])} if request.headers.get("X-Harmonist-Push-Url") else {}
+            {"HX-Push-Url": str(vars_["url"])}
+            if request.headers.get("X-Harmonist-Push-Url")
+            else {}
         )
-        return _templates(request).TemplateResponse(
-            request,
-            "partials/artists_page.html"
-            if request.headers.get("HX-Target") == "artists-rows"
-            and request.headers.get("HX-History-Restore-Request") != "true"
-            else "artists.html",
-            _ctx(request, artists_view=view, artist_count=view["count"], standalone_artists=True),
-            headers={**headers, "Vary": "HX-Target, HX-History-Restore-Request"},
+        response: Response = (
+            RedirectResponse(str(vars_["url"]), status_code=303)
+            if remember_view and not fragment
+            else _templates(request).TemplateResponse(
+                request,
+                "partials/artists_page.html" if fragment else "artists.html",
+                _ctx(
+                    request,
+                    artists_view=vars_,
+                    artist_count=vars_["count"],
+                    standalone_artists=True,
+                ),
+                headers={**headers, "Vary": "HX-Target, HX-History-Restore-Request, Cookie"},
+            )
         )
+        if remember_view and request.query_params.get("view") in artists.VIEWS:
+            response.set_cookie(
+                _ARTISTS_VIEW_COOKIE,
+                str(vars_["view"]),
+                max_age=_ARTISTS_VIEW_COOKIE_MAX_AGE,
+                httponly=True,
+                samesite="lax",
+            )
+        return response
 
     @app.get("/artist/{artist_key}", response_class=HTMLResponse)
     def artist_page(
@@ -4638,6 +4681,7 @@ def _register_routes(app: FastAPI) -> None:
         artist_nfo: str | None = None,
         artist_artwork: str | None = None,
         artist_new: bool = False,
+        artist_view: str | None = None,
     ) -> Response:
         artist = _artist_for(request, artist_key)
         inventory = _nfo_inventory(request)
@@ -4645,12 +4689,14 @@ def _register_routes(app: FastAPI) -> None:
         image = inventory.image_for(artist.mbid)
         artist = replace(artist, nfo_paths=result.candidates, artwork_path=image)
         grid = _library_page_vars(list(artist.albums), page, _library_limit(request, None))
+        layout = _artists_layout(request, artist_view)
         # The same tiles retain the return context for this artist and album page.
         query = {
             "from_artist": artist.key,
             "from_page": str(grid["page"]),
             "artist_page": str(max(1, artist_page)),
             "artist_q": artist_q[:100],
+            "artist_view": layout,
         }
         if artist_nfo:
             query["artist_nfo"] = artist_nfo
@@ -4668,6 +4714,7 @@ def _register_routes(app: FastAPI) -> None:
                 artist_nfo=artist_nfo,
                 artist_artwork=artist_artwork,
                 artist_new=artist_new,
+                artist_view=layout,
             )
 
         return _templates(request).TemplateResponse(
@@ -4686,6 +4733,7 @@ def _register_routes(app: FastAPI) -> None:
                     nfo=artist_nfo,
                     artwork=artist_artwork,
                     new=artist_new,
+                    view=layout,
                 ),
                 artist_album_query=urlencode(query),
                 artist_previous=location(grid["prev_page"]) if grid["prev_page"] else None,
@@ -5408,6 +5456,7 @@ def _register_routes(app: FastAPI) -> None:
         artist_nfo: str | None = None,
         artist_artwork: str | None = None,
         artist_new: bool = False,
+        artist_view: str | None = None,
         edit_assignments: bool = False,
     ) -> Response:
         """The standalone album page (#103) — full tracklist plus the album's
@@ -5569,6 +5618,7 @@ def _register_routes(app: FastAPI) -> None:
                     artist_nfo=artist_nfo,
                     artist_artwork=artist_artwork,
                     artist_new=artist_new,
+                    artist_view=_artists_layout(request, artist_view),
                 )
                 if from_artist and artists.mbid(from_artist)
                 else None

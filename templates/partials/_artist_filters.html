@@ -1,7 +1,7 @@
 {% set chip = "px-2 py-0.5 rounded-full border text-xs font-bold transition" %}
 {% set chip_on = chip ~ " bg-accent border-accent text-white" %}
 {% set chip_off = chip ~ " bg-surface border-line text-muted hover:text-accent hover:border-accent" %}
-<nav class="mb-3 flex flex-wrap items-center gap-1.5" aria-label="Artist filters">
+<nav class="flex flex-wrap items-center gap-1.5" aria-label="Artist filters">
     {% for facet in artists_view.facets %}
     {% set selected = facet.choices | selectattr('active') | first %}
     <button type="button" id="artists-{{ facet.key }}-button" popovertarget="artists-{{ facet.key }}-menu"
@@ -36,6 +36,7 @@
     <form method="get" action="/artists" hx-get="{{ artists_view.new_url }}" hx-params="none"
           hx-target="#artists-rows" hx-swap="innerHTML" hx-push-url="{{ artists_view.new_url }}">
         <input type="hidden" name="artist_q" value="{{ artists_view.q }}">
+        <input type="hidden" name="view" value="{{ artists_view.view }}">
         {% if artists_view.nfo %}<input type="hidden" name="nfo" value="{{ artists_view.nfo }}">{% endif %}
         {% if artists_view.artwork %}<input type="hidden" name="artwork" value="{{ artists_view.artwork }}">{% endif %}
         {% if not artists_view.new %}<input type="hidden" name="new" value="true">{% endif %}

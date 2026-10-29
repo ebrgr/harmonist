@@ -27,6 +27,112 @@ def artists_server(artists_root):
 
 
 @pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
+def test_artist_card_geometry_keeps_long_names_and_badges_within_the_tile(
+    browser_factory, artists_server, engine, width
+):
+    page = browser_factory(engine).new_page(viewport={"width": width, "height": 900})
+    page.goto(artists_server + "/artists?view=cards&artist_q=ZZ%20artist%2000")
+    card = page.locator(".artist-card")
+    pw.expect(card).to_have_count(1)
+    name = card.locator("span.text-sm.font-bold.text-ink")
+    name_box = name.bounding_box()
+    assert name_box is not None
+    line_height = name.evaluate("e => parseFloat(getComputedStyle(e).lineHeight)")
+    assert name_box["height"] <= max(40, line_height * 2) + 1
+    pw.expect(name).to_have_attribute("title", name.inner_text())
+    picture = card.locator('[aria-hidden="true"]').first.bounding_box()
+    assert picture is not None
+    assert abs(picture["width"] - picture["height"]) <= 1
+    assert picture["width"] > 120
+    assert name_box["y"] >= picture["y"] + picture["height"]
+    for badge in card.locator(".album-warning__badge").all():
+        box = badge.bounding_box()
+        assert box is not None
+        assert box["x"] >= picture["x"]
+        assert box["x"] + box["width"] <= picture["x"] + picture["width"] + 1
+        assert box["y"] + box["height"] <= picture["y"] + picture["height"] + 1
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.context.close()
+
+
+@pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
+def test_artist_views_preserve_page_filters_cookie_and_background_refresh(
+    browser_factory, artists_server, htmx_ready, engine, width
+):
+    page = browser_factory(engine).new_page(viewport={"width": width, "height": 900})
+    page.goto(artists_server + "/artists?artist_page=2")
+    panel = page.locator("#artists-rows")
+    state = panel.locator("#artists-page")
+    expect = pw.expect
+    expect(state).to_have_attribute("data-view", "list")
+    with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+        htmx_ready(panel.get_by_role("link", name="Cards", exact=True)).click()
+    expect(state).to_have_attribute("data-view", "cards")
+    expect(state).to_have_attribute("data-page", "2")
+    assert {c["name"]: c["value"] for c in page.context.cookies()}[
+        "harmonist-artists-view"
+    ] == "cards"
+    page.goto(artists_server + "/artists?artist_q=alice")
+    expect(state).to_have_attribute("data-view", "cards")
+    card = panel.locator(".artist-card")
+    expect(card).to_have_count(1)
+    expect(card).to_contain_text("2 albums")
+    expect(card.get_by_text("New", exact=True)).to_have_count(1)
+    for title, option in (("NFO", "With NFO"), ("Artwork", "With artwork")):
+        panel.get_by_role("button", name=title + " filters", exact=True).click()
+        with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+            htmx_ready(panel.get_by_role("link", name=re.compile("^" + option))).click()
+        expect(state).to_have_attribute("data-view", "cards")
+    with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+        htmx_ready(panel.get_by_role("button", name=re.compile("New"))).click()
+    expect(panel.get_by_role("button", name=re.compile("New"))).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    card.click()
+    expect(page.get_by_role("heading", name="Álice", exact=True)).to_be_visible()
+    page.locator('#library-grid a[id^="lib-"]').first.click()
+    page.get_by_role("link", name="← Back to artist", exact=True).click()
+    page.get_by_role("link", name="← Back to artists", exact=True).click()
+    expect(state).to_have_attribute("data-view", "cards")
+    expect(panel.get_by_role("searchbox", name="Search artists")).to_have_value("alice")
+    expect(panel.get_by_role("button", name="NFO filters")).to_contain_text("With NFO")
+    with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+        htmx_ready(panel.get_by_role("link", name="Clear filters", exact=True)).click()
+    expect(state).to_have_attribute("data-view", "cards")
+    expect(panel.get_by_role("button", name="NFO filters")).to_have_text("NFO")
+    expect(htmx_ready(panel.get_by_role("link", name="List", exact=True))).to_be_visible()
+    state.evaluate("e => e.dataset.beforeRefresh = 'yes'")
+    with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+        page.evaluate("htmx.trigger(document.body, 'library-refresh')")
+    expect(state).not_to_have_attribute("data-before-refresh", "yes")
+    expect(state).to_have_attribute("data-view", "cards")
+    with page.expect_response(lambda r: "/artists?" in r.url and r.ok):
+        htmx_ready(panel.get_by_role("link", name="List", exact=True)).click()
+    expect(state).to_have_attribute("data-view", "list")
+    expect(panel.locator(".artist-card")).to_have_count(1)
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.context.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_artist_view_choices_work_without_javascript(browser_factory, artists_server, engine):
+    page = browser_factory(engine).new_page(java_script_enabled=False)
+    page.goto(artists_server + "/artists?artist_q=alice")
+    page.get_by_role("link", name="Cards", exact=True).focus()
+    page.get_by_role("link", name="Cards", exact=True).press("Enter")
+    pw.expect(page.locator("#artists-page")).to_have_attribute("data-view", "cards")
+    assert "remember_view" not in page.url
+    page.goto(artists_server + "/artists?artist_q=alice")
+    pw.expect(page.locator("#artists-page")).to_have_attribute("data-view", "cards")
+    page.get_by_role("link", name="List", exact=True).click()
+    pw.expect(page.locator("#artists-page")).to_have_attribute("data-view", "list")
+    assert {c["name"]: c["value"] for c in page.context.cookies()}[
+        "harmonist-artists-view"
+    ] == "list"
+    page.context.close()
+
+
+@pytest.mark.parametrize("engine,width", [("chromium", 1280), ("webkit", 390)])
 def test_artist_nfo_sections_and_disclosures_survive_background_refresh(
     browser_factory, artists_server, engine, width
 ):
