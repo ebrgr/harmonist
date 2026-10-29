@@ -1,16 +1,38 @@
 """Read existing artist NFOs without directory/name-based identity guesses."""
 
 import os
-from dataclasses import replace
 
 import pytest
 
 from harmonist import artist_nfo
-from harmonist.artists import Artist
-from harmonist.models import Album, AlbumState
 
 ALICE = "11111111-1111-4111-8111-111111111111"
 BOB = "22222222-2222-4222-8222-222222222222"
+
+
+def test_profile_keeps_genres_and_nfo_discography_separate(tmp_path):
+    path = tmp_path / "artist.nfo"
+    path.write_text(
+        f"<artist><musicBrainzArtistID>{ALICE}</musicBrainzArtistID>"
+        "<type>Group</type><formed>2001</formed><style>Alternative</style>"
+        "<yearsactive>2001–present</yearsactive>"
+        "<genre>Rock</genre><genre>Alternative</genre><genre>Rock</genre>"
+        "<album><title>Unowned album</title><year>1999</year>"
+        f"<musicbrainzreleasegroupid>{BOB.upper()}</musicbrainzreleasegroupid></album>"
+        "<album><title>Unowned album</title><year>1999</year>"
+        f"<musicbrainzreleasegroupid>{BOB.upper()}</musicbrainzreleasegroupid></album>"
+        "<album><title>&lt;script&gt;title&lt;/script&gt;</title><year>2002</year>"
+        "<musicbrainzreleasegroupid>not-an-id</musicbrainzreleasegroupid></album>"
+        "<album><year>2000</year></album></artist>"
+    )
+    profile = artist_nfo.read(path)
+    assert profile.genres == ("Rock", "Alternative")
+    assert profile.main_facts == (("Type", "Group"), ("Formed", "2001"))
+    assert profile.additional_facts == (("Years active", "2001–present"), ("Style", "Alternative"))
+    assert [(a.title, a.year, a.release_group_id) for a in profile.discography] == [
+        ("Unowned album", "1999", BOB),
+        ("<script>title</script>", "2002", None),
+    ]
 
 
 @pytest.mark.parametrize("filename", ["artist.jpg", "artist.png"])
@@ -67,21 +89,11 @@ def test_invalid_xml_is_an_error_not_missing_metadata(tmp_path, payload):
         artist_nfo.read(path)
 
 
-def test_information_folder_supports_collaboration_and_rejects_ambiguity(tmp_path):
+def test_library_inventory_supports_collaboration_and_rejects_ambiguity(tmp_path):
     music = tmp_path / "music"
     folder = music / "arbitrary" / "layout" / "release"
     folder.mkdir(parents=True)
-    album = Album(
-        id="together",
-        path=folder,
-        title="Together",
-        artist="Alice & Bob",
-        track_count=1,
-        state=AlbumState.COMPLETE,
-        paths=(folder,),
-    )
-    alice = Artist(ALICE, "Same name", ALICE, None, (album,))
-    info = tmp_path / "ArtistInfo"
+    info = music / "ArtistInfo"
     for name, mbid in [("one", ALICE), ("two", BOB)]:
         d = info / name
         d.mkdir(parents=True)
@@ -89,22 +101,18 @@ def test_information_folder_supports_collaboration_and_rejects_ambiguity(tmp_pat
             f"<artist><name>Same name</name><musicBrainzArtistID>{mbid}</musicBrainzArtistID></artist>"
         )
     original = (info / "one" / "artist.nfo").read_bytes()
-    assert artist_nfo.for_artist(alice, music, info).profile.path == info / "one" / "artist.nfo"
-    bob = replace(alice, key=BOB, mbid=BOB)
-    assert artist_nfo.for_artist(bob, music, info).profile.path == info / "two" / "artist.nfo"
+    assert artist_nfo.scan(music).for_artist(ALICE).profile.path == info / "one" / "artist.nfo"
+    assert artist_nfo.scan(music).for_artist(BOB).profile.path == info / "two" / "artist.nfo"
     # A matching display name without a confirmed ID does not establish identity.
-    assert artist_nfo.for_artist(replace(alice, mbid=None), music, info).profile is None
+    assert artist_nfo.scan(music).for_artist(None).profile is None
     local = music / "arbitrary" / "artist.nfo"
     local.write_bytes(original)
-    ambiguous = artist_nfo.for_artist(alice, music, info)
+    ambiguous = artist_nfo.scan(music).for_artist(ALICE)
     assert ambiguous.profile is None
     assert ambiguous.errors
     assert set(ambiguous.candidates) == {local, info / "one" / "artist.nfo"}
-    selected = artist_nfo.for_artist(alice, music, info, artist_nfo.selection_key(local))
-    assert selected.profile is not None
-    assert selected.profile.path == local
     local.unlink()
-    assert artist_nfo.for_artist(alice, music, info).profile is not None
+    assert artist_nfo.scan(music).for_artist(ALICE).profile is not None
     assert (info / "one" / "artist.nfo").read_bytes() == original
 
 
@@ -126,7 +134,7 @@ def test_image_references_do_not_escape_nfo_directory(tmp_path, kind):
     assert artist_nfo.local_image(artist_nfo.read(path)) is None
 
 
-def test_read_again_bypasses_an_unchanged_file_timestamp(tmp_path):
+def test_cache_observes_ctime_when_modification_time_is_preserved(tmp_path):
     info = tmp_path / "info"
     info.mkdir()
     path = info / "artist.nfo"
@@ -134,16 +142,21 @@ def test_read_again_bypasses_an_unchanged_file_timestamp(tmp_path):
         f"<artist><musicbrainzartistid>{ALICE}</musicbrainzartistid><name>{{}}</name></artist>"
     )
     path.write_text(template.format("Alice"))
-    artist = Artist(ALICE, "Alice", ALICE, None, ())
     original = path.stat()
-    assert artist_nfo.for_artist(artist, tmp_path, info).profile.name == "Alice"
+    assert artist_nfo.read(path).name == "Alice"
     path.write_text(template.format("Other"))
     os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
-    assert artist_nfo.for_artist(artist, tmp_path, info, refresh=True).profile.name == "Other"
+    assert artist_nfo.read(path).name == "Other"
 
 
-def test_unreadable_and_missing_information_folders_are_visible_errors(tmp_path):
-    artist = Artist(ALICE, "Alice", ALICE, None, ())
-    result = artist_nfo.for_artist(artist, tmp_path, tmp_path / "missing")
+def test_incomplete_discovery_is_a_visible_error_not_a_unique_match(tmp_path):
+    discovery = artist_nfo.Discovery(tmp_path)
+    path = tmp_path / "artist.nfo"
+    path.write_text(f"<artist><musicbrainzartistid>{ALICE}</musicbrainzartistid></artist>")
+    discovery.paths.append(path)
+    discovery.on_error(PermissionError("cannot inspect another directory"))
+    inventory = discovery.finish()
+    result = inventory.for_artist(ALICE)
     assert result.profile is None
     assert result.errors
+    assert inventory.profiles == ()

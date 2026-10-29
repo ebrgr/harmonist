@@ -64,12 +64,12 @@ def test_index_distinguishes_homonyms_and_keeps_collaborations(tmp_path):
     homonym = album("other", (AlbumArtist("Éclair", RELEASE),))
     unverified = album("unverified", (AlbumArtist("Éclair"),))
     result = build_index([together, solo, homonym, unverified])
-    assert [a.name for a in result] == ["Bob", "Éclair", "Éclair", "Éclair"]
+    assert [a.name for a in result] == ["Bob", "Éclair", "Éclair"]
     by_id = {a.key: a for a in result}
     assert {a.id for a in by_id[ALICE].albums} == {"together", "solo"}
     assert {a.id for a in by_id[BOB].albums} == {"together"}
     assert {a.id for a in by_id[RELEASE].albums} == {"other"}
-    assert len([a for a in result if a.mbid is None]) == 1
+    assert set(by_id) == {ALICE, BOB, RELEASE}
 
 
 def test_credits_need_consistent_aligned_ids_and_never_split_names(tmp_path):
@@ -83,13 +83,47 @@ def test_credits_need_consistent_aligned_ids_and_never_split_names(tmp_path):
         )
 
     a = formats.ScanFields("Title", None, "Guest", "FLAC", album_artist="Earth, Wind & Fire")
-    assert [a.name for a in build_index([build([a])])] == ["Earth, Wind & Fire"]
+    assert build_index([build([a])]) == []
     # Album-artist IDs cannot identify per-track guests or be zipped against a
     # differently-sized name list. Disagreement across tracks also invalidates it.
     paired = a._replace(album_artist_names=("Alice", "Bob"), album_artist_ids=(ALICE, BOB))
     mismatch = paired._replace(album_artist_ids=(ALICE,))
-    assert all(a.mbid is None for a in build_index([build([mismatch])]))
-    assert all(a.mbid is None for a in build_index([build([paired, mismatch])]))
+    assert build_index([build([mismatch])]) == []
+    assert build_index([build([paired, mismatch])]) == []
+
+
+@pytest.mark.parametrize(
+    "special",
+    [
+        "89ad4ac3-39f7-470e-963a-56509c546377",
+        "125ec42a-7229-4250-afc5-e057484327fe",
+        "f731ccc4-e22a-43af-a747-64213329e088",
+        "33cf029c-63b0-41a0-9855-be2a3665fb3b",
+        "314e1c25-dde7-4e4d-b2f4-0a7b9f7c56dc",
+        "eec63d3c-3b81-4ad4-b1e4-7c147d4d2b61",
+        "9be7f096-97ec-4615-8957-8d40b5dcbc41",
+        "7e84f845-ac16-41fe-9ff8-df12eb32af55",
+    ],
+)
+def test_special_artist_ids_are_excluded_without_discarding_collaborators(tmp_path, special):
+    from harmonist.artists import build_index, page_vars
+    from harmonist.models import Album, AlbumArtist, AlbumState
+
+    album = Album(
+        id=RELEASE,
+        path=tmp_path,
+        title="Together",
+        artist="Display",
+        track_count=1,
+        state=AlbumState.COMPLETE,
+        artist_credits=(
+            AlbumArtist("Ordinary name", special.upper()),
+            AlbumArtist("Various Artists", ALICE),
+        ),
+    )
+    result = build_index([album])
+    assert [(a.mbid, a.name) for a in result] == [(ALICE, "Various Artists")]
+    assert page_vars([album])["missing_id_albums"] == ()
 
 
 def test_missing_artist_ids_on_two_tracks_keep_the_album_artist_identified():

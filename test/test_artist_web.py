@@ -1,6 +1,9 @@
 """Artist routes consume local snapshots and NFOs without network enrichment."""
 
+import os
 import shutil
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -10,7 +13,7 @@ from fastapi.testclient import TestClient
 from mutagen.mp4 import MP4
 
 from harmonist import formats, mb_lookup, sidecar
-from harmonist.config import Config, PathsConfig, load
+from harmonist.config import Config, PathsConfig
 from harmonist.formats.m4a import ATOM_ALBUM_ARTISTS, ATOM_MB_ALBUM_ARTIST_ID
 from harmonist.formats.types import TagSet
 from harmonist.models import Sidecar
@@ -52,10 +55,8 @@ def make_album(root, directory, release, names, ids, *, confirmed=True):
 @pytest.fixture
 def artist_client(tmp_path, monkeypatch):
     music = tmp_path / "music"
-    info = tmp_path / "ArtistInfo"
-    cfg = Config(
-        paths=PathsConfig(music_dir=music, config_dir=tmp_path / "config", artist_info_dir=info)
-    )
+    info = music / "ArtistInfo"
+    cfg = Config(paths=PathsConfig(music_dir=music, config_dir=tmp_path / "config"))
     cfg.paths.config_dir.mkdir()
     make_album(music, "Together", RELEASE, ["Alice", "Bob"], [ALICE, BOB])
     make_album(music, "Solo", SOLO, ["Alice"], [ALICE])
@@ -83,7 +84,16 @@ def test_list_and_artist_page_are_offline_and_share_the_album_tiles(artist_clien
     response = client.get("/?tab=artists")
     assert response.status_code == 200
     assert [a.name for a in response.context["artists_view"]["rows"]] == ["Alice", "Bob"]
-    assert response.context["initial_tab"] == "artists"
+    assert response.url.path == "/artists"
+    assert (
+        BeautifulSoup(response.text, "html.parser").select_one(
+            'a[href="/artists"][aria-current="page"]'
+        )
+        is not None
+    )
+    assert (
+        BeautifulSoup(response.text, "html.parser").select_one("#artists-count").get_text() == "2"
+    )
     detail = client.get(f"/artist/{ALICE}?artist_q=Alice&artist_page=2")
     assert detail.status_code == 200
     assert {a.id for a in detail.context["rows"]} == {RELEASE, SOLO}
@@ -105,26 +115,17 @@ def test_search_refresh_and_nfo_errors_recover_without_hiding_albums(artist_clie
     )
     assert [a.name for a in found.context["artists_view"]["rows"]] == ["Bob"]
     assert found.context["artists_view"]["page"] == 1
+    assert BeautifulSoup(found.text, "html.parser").select_one("#artists-count").get_text() == "2"
     assert "artist_q=bOb" in found.headers["HX-Push-Url"]
-    path = cfg.paths.artist_info_dir / "Different directory name" / "artist.nfo"
+    path = cfg.paths.music_dir / "ArtistInfo" / "Different directory name" / "artist.nfo"
     original = path.read_bytes()
     path.write_text("<artist>")
     broken = client.get(f"/artist/{ALICE}")
-    assert broken.context["nfo"].errors
+    assert client.get("/artists").context["artists_view"]["nfo_errors"]
     assert len(broken.context["rows"]) == 2
     path.write_bytes(original)
     assert client.get(f"/artist/{ALICE}").context["nfo"].profile is not None
     network.assert_not_called()
-
-
-def test_artist_information_folder_environment_and_demo_isolation(tmp_path, monkeypatch):
-    monkeypatch.setenv("HARMONIST_CONFIG_DIR", str(tmp_path))
-    monkeypatch.setenv("HARMONIST_MUSIC_DIR", str(tmp_path / "music"))
-    monkeypatch.setenv("HARMONIST_ARTIST_INFO_DIR", str(tmp_path / "Artists"))
-    monkeypatch.setenv("HARMONIST_DEMO_MODE", "0")
-    assert load().paths.artist_info_dir == tmp_path / "Artists"
-    monkeypatch.setenv("HARMONIST_DEMO_MODE", "1")
-    assert load().paths.artist_info_dir is None
 
 
 def add_unidentified_tracks(folder):
@@ -144,10 +145,103 @@ def test_tracks_without_artist_ids_do_not_split_an_identified_artist(artist_clie
     response = client.get("/artists?artist_q=Alice")
     rows = response.context["artists_view"]["rows"]
     assert [(a.key, len(a.albums)) for a in rows] == [(ALICE, 2)]
-    assert [a.title for a in rows[0].unidentified_albums] == ["Solo"]
-    assert "Unidentified credit - Solo" in BeautifulSoup(response.text, "html.parser").get_text()
+    assert [a.title for a in response.context["artists_view"]["missing_id_albums"]] == ["Solo"]
+    missing = BeautifulSoup(response.text, "html.parser").select_one(
+        '[aria-label="Albums without artist IDs"]'
+    )
+    assert missing is not None
+    assert missing.select_one(f'a[href="/album/{SOLO}"]').get_text() == "Solo"
     detail = client.get(f"/artist/{ALICE}")
     assert {a.id for a in detail.context["rows"]} == {RELEASE, SOLO}
-    assert "Unidentified credit - Solo" in BeautifulSoup(detail.text, "html.parser").get_text()
     assert {p: p.read_bytes() for p in before} == before
     network.assert_not_called()
+
+
+def test_nfo_paths_belong_to_the_artist_with_the_embedded_id(artist_client):
+    client, cfg, _network = artist_client
+    path = cfg.paths.music_dir / "ArtistInfo" / "Different directory name" / "artist.nfo"
+    path.write_text(
+        f"<artist><name>Bob</name><musicbrainzartistid>{ALICE.upper()}</musicbrainzartistid></artist>"
+    )
+    alice = client.get(f"/artist/{ALICE}").context["artist"]
+    bob = client.get(f"/artist/{BOB}").context["artist"]
+    assert (alice.name, alice.mbid, alice.nfo_paths) == ("Alice", ALICE, (path,))
+    assert bob.nfo_paths == ()
+    path.write_text("<artist><name>Alice</name></artist>")
+    assert client.get(f"/artist/{ALICE}").context["artist"].nfo_paths == ()
+
+
+def test_missing_artist_ids_link_to_albums_instead_of_creating_local_artists(artist_client):
+    client, cfg, _network = artist_client
+    make_album(
+        cfg.paths.music_dir, "Missing IDs", "66666666-6666-4666-8666-666666666666", ["Alice"], []
+    )
+    response = client.get("/artists?artist_q=Bob")
+    view = response.context["artists_view"]
+    assert [a.name for a in view["rows"]] == ["Bob"]
+    assert [a.title for a in view["missing_id_albums"]] == ["Missing IDs"]
+    assert client.get("/artist/local-" + "0" * 24).status_code == 404
+
+
+def test_artists_is_a_standalone_page_with_its_own_filters(artist_client):
+    client, _cfg, _network = artist_client
+    response = client.get("/artists")
+    soup = BeautifulSoup(response.text, "html.parser")
+    assert soup.html is not None
+    assert soup.select_one('[aria-label="Artist filters"]') is not None
+    assert soup.select_one('[aria-label="Library filters"]') is None
+    link = BeautifulSoup(client.get("/").text, "html.parser").select_one('a[href="/artists"]')
+    assert link is not None and "Artists" in link.get_text()
+
+
+def test_artist_filters_combine_and_new_means_any_recent_album(artist_client):
+    client, cfg, network = artist_client
+    for folder, age in (("Together", 30), ("Solo", 1)):
+        path = cfg.paths.music_dir / folder
+        current = sidecar.read(path)
+        assert current is not None
+        sidecar.write(path, replace(current, added_at=datetime.now(UTC) - timedelta(days=age)))
+    picture = cfg.paths.music_dir / "ArtistInfo" / "Different directory name" / "artist.png"
+    picture.write_bytes(b"local-artist-image")
+    response = client.get("/artists?nfo=with&artwork=with&new=true&artist_q=alice")
+    view = response.context["artists_view"]
+    assert [a.mbid for a in view["rows"]] == [ALICE]
+    assert view["count"] == 2
+    missing = client.get("/artists?nfo=missing&artwork=missing").context["artists_view"]
+    assert [a.mbid for a in missing["rows"]] == [BOB]
+    assert [a.mbid for a in client.get("/artists?new=true").context["artists_view"]["rows"]] == [
+        ALICE
+    ]
+    detail = client.get(f"/artist/{ALICE}?artist_nfo=with&artist_artwork=with&artist_new=true")
+    back = detail.context["artist_back_url"]
+    assert back.startswith("/artists?")
+    assert "nfo=with" in back and "artwork=with" in back and "new=true" in back
+    network.assert_not_called()
+
+
+def test_artwork_filters_use_artist_pictures_and_revalidate_changed_images(artist_client):
+    client, cfg, _ = artist_client
+    album = cfg.paths.music_dir / "Together"
+    (album / "artist.nfo").write_text(
+        f"<artist><musicbrainzartistid>{BOB}</musicbrainzartistid></artist>"
+    )
+    (album / "folder.jpg").write_bytes(b"album-cover")
+    assert client.get("/artist/" + BOB + "/image").status_code == 404
+    assert [
+        a.mbid for a in client.get("/artists?artwork=with").context["artists_view"]["rows"]
+    ] == []
+    image = album / "artist.png"
+    image.write_bytes(b"first-photo")
+    response = client.get(f"/artist/{BOB}/image")
+    assert response.content == b"first-photo"
+    assert response.headers["cache-control"] == "no-cache"
+    etag = response.headers["etag"]
+    assert client.get(f"/artist/{BOB}/image", headers={"If-None-Match": etag}).status_code == 304
+    before = image.stat()
+    image.write_bytes(b"other-photo")
+    os.utime(image, ns=(before.st_atime_ns, before.st_mtime_ns))
+    changed = client.get(f"/artist/{BOB}/image", headers={"If-None-Match": etag})
+    assert changed.status_code == 200 and changed.content == b"other-photo"
+    assert [
+        a.mbid for a in client.get("/artists?artwork=with").context["artists_view"]["rows"]
+    ] == [BOB]

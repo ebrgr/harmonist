@@ -40,7 +40,6 @@ DownloadFormat = Literal["flac", "alac", "mp3-320", "mp3-v0", "aac-hi", "vorbis"
 class PathsConfig(BaseModel):
     config_dir: Path
     music_dir: Path
-    artist_info_dir: Path | None = None
 
 
 class BandcampConfig(BaseModel):
@@ -420,8 +419,6 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
 
     if v := env.get("HARMONIST_MUSIC_DIR"):
         paths["music_dir"] = v
-    if v := env.get("HARMONIST_ARTIST_INFO_DIR"):
-        paths["artist_info_dir"] = v
     if v := env.get("HARMONIST_DOWNLOAD_FORMAT"):
         # Unvalidated, for the reason the gardener level is (below): pydantic
         # rejects a format Harmonist can't tag with the permitted ones listed.
@@ -554,9 +551,7 @@ def load() -> Config:
         # state that demo actions write to.
         cfg = cfg.model_copy(
             update={
-                "paths": cfg.paths.model_copy(
-                    update={"music_dir": sandbox, "artist_info_dir": None}
-                ),
+                "paths": cfg.paths.model_copy(update={"music_dir": sandbox}),
                 "bandcamp": cfg.bandcamp.model_copy(
                     update={"ignores_file": sandbox / "ignores.txt"}
                 ),

@@ -1,10 +1,12 @@
 """A collaboration in an arbitrary layout with separate artist information."""
 
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from test.test_artist_web import ALICE, BOB, RELEASE, SOLO, add_unidentified_tracks, make_album
 
-from harmonist import demo
+from harmonist import demo, sidecar
 from harmonist.web.main import create_app
 
 _seed = demo.seed
@@ -12,9 +14,15 @@ _seed = demo.seed
 
 def seed(music_dir, **kwargs):
     _seed(music_dir, **kwargs)
-    make_album(music_dir, "Unstructured collaboration", RELEASE, ["Álice", "Zed"], [ALICE, BOB])
+    together = make_album(
+        music_dir, "Unstructured collaboration", RELEASE, ["Álice", "Zed"], [ALICE, BOB]
+    )
     solo = make_album(music_dir, "Another arbitrary folder", SOLO, ["Álice"], [ALICE])
     add_unidentified_tracks(solo)
+    for path, age in ((together, 30), (solo, 1)):
+        current = sidecar.read(path)
+        assert current is not None
+        sidecar.write(path, replace(current, added_at=datetime.now(UTC) - timedelta(days=age)))
     # Exercise the second Artists page as well as the search/back path.
     for i in range(31):
         release = f"99999999-9999-4999-8999-{i:012d}"
@@ -28,6 +36,12 @@ def seed(music_dir, **kwargs):
     (info / "artist.nfo").write_text(
         f"<artist><name>Álice</name><musicbrainzartistid>{ALICE}</musicbrainzartistid>"
         "<biography>A locally stored biography.</biography><formed>2001</formed>"
+        "<genre>Rock</genre><genre>Alternative</genre><genre>Rock</genre>"
+        "<style>Indie</style><yearsactive>2001–present</yearsactive>"
+        "<album><title>Unowned studio album</title><year>1999</year>"
+        f"<musicbrainzreleasegroupid>{BOB}</musicbrainzreleasegroupid></album>"
+        "<album><title>&lt;script&gt;Other album&lt;/script&gt;</title><year>2002</year>"
+        "<musicbrainzreleasegroupid>invalid-id</musicbrainzreleasegroupid></album>"
         "</artist>"
     )
     # An existing demo asset, not a downloaded image.
@@ -36,4 +50,3 @@ def seed(music_dir, **kwargs):
 
 demo.seed = seed
 app = create_app()
-app.state.cfg.paths.artist_info_dir = app.state.cfg.paths.music_dir / "ArtistInfo"

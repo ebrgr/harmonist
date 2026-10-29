@@ -3128,10 +3128,14 @@ def test_library_does_not_remember_a_search(client, cfg):
 def test_library_search_rides_in_the_index_url(client, cfg):
     """The grid paints inline, so a shared link resolves to the same albums rather
     than painting the whole library and correcting it."""
+    from bs4 import BeautifulSoup
+
     _make_two_albums(cfg)
     body = client.get("/?tab=library&q=aphex").text
-    assert "Selected Ambient Works" in body
-    assert ">Post<" not in body
+    grid = BeautifulSoup(body, "html.parser").select_one("#library-grid")
+    assert grid is not None
+    assert "Selected Ambient Works" in grid.get_text()
+    assert "Post" not in grid.get_text()
     # And the box shows what is being searched for, rather than looking unsearched.
     assert 'name="q" value="aphex"' in body
 
